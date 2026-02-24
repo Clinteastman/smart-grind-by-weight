@@ -54,6 +54,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED, [this](lv_event_t*) { handle_grinder_purge_amount_slider_released(); });
     EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER, [this](lv_event_t*) { handle_grind_freshness_hours_slider(); });
     EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED, [this](lv_event_t*) { handle_grind_freshness_hours_slider_released(); });
+    EventBridgeLVGL::register_handler(ET::COAST_RATIO_SLIDER, [this](lv_event_t*) { handle_coast_ratio_slider(); });
+    EventBridgeLVGL::register_handler(ET::COAST_RATIO_SLIDER_RELEASED, [this](lv_event_t*) { handle_coast_ratio_slider_released(); });
 
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
@@ -485,6 +487,51 @@ void MenuUIController::handle_grind_freshness_hours_slider_released() {
     LOG_DEBUG_PRINTLN("h");
 
     ui_manager_->menu_screen.update_grind_freshness_hours_label(hours);
+}
+
+void MenuUIController::handle_coast_ratio_slider() {
+    if (!ui_manager_) return;
+
+    auto* slider = ui_manager_->menu_screen.get_coast_ratio_slider();
+    if (!slider) return;
+
+    int slider_value = lv_slider_get_value(slider);
+    float ratio = slider_value / MenuScreen::kCoastRatioSliderScale;
+    if (ratio < GRIND_LATENCY_TO_COAST_RATIO_MIN) ratio = GRIND_LATENCY_TO_COAST_RATIO_MIN;
+    if (ratio > GRIND_LATENCY_TO_COAST_RATIO_MAX) ratio = GRIND_LATENCY_TO_COAST_RATIO_MAX;
+
+    ui_manager_->menu_screen.update_coast_ratio_label(ratio);
+}
+
+void MenuUIController::handle_coast_ratio_slider_released() {
+    if (!ui_manager_) return;
+
+    auto* slider = ui_manager_->menu_screen.get_coast_ratio_slider();
+    if (!slider) return;
+
+    int slider_value = lv_slider_get_value(slider);
+    float ratio = slider_value / MenuScreen::kCoastRatioSliderScale;
+
+    const int coast_slider_min = static_cast<int>(GRIND_LATENCY_TO_COAST_RATIO_MIN * MenuScreen::kCoastRatioSliderScale + 0.5f);
+    const int coast_slider_max = static_cast<int>(GRIND_LATENCY_TO_COAST_RATIO_MAX * MenuScreen::kCoastRatioSliderScale + 0.5f);
+
+    if (ratio < GRIND_LATENCY_TO_COAST_RATIO_MIN) {
+        ratio = GRIND_LATENCY_TO_COAST_RATIO_MIN;
+        lv_slider_set_value(slider, coast_slider_min, LV_ANIM_OFF);
+    } else if (ratio > GRIND_LATENCY_TO_COAST_RATIO_MAX) {
+        ratio = GRIND_LATENCY_TO_COAST_RATIO_MAX;
+        lv_slider_set_value(slider, coast_slider_max, LV_ANIM_OFF);
+    }
+
+    auto* grind_controller = ui_manager_->get_grind_controller();
+    if (grind_controller) {
+        grind_controller->save_coast_ratio(ratio);
+    }
+
+    LOG_DEBUG_PRINT("Coast ratio set to: ");
+    LOG_DEBUG_PRINTLN(ratio);
+
+    ui_manager_->menu_screen.update_coast_ratio_label(ratio);
 }
 
 void MenuUIController::handle_brightness_normal_slider() {

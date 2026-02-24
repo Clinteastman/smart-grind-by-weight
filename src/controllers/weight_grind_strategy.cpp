@@ -102,7 +102,7 @@ void WeightGrindStrategy::run_predictive_phase(GrindController& controller,
             float current_flow_rate = controller.weight_sensor->get_flow_rate(flow_rate_calc_window_ms);
 
             if (current_flow_rate > GRIND_FLOW_DETECTION_THRESHOLD_GPS) {
-                controller.motor_stop_target_weight = ((controller.grind_latency_ms * GRIND_LATENCY_TO_COAST_RATIO) /
+                controller.motor_stop_target_weight = ((controller.grind_latency_ms * controller.get_coast_ratio()) /
                                                        (float)SYS_MS_PER_SECOND) * current_flow_rate;
             }
         }

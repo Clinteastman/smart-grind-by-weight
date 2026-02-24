@@ -38,7 +38,10 @@ enum class GrinderPurgeMode {
 
 // Undershoot strategy - determine when to stop grinding during the predictive phase
 #define GRIND_UNDERSHOOT_TARGET_G 1.0f                                    // Default conservative undershoot target
-#define GRIND_LATENCY_TO_COAST_RATIO 1.0f                                 // Ratio of expected coast time to measured latency (e.g., 0.8 = 80%)
+#define GRIND_LATENCY_TO_COAST_RATIO_DEFAULT 0.9f                          // Default ratio of expected coast time to measured latency
+#define GRIND_LATENCY_TO_COAST_RATIO_MIN 0.7f                              // Minimum coast ratio (most conservative, stops earliest)
+#define GRIND_LATENCY_TO_COAST_RATIO_MAX 1.5f                              // Maximum coast ratio (stops earliest, most undershoot margin)
+#define GRIND_LATENCY_TO_COAST_RATIO GRIND_LATENCY_TO_COAST_RATIO_DEFAULT  // Backward-compatible alias
 
 // Prime phase behavior
 #define GRIND_PRIME_TARGET_WEIGHT_G 1.0f                                   // Amount of coffee delivered during chute priming

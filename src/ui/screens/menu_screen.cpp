@@ -46,6 +46,8 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     grinder_purge_amount_label = nullptr;
     grind_freshness_hours_slider = nullptr;
     grind_freshness_hours_label = nullptr;
+    coast_ratio_slider = nullptr;
+    coast_ratio_label = nullptr;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 
     // Create menu UI immediately at boot for instant access
@@ -408,6 +410,16 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_slider_row(parent, "Freshness", &grind_freshness_hours_label, &grind_freshness_hours_slider,
                      lv_color_hex(THEME_COLOR_ACCENT), 0, 8);  // 9 positions (0-8)
 
+    // Coast Compensation section
+    create_separator(parent, "Coast Compensation");
+    create_description_label(parent, "How much coast the system expects after motor stop. Higher values reduce overshoot.");
+
+    // Slider for coast ratio (0.70 to 1.50 in 0.05 steps)
+    const uint32_t coast_slider_min = static_cast<uint32_t>(GRIND_LATENCY_TO_COAST_RATIO_MIN * kCoastRatioSliderScale + 0.5f);
+    const uint32_t coast_slider_max = static_cast<uint32_t>(GRIND_LATENCY_TO_COAST_RATIO_MAX * kCoastRatioSliderScale + 0.5f);
+    create_slider_row(parent, "Coast Ratio", &coast_ratio_label, &coast_ratio_slider,
+                     lv_color_hex(THEME_COLOR_ACCENT), coast_slider_min, coast_slider_max);
+
     // Register events for the toggles (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
     if (grind_mode_swipe_toggle) {
@@ -433,6 +445,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_FRESHNESS_HOURS_SLIDER)));
         lv_obj_add_event_cb(grind_freshness_hours_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED)));
+    }
+    if (coast_ratio_slider) {
+        lv_obj_add_event_cb(coast_ratio_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::COAST_RATIO_SLIDER)));
+        lv_obj_add_event_cb(coast_ratio_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::COAST_RATIO_SLIDER_RELEASED)));
     }
 }
 
@@ -909,6 +927,15 @@ void MenuScreen::update_grind_freshness_hours_label(float hours) {
     }
 }
 
+void MenuScreen::update_coast_ratio_label(float ratio) {
+    if (coast_ratio_label) {
+        char buffer[24];
+        int percent = static_cast<int>(ratio * 100.0f + 0.5f);
+        snprintf(buffer, sizeof(buffer), "Coast Ratio: %d%%", percent);
+        lv_label_set_text(coast_ratio_label, buffer);
+    }
+}
+
 lv_obj_t* MenuScreen::create_separator(lv_obj_t* parent, const char* text) {
     // Create separator container
     lv_obj_t* separator_container = lv_obj_create(parent);
@@ -1203,4 +1230,20 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     update_grind_freshness_hours_label(freshness_hours);
+
+    // Load and set coast ratio
+    float coast_ratio = GRIND_LATENCY_TO_COAST_RATIO_DEFAULT;
+    if (grind_controller) {
+        coast_ratio = grind_controller->get_coast_ratio();
+    }
+
+    if (coast_ratio_slider) {
+        int slider_value = static_cast<int>(coast_ratio * kCoastRatioSliderScale + 0.5f);
+        const int coast_slider_min = static_cast<int>(GRIND_LATENCY_TO_COAST_RATIO_MIN * kCoastRatioSliderScale + 0.5f);
+        const int coast_slider_max = static_cast<int>(GRIND_LATENCY_TO_COAST_RATIO_MAX * kCoastRatioSliderScale + 0.5f);
+        slider_value = std::clamp(slider_value, coast_slider_min, coast_slider_max);
+        lv_slider_set_value(coast_ratio_slider, slider_value, LV_ANIM_OFF);
+    }
+
+    update_coast_ratio_label(coast_ratio);
 }
