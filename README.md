@@ -1,4 +1,4 @@
-# Smart Grind-by-Weight
+# Smart Grind-by-Weight - user-configurable Coast Compensation setting (70%-150%)
 
 > **Community-maintained fork.** This fork collects tested fixes and improvements while the original project is inactive. It currently includes Waveshare 1.64-inch V2 support, the desktop simulator, and display/swipe performance improvements. The original project and its author remain credited below.
 
