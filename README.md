@@ -1,7 +1,5 @@
 # Smart Grind-by-Weight - user-configurable Coast Compensation setting + median-based coast prediction using learned measurements
 
-# Smart Grind-by-Weight – user-configurable Coast Compensation setting + median-based coast prediction using learned measurements
-
 This fork adds two improvements to the coast prediction algorithm:
 
 1. **Configurable Coast Compensation slider** (Menu → Grind Mode → Coast Compensation): Adjustable from 70% to 150% in 5% increments, stored in NVS. This acts as a multiplier on the predicted coast value, allowing users to fine-tune when the motor stops for their specific grinder model. Default: 90%.
