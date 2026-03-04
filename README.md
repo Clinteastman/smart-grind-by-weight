@@ -1,4 +1,18 @@
-# Smart Grind-by-Weight - user-configurable Coast Compensation setting (70%-150%)
+# Smart Grind-by-Weight - user-configurable Coast Compensation setting + median-based coast prediction using learned measurements
+
+# Smart Grind-by-Weight – user-configurable Coast Compensation setting + median-based coast prediction using learned measurements
+
+This fork adds two improvements to the coast prediction algorithm:
+
+1. **Configurable Coast Compensation slider** (Menu → Grind Mode → Coast Compensation): Adjustable from 70% to 150% in 5% increments, stored in NVS. This acts as a multiplier on the predicted coast value, allowing users to fine-tune when the motor stops for their specific grinder model. Default: 90%.
+
+2. **Median-based coast prediction**: Instead of estimating coast solely from startup latency, the system now measures the actual coffee delivered after each motor stop and stores the last 5 measurements. The median of these values is used as the coast prediction for subsequent grinds, making the system self-learning and robust against outliers (e.g. clumping). On cold start (no history yet), the original latency-based algorithm is used as fallback.
+
+In combination, the coast ratio slider acts as a fine-tuning multiplier on the learned median value. At 100%, the pure median prediction is used. Tested on a Eureka Mignon Stark with consistent results at 125%.
+
+
+
+
 
 > **Community-maintained fork.** This fork collects tested fixes and improvements while the original project is inactive. It currently includes Waveshare 1.64-inch V2 support, the desktop simulator, and display/swipe performance improvements. The original project and its author remain credited below.
 
