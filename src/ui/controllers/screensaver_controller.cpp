@@ -1,6 +1,8 @@
 #include "screensaver_controller.h"
 #include "../../config/constants.h"
 #include "../../config/logging.h"
+#include <algorithm>
+#include <cstring>
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <esp_heap_caps.h>
