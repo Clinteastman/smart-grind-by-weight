@@ -79,10 +79,6 @@ void ScreensaverController::show() {
     lv_img_set_src(image_widget_, &image_dsc_);
     lv_obj_center(image_widget_);
 
-    // Tap anywhere to dismiss
-    lv_obj_add_flag(overlay_screen_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(overlay_screen_, touch_dismiss_cb, LV_EVENT_CLICKED, this);
-
     // Load the overlay screen
     lv_screen_load(overlay_screen_);
     visible_ = true;
@@ -149,9 +145,3 @@ void ScreensaverController::free_image() {
     }
 }
 
-void ScreensaverController::touch_dismiss_cb(lv_event_t* e) {
-    auto* self = static_cast<ScreensaverController*>(lv_event_get_user_data(e));
-    if (self) {
-        self->hide();
-    }
-}

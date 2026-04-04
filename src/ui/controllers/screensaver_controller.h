@@ -41,5 +41,4 @@ private:
 
     bool load_image();
     void free_image();
-    static void touch_dismiss_cb(lv_event_t* e);
 };
