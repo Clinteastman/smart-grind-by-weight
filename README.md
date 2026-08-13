@@ -4,6 +4,19 @@
 
 See the [community roadmap](docs/COMMUNITY_ROADMAP.md) for the Wi-Fi OTA, live web UI, native Home Assistant integration and upstream contribution plan.
 
+## Community development timeline
+
+| Stage | Status | Outcome |
+| --- | --- | --- |
+| V1/V2 maintained baseline | Complete | Tested firmware, V2 wiring, simulator, and faster/reliable display gestures |
+| Public web flasher and releases | In progress | Explicit V1/V2 selection and downloadable, reproducible firmware packages |
+| Wi-Fi provisioning and safe OTA | Next | Reliable network setup, discovery, and browser-based full-image updates |
+| Shared live device API | Planned | One versioned WebSocket interface for state, controls, diagnostics, and configuration |
+| Native Home Assistant integration | High priority | Zeroconf discovery and local-push entities without requiring MQTT Discovery |
+| Live grinder web UI | High priority | Real-time weight, grind state, controls, and graphs using the same device API |
+
+Each substantial pull request updates this status, its relevant user/developer documentation, and its release notes. The [detailed roadmap](docs/COMMUNITY_ROADMAP.md) records the architecture and contribution plan.
+
 **Turn any grinder into a precision smart grind-by-weight system**
 
 <table>
