@@ -417,7 +417,7 @@ def create_release():
     print("  2. Create GitHub release with your custom release notes")
     print("  3. Include automatic changelog from commits")
     print("  4. Upload firmware binaries for users")
-    print(f"\nCheck the progress at: https://github.com/jaapp/smart-grind-by-weight/actions")
+    print(f"\nCheck the progress at: https://github.com/Clinteastman/smart-grind-by-weight/actions")
     
     return True
 

@@ -38,6 +38,24 @@
             color: #718096;
             font-size: 1.1em;
         }
+
+        .community-note {
+            background: #ebf8ff;
+            border: 1px solid #90cdf4;
+            border-radius: 8px;
+            color: #2a4365;
+            margin-bottom: 20px;
+            padding: 14px 16px;
+        }
+
+        .board-warning {
+            background: #fffaf0;
+            border-left: 4px solid #dd6b20;
+            border-radius: 8px;
+            color: #7b341e;
+            margin-bottom: 20px;
+            padding: 14px 16px;
+        }
         
         .tabs {
             display: flex;
@@ -216,7 +234,16 @@
     <div class="container">
         <div class="header">
             <h1>Smart Grind By Weight</h1>
-            <div class="subtitle">Firmware Flash Tool</div>
+            <div class="subtitle">Community Firmware Flash Tool</div>
+        </div>
+
+        <div class="community-note">
+            This installer is maintained by the community fork and includes tested firmware for both Waveshare 1.64-inch board revisions.
+            <a href="https://github.com/Clinteastman/smart-grind-by-weight">Source, releases and support</a>
+        </div>
+
+        <div class="board-warning">
+            <strong>Choose the correct board revision.</strong> V1 and V2 use incompatible display drivers and different wiring. The wrong firmware can leave the display black. If the back of the board is marked <strong>Rev2.0</strong>, select <strong>Waveshare 1.64 V2</strong>.
         </div>
         
         <div id="browserWarning" class="browser-support">

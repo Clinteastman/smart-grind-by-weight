@@ -2,24 +2,27 @@
 
 This guide is for developers who want to build the Smart Grind-by-Weight firmware from source, contribute to the project, or modify the code for their own use.
 
-**End users:** If you just want to use the device, download pre-built firmware from [Releases](https://github.com/jaapp/smart-grind-by-weight/releases) instead.
+**End users:** If you just want to use the device, download pre-built firmware from [Community Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases) instead.
 
 ---
 
 ## 🛠️ Development Setup
 
-### Prerequisites
+### Firmware prerequisites
 
 - **Python 3.8+** with pip
 - **Git** for version control
 - **USB cable** for initial firmware flashing
 - **Hardware** (ESP32-S3 board, HX711, load cell) for testing
 
+Hardware is not required for desktop UI and simulated grind-flow development;
+see [Desktop Simulator](#desktop-simulator).
+
 ### Initial Setup
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/jaapp/smart-grind-by-weight.git
+   git clone https://github.com/Clinteastman/smart-grind-by-weight.git
    cd smart-grind-by-weight
    ```
 
@@ -32,15 +35,44 @@ This automatically creates a virtual environment and installs all required depen
 
 ---
 
-## 🔧 Build Targets
+## 🖥️ Desktop Simulator
 
-The project has three build targets:
+On Windows, the native simulator runs the production LVGL Ready and Grinding
+screens at the real display resolution, with mouse input and a deterministic
+grinder/load-cell scenario. It requires Visual Studio 2022 with the Desktop
+development with C++ workload, but no ESP32, display, load cell, PlatformIO, or
+SDL installation.
+
+```powershell
+.\sim\run.ps1
+```
+
+Run its automated UI/grind smoke scenario with:
+
+```powershell
+.\sim\build.ps1 -Test
+```
+
+See [sim/README.md](../sim/README.md) for controls, capabilities, and the
+hardware-validation boundary.
+
+---
+
+## 🔧 Firmware Build Targets
+
+The project has four build targets:
 
 ### Production Target: `waveshare-esp32s3-touch-amoled-164`
-- **Use case:** Real hardware with load cell and grinder connected
+- **Use case:** Real V1 hardware with load cell and grinder connected
 - **Hardware:** Full ESP32-S3 + HX711 + load cell + grinder motor relay
 - **Features:** All functionality enabled
 - **Optimizations:** `-Ofast` optimization level for performance
+
+### V2 Production Target: `waveshare-esp32s3-touch-amoled-164-v2`
+- **Use case:** Waveshare 1.64-inch V2 hardware with load cell and grinder connected
+- **Display:** SH8601 using Waveshare's native `esp_lcd` QSPI driver
+- **External GPIO:** HX711 SCK on GPIO 1; grinder motor control on GPIO 16 (GPIO 18 is reserved by `TP_INT`)
+- **Important:** V1 and V2 display firmware is not interchangeable; the wrong target normally boots to a black screen
 
 ### Debug Target: `waveshare-esp32s3-touch-amoled-164-debug`
 - **Use case:** Development and debugging with real hardware
@@ -89,6 +121,14 @@ The platform dependency is automatically handled by PlatformIO via the `platform
 python3 tools/grinder.py build
 ```
 
+**Build V2 production firmware:**
+```bash
+python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-v2
+```
+
+Archived local V1 builds are stored in `firmware_cache/`; incompatible V2
+builds are stored separately in `firmware_cache/waveshare-164-v2/`.
+
 **Build debug firmware:**
 ```bash
 python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-debug
@@ -112,6 +152,9 @@ For the first-time setup or when BLE isn't working:
 # Build and upload via USB (production)
 python3 tools/grinder.py build
 python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164
+
+# Or for the V2 hardware revision
+python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-v2
 
 # Or for debug target
 python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-debug

@@ -43,8 +43,12 @@ def archive_firmware(source, target, env):
         print(f"❌ Firmware binary not found: {firmware_path}")
         return
     
-    # Set up cache directory
+    # Keep incompatible board images in separate cache locations. Release
+    # builds intentionally give V1 and V2 the same build number, so storing
+    # both at firmware_cache/build_NNN.bin would silently overwrite V1.
     cache_dir = os.path.join(project_dir, "firmware_cache")
+    if pioenv.endswith("-v2"):
+        cache_dir = os.path.join(cache_dir, "waveshare-164-v2")
     
     # Get build number and firmware info
     build_number = get_build_number(env)
