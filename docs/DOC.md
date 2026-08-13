@@ -214,7 +214,7 @@ The external wiring also differs: V1 uses GPIO 2 for HX711 SCK and GPIO 18 for m
 If the board was supplied with V2 factory firmware, or Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2) works while V1 firmware stays black, use the V2 build target. See the [black-display troubleshooting entry](TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2) before wiring the grinder.
 
 ### 🌐 Web Flasher (Recommended)
-**[🔗 Open Web Flasher Tool](https://jaapp.github.io/smart-grind-by-weight)**
+**[🔗 Open Community Web Flasher Tool](https://clinteastman.github.io/smart-grind-by-weight/)**
 
 Before flashing, verify that the selected image matches your V1 or V2 hardware revision. If the flasher does not yet list a V2 image, build the `waveshare-esp32s3-touch-amoled-164-v2` source target instead; flashing the V1 image to V2 produces a black screen.
 
@@ -256,7 +256,8 @@ python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 ```
 
-**Manual firmware download:** [Releases page](https://github.com/jaapp/smart-grind-by-weight/releases)  
+**Manual firmware download:** [Community releases page](https://github.com/Clinteastman/smart-grind-by-weight/releases)
+
 **Build from source:** See [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ---
@@ -479,7 +480,7 @@ Generate a comprehensive diagnostic report from your device for troubleshooting 
 ### Access Methods
 
 **Web Flasher (Recommended):**
-1. Visit the [Web Flasher Tool](https://jaapp.github.io/smart-grind-by-weight)
+1. Visit the [Community Web Flasher Tool](https://clinteastman.github.io/smart-grind-by-weight/)
 2. Navigate to the **Diagnostics** tab
 3. Click "Connect & Get Diagnostics"
 4. Copy to clipboard or download the report as a text file

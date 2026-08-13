@@ -2,7 +2,7 @@
 
 This guide is for developers who want to build the Smart Grind-by-Weight firmware from source, contribute to the project, or modify the code for their own use.
 
-**End users:** If you just want to use the device, download pre-built firmware from [Releases](https://github.com/jaapp/smart-grind-by-weight/releases) instead.
+**End users:** If you just want to use the device, download pre-built firmware from [Community Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases) instead.
 
 ---
 
@@ -22,7 +22,7 @@ see [Desktop Simulator](#desktop-simulator).
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/jaapp/smart-grind-by-weight.git
+   git clone https://github.com/Clinteastman/smart-grind-by-weight.git
    cd smart-grind-by-weight
    ```
 
@@ -125,6 +125,9 @@ python3 tools/grinder.py build
 ```bash
 python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-v2
 ```
+
+Archived local V1 builds are stored in `firmware_cache/`; incompatible V2
+builds are stored separately in `firmware_cache/waveshare-164-v2/`.
 
 **Build debug firmware:**
 ```bash

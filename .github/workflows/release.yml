@@ -12,6 +12,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # Keep both board variants on one monotonic build number.
+      SMART_GRIND_BUILD_NUMBER: ${{ github.run_number }}
     
     steps:
       - name: Checkout code
@@ -144,7 +147,7 @@ jobs:
           ## Installation
 
           ### Web Installer (Recommended)
-          Visit [Web Installer](https://jaapp.github.io/smart-grind-by-weight/) and select firmware version ${{ github.ref_name }} for your Waveshare V1 or V2 board revision.
+          Visit [Web Installer](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/) and select firmware version ${{ github.ref_name }} for your Waveshare V1 or V2 board revision.
 
           **Note:** Requires Chrome/Edge (desktop or Android). iOS/Safari not supported.
 

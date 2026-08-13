@@ -266,7 +266,7 @@ This information helps identify configuration issues, hardware problems, or firm
 
 #### Option 1: Web Flasher (Recommended)
 
-1. Visit the **[Web Flasher Diagnostics Tool](https://jaapp.github.io/smart-grind-by-weight)**
+1. Visit the **[Community Web Flasher Diagnostics Tool](https://clinteastman.github.io/smart-grind-by-weight/)**
 2. Click the **"Diagnostics"** tab
 3. Click **"Connect & Get Diagnostics"**
 4. Select your device from the Bluetooth pairing dialog

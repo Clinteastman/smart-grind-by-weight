@@ -71,6 +71,23 @@ def get_git_info():
 
 def get_next_build_number():
     """Get and increment the build number."""
+    # CI builds both hardware variants separately. Allow the release workflow
+    # to pin one monotonic number so V1 and V2 from the same release report the
+    # same build instead of incrementing once per PlatformIO environment.
+    build_number_override = os.environ.get("SMART_GRIND_BUILD_NUMBER", "").strip()
+    if build_number_override:
+        try:
+            build_number = int(build_number_override)
+            if build_number < 1:
+                raise ValueError
+            return build_number
+        except ValueError:
+            print(
+                "Warning: SMART_GRIND_BUILD_NUMBER must be a positive integer; "
+                "using the local build counter instead",
+                file=sys.stderr,
+            )
+
     if platformio_mode:
         project_root = env.get("PROJECT_DIR", os.getcwd())
     else:

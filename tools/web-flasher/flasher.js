@@ -512,8 +512,8 @@ async function loadReleases() {
 
         const indexEntries = await fetchFirmwareIndex();
 
-        usbSelect.innerHTML = '';
-        otaSelect.innerHTML = '';
+        usbSelect.innerHTML = '<option value="" selected disabled>Select board revision and firmware...</option>';
+        otaSelect.innerHTML = '<option value="" selected disabled>Select board revision and firmware...</option>';
 
         indexEntries.forEach(entry => {
             const label = entry.prerelease ? `${entry.display || entry.tag} (pre-release)` : (entry.display || entry.tag);
@@ -527,6 +527,7 @@ async function loadReleases() {
                 option.dataset.display = label;
                 option.dataset.version = entry.version || entry.tag.replace(/^v/, '');
                 option.dataset.releaseTag = entry.tag;
+                option.dataset.board = entry.board || '';
                 option.dataset.manifest = manifestUrl;
                 option.dataset.prerelease = entry.prerelease ? 'true' : 'false';
                 usbSelect.appendChild(option);
@@ -539,24 +540,19 @@ async function loadReleases() {
                 option.dataset.display = label;
                 option.dataset.version = entry.version || entry.tag.replace(/^v/, '');
                 option.dataset.releaseTag = entry.tag;
+                option.dataset.board = entry.board || '';
                 option.dataset.ota = otaUrl;
                 option.dataset.prerelease = entry.prerelease ? 'true' : 'false';
                 otaSelect.appendChild(option);
             }
         });
 
-        if (!usbSelect.children.length) {
+        if (usbSelect.children.length === 1) {
             usbSelect.innerHTML = '<option value="">No firmware available</option>';
-        } else {
-            usbSelect.selectedIndex = 0;
-            updateManifestFirmware();
         }
 
-        if (!otaSelect.children.length) {
+        if (otaSelect.children.length === 1) {
             otaSelect.innerHTML = '<option value="">No firmware available</option>';
-        } else {
-            otaSelect.selectedIndex = 0;
-            updateOtaSelectedFirmware();
         }
     } catch (error) {
         console.error('Failed to load releases from GitHub:', error);
