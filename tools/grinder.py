@@ -179,9 +179,26 @@ class GrinderTool:
     def cmd_build(self, args: argparse.Namespace) -> int:
         """Build firmware using PlatformIO."""
         self.print_header("Building Firmware")
-        
-        if not self.check_venv():
-            return 1
+
+        # Building only needs PlatformIO. Prefer the project environment when
+        # it is complete, but do not let a stale/partial venv hide a working
+        # PlatformIO installation already available on PATH.
+        platformio_cmd = None
+        if self.venv_python.exists():
+            probe = subprocess.run(
+                [str(self.venv_python), "-m", "platformio", "--version"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if probe.returncode == 0:
+                platformio_cmd = [str(self.venv_python), "-m", "platformio"]
+        if platformio_cmd is None:
+            pio = shutil.which("pio") or shutil.which("platformio")
+            if not pio:
+                self.print_error("PlatformIO is not installed in the project environment or on PATH")
+                return 1
+            platformio_cmd = [pio]
         
         environment = (
             "waveshare-esp32s3-touch-amoled-164-v2"
@@ -194,10 +211,9 @@ class GrinderTool:
         # Keep local Windows builds responsive. PlatformIO otherwise uses every
         # logical CPU, which can make this source-heavy project slower through
         # compiler and filesystem contention.
-        result = self.run_command([
-            str(self.venv_python), "-m", "platformio", "run", 
-            "-e", environment, "-j", str(jobs)
-        ])
+        result = self.run_command(
+            platformio_cmd + ["run", "-e", environment, "-j", str(jobs)]
+        )
         
         if result.returncode == 0:
             self.print_success("Firmware build completed")
