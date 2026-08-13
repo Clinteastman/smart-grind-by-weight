@@ -1,4 +1,5 @@
 #include "task_manager.h"
+#include "../config/build_info.h"
 #include "weight_sampling_task.h"
 #include "grind_control_task.h"
 #include "file_io_task.h"

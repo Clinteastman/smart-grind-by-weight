@@ -183,10 +183,20 @@ class GrinderTool:
         if not self.check_venv():
             return 1
         
-        # Use PlatformIO from the project venv
+        environment = (
+            "waveshare-esp32s3-touch-amoled-164-v2"
+            if getattr(args, "hardware", "v1") == "v2"
+            else "waveshare-esp32s3-touch-amoled-164"
+        )
+        jobs = max(1, getattr(args, "jobs", min(8, os.cpu_count() or 1)))
+        self.print_info(f"Target: {args.hardware.upper()} ({jobs} parallel jobs)")
+
+        # Keep local Windows builds responsive. PlatformIO otherwise uses every
+        # logical CPU, which can make this source-heavy project slower through
+        # compiler and filesystem contention.
         result = self.run_command([
             str(self.venv_python), "-m", "platformio", "run", 
-            "-e", "waveshare-esp32s3-touch-amoled-164"
+            "-e", environment, "-j", str(jobs)
         ])
         
         if result.returncode == 0:
@@ -240,8 +250,15 @@ class GrinderTool:
         if build_result != 0:
             return build_result
         
-        # Set firmware to None so cmd_upload will auto-detect the latest firmware
-        args.firmware = None
+        environment = (
+            "waveshare-esp32s3-touch-amoled-164-v2"
+            if getattr(args, "hardware", "v1") == "v2"
+            else "waveshare-esp32s3-touch-amoled-164"
+        )
+        # Use the firmware just built for the requested hardware. Selecting the
+        # newest file across all environments can accidentally upload V1 to V2
+        # (or vice versa) after a multi-target validation run.
+        args.firmware = str(self.project_dir / ".pio" / "build" / environment / "firmware.bin")
         return await self.cmd_upload(args)
     
     async def cmd_export(self, args: argparse.Namespace) -> int:
@@ -468,6 +485,8 @@ def create_parser() -> argparse.ArgumentParser:
     
     # Build & Upload Commands
     build_parser = subparsers.add_parser('build', help='Build firmware using PlatformIO')
+    build_parser.add_argument('--hardware', choices=['v1', 'v2'], default='v1', help='Hardware generation to build')
+    build_parser.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1), help='Parallel compiler jobs (default: at most 8)')
     
     upload_parser = subparsers.add_parser('upload', help='Upload firmware via BLE OTA')
     upload_parser.add_argument('firmware', nargs='?', help='Path to firmware .bin file (finds latest if not specified)')
@@ -475,6 +494,8 @@ def create_parser() -> argparse.ArgumentParser:
     upload_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     
     build_upload_parser = subparsers.add_parser('build-upload', help='Build firmware and upload via BLE')
+    build_upload_parser.add_argument('--hardware', choices=['v1', 'v2'], default='v1', help='Hardware generation to build and upload')
+    build_upload_parser.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1), help='Parallel compiler jobs (default: at most 8)')
     build_upload_parser.add_argument('--force-full', action='store_true', help='Force full firmware update (skip delta patching)')
     build_upload_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     

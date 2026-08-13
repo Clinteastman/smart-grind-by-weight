@@ -1,4 +1,5 @@
 #include "manager.h"
+#include "../config/build_info.h"
 #include <algorithm>
 #include <cstdarg>
 #include <Arduino.h>

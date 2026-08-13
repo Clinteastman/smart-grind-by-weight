@@ -1,4 +1,5 @@
 #include "grinding_screen_chart.h"
+#include <cstdio>
 #include <Arduino.h>
 #include "../../config/constants.h"
 #include <lvgl.h>

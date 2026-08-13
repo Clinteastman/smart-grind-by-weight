@@ -1,4 +1,5 @@
 #include "weight_sampling_task.h"
+#include "../config/build_info.h"
 #include "../hardware/WeightSensor.h"
 #include "../logging/grind_logging.h"
 #include "../config/constants.h"

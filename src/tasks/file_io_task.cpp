@@ -1,4 +1,5 @@
 #include "file_io_task.h"
+#include "../config/build_info.h"
 #include "../logging/grind_logging.h"
 #include "../config/constants.h"
 #include <Arduino.h>

@@ -14,6 +14,7 @@ private:
     lv_obj_t* menu;
     lv_obj_t* info_page;
     lv_obj_t* bluetooth_page;
+    lv_obj_t* network_page;
     lv_obj_t* display_page;
     lv_obj_t* grind_mode_page;
     lv_obj_t* data_page;
@@ -48,6 +49,14 @@ private:
     lv_obj_t* ble_startup_toggle;
     lv_obj_t* ble_status_label;
     lv_obj_t* ble_timer_label;
+    lv_obj_t* network_status_label;
+    lv_obj_t* network_detail_label;
+    lv_obj_t* network_qr;
+    lv_obj_t* ota_arm_button;
+    lv_obj_t* ota_arm_button_label;
+    String network_status_text;
+    String network_detail_text;
+    String network_qr_payload;
     lv_obj_t* logging_toggle;
     lv_obj_t* brightness_normal_slider;
     lv_obj_t* brightness_screensaver_slider;
@@ -109,6 +118,7 @@ public:
     void update_info(const WeightSensor* weight_sensor, unsigned long uptime_ms, size_t free_heap);
     void update_diagnostics(WeightSensor* weight_sensor);
     void update_ble_status();
+    void update_network_status();
     void refresh_statistics(bool show_overlay = true);
     void update_brightness_labels(int normal_percent = -1, int screensaver_percent = -1); // Use negative value to leave unchanged
     void update_brightness_sliders();
@@ -154,6 +164,7 @@ private:
     void create_menu_ui();
     void create_info_page(lv_obj_t* parent);
     void create_bluetooth_page(lv_obj_t* parent);
+    void create_network_page(lv_obj_t* parent);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);

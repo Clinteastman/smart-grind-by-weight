@@ -4,6 +4,7 @@ sim/build/
 
 # Generated build info
 include/git_info.h
+src/config/git_info.h
 .build_number
 
 # bin archive

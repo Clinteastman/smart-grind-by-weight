@@ -1,4 +1,5 @@
 #include "grind_control_task.h"
+#include "../config/build_info.h"
 #include "../controllers/grind_controller.h"
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"

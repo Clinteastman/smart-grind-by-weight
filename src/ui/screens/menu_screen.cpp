@@ -1,4 +1,5 @@
 #include "menu_screen.h"
+#include "../../config/build_info.h"
 #include <Arduino.h>
 #include <algorithm>
 #include <LittleFS.h>
@@ -7,6 +8,9 @@
 #include "../../logging/grind_logging.h"
 #include "../../system/statistics_manager.h"
 #include "../../hardware/hardware_manager.h"
+#include "../../network/network_manager.h"
+#include "../../network/provisioning_service.h"
+#include "../../network/device_web_server.h"
 #include "grinding_screen.h"
 #include "../event_bridge_lvgl.h"
 #include "../../config/logging.h"
@@ -43,6 +47,15 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     scale_weight_label = nullptr;
     scale_tare_button = nullptr;
     scale_item = nullptr;
+    network_page = nullptr;
+    network_status_label = nullptr;
+    network_detail_label = nullptr;
+    network_qr = nullptr;
+    ota_arm_button = nullptr;
+    ota_arm_button_label = nullptr;
+    network_status_text.clear();
+    network_detail_text.clear();
+    network_qr_payload.clear();
     grinder_purge_mode_radio_group = nullptr;
     grinder_purge_amount_slider = nullptr;
     grinder_purge_amount_label = nullptr;
@@ -130,6 +143,9 @@ void MenuScreen::create_menu_ui() {
     bluetooth_page = lv_menu_page_create(menu, "Bluetooth");
     create_bluetooth_page(bluetooth_page);
 
+    network_page = lv_menu_page_create(menu, "Wi-Fi");
+    create_network_page(network_page);
+
     display_page = lv_menu_page_create(menu, "Display");
     create_display_page(display_page);
     
@@ -179,6 +195,9 @@ void MenuScreen::create_menu_ui() {
     create_separator(main_page, "Settings");
     lv_obj_t* bluetooth_item = create_menu_item(main_page, "Bluetooth");
     lv_menu_set_load_page_event(menu, bluetooth_item, bluetooth_page);
+
+    lv_obj_t* network_item = create_menu_item(main_page, "Wi-Fi");
+    lv_menu_set_load_page_event(menu, network_item, network_page);
 
     lv_obj_t* display_item = create_menu_item(main_page, "Display");
     lv_menu_set_load_page_event(menu, display_item, display_page);
@@ -294,6 +313,138 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
     if (ble_startup_toggle) {
         lv_obj_add_event_cb(ble_startup_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::BLE_STARTUP_TOGGLE)));
+    }
+}
+
+namespace {
+String escape_wifi_qr_value(const String& value) {
+    String escaped;
+    escaped.reserve(value.length() + 8);
+    for (size_t i = 0; i < value.length(); ++i) {
+        const char ch = value[i];
+        if (ch == '\\' || ch == ';' || ch == ',' || ch == ':' || ch == '"') escaped += '\\';
+        escaped += ch;
+    }
+    return escaped;
+}
+}
+
+void MenuScreen::create_network_page(lv_obj_t* parent) {
+    lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+
+    network_status_label = lv_label_create(parent);
+    lv_obj_set_style_text_font(network_status_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(network_status_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+
+    network_detail_label = lv_label_create(parent);
+    lv_obj_set_width(network_detail_label, LV_PCT(90));
+    lv_label_set_long_mode(network_detail_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(network_detail_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(network_detail_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(network_detail_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+
+    network_qr = lv_qrcode_create(parent);
+    lv_qrcode_set_size(network_qr, 180);
+    lv_qrcode_set_dark_color(network_qr, lv_color_hex(0x000000));
+    lv_qrcode_set_light_color(network_qr, lv_color_hex(0xFFFFFF));
+    lv_qrcode_set_quiet_zone(network_qr, true);
+    lv_obj_add_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
+
+    ota_arm_button = lv_button_create(parent);
+    lv_obj_set_size(ota_arm_button, 250, 58);
+    ota_arm_button_label = lv_label_create(ota_arm_button);
+    lv_label_set_text(ota_arm_button_label, "Arm firmware update");
+    lv_obj_set_style_text_font(ota_arm_button_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(ota_arm_button_label);
+    lv_obj_add_event_cb(ota_arm_button, [](lv_event_t* event) {
+        MenuScreen* self = static_cast<MenuScreen*>(lv_event_get_user_data(event));
+        device_web_server.arm_ota();
+        self->update_network_status();
+    }, LV_EVENT_CLICKED, this);
+
+    update_network_status();
+}
+
+void MenuScreen::update_network_status() {
+    if (!network_status_label || !network_detail_label || !network_qr) return;
+
+    String status;
+    String detail;
+    String qr_payload;
+    switch (network_manager.state()) {
+        case NetworkState::WIFI_DISABLED:
+            status = "Wi-Fi disabled";
+            detail = "Wi-Fi can be enabled after setup support is complete.";
+            break;
+        case NetworkState::WIFI_NO_CREDENTIALS:
+        case NetworkState::WIFI_SETUP_REQUIRED:
+            status = "Starting setup";
+            detail = "Preparing a secure setup network...";
+            break;
+        case NetworkState::WIFI_CONNECTING:
+            status = "Connecting";
+            detail = network_manager.network_name();
+            break;
+        case NetworkState::WIFI_CONNECTED:
+            if (device_web_server.is_ota_active()) {
+                status = "Updating firmware";
+                detail = String(device_web_server.ota_progress_percent()) + "% received\nDo not remove power.";
+            } else if (device_web_server.is_ota_armed()) {
+                status = "Update armed";
+                detail = "Open http://" + network_manager.hostname() + ".local\nUpload within " +
+                         String(device_web_server.ota_seconds_remaining()) + " seconds.";
+            } else {
+                status = "Connected";
+                detail = network_manager.network_name() + "\nhttp://" + network_manager.hostname() + ".local\n" + network_manager.ip_address();
+            }
+            break;
+        case NetworkState::WIFI_RETRY_WAIT:
+            status = "Connection lost";
+            detail = "Will retry automatically.";
+            break;
+        case NetworkState::WIFI_SETUP_AP: {
+            status = "Wi-Fi setup";
+            const String& ssid = provisioning_service.access_point_ssid();
+            const String& password = provisioning_service.access_point_password();
+            detail = "Scan to join\n" + ssid + "\nPassword: " + password + "\nthen open 192.168.4.1";
+            qr_payload = "WIFI:T:";
+            qr_payload += password.isEmpty() ? "nopass" : "WPA";
+            qr_payload += ";S:" + escape_wifi_qr_value(ssid);
+            if (!password.isEmpty()) qr_payload += ";P:" + escape_wifi_qr_value(password);
+            qr_payload += ";;";
+            break;
+        }
+    }
+
+    if (status != network_status_text) {
+        lv_label_set_text(network_status_label, status.c_str());
+        network_status_text = status;
+    }
+    if (detail != network_detail_text) {
+        lv_label_set_text(network_detail_label, detail.c_str());
+        network_detail_text = detail;
+    }
+    if (qr_payload.isEmpty()) {
+        lv_obj_add_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        if (qr_payload != network_qr_payload) {
+            lv_qrcode_update(network_qr, qr_payload.c_str(), qr_payload.length());
+            network_qr_payload = qr_payload;
+        }
+        lv_obj_clear_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    const bool show_ota_button = network_manager.is_connected() && !device_web_server.is_ota_active();
+    if (show_ota_button) {
+        lv_label_set_text(ota_arm_button_label,
+                          device_web_server.is_ota_armed() ? "Re-arm update window" : "Arm firmware update");
+        lv_obj_clear_flag(ota_arm_button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(ota_arm_button, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

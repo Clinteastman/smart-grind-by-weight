@@ -7,7 +7,7 @@
 #define GIT_COMMIT_ID "desktop-simulator"
 #define GIT_BRANCH "desktop-simulator"
 #else
-#include "../../include/git_info.h"
+#include "git_info.h"
 #endif
 
 // Build information - BUILD_FIRMWARE_VERSION is automatically updated by release scripts

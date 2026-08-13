@@ -10,6 +10,10 @@
 #include <cmath>
 #include <algorithm>
 
+#ifndef SMART_GRIND_SIM
+#include "../network/device_web_server.h"
+#endif
+
 #if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
 #include "../hardware/mock_hx711_driver.h"
 #endif
@@ -114,6 +118,12 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
 void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
     LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s\n",
             millis(), target, (unsigned long)time_ms, grind_mode == GrindMode::TIME ? "TIME" : "WEIGHT");
+#ifndef SMART_GRIND_SIM
+    if (device_web_server.is_ota_active()) {
+        LOG_BLE("[CONTROLLER] Grind blocked while firmware update is active\n");
+        return;
+    }
+#endif
     if (!grinder) return;
     if (grind_mode == GrindMode::WEIGHT) {
         if (!weight_sensor) return;

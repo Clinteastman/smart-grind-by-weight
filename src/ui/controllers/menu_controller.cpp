@@ -82,6 +82,7 @@ void MenuUIController::update() {
     ui_manager_->menu_screen.update_info(sensor, uptime_ms, free_heap);
     ui_manager_->menu_screen.update_diagnostics(sensor);
     ui_manager_->menu_screen.update_ble_status();
+    ui_manager_->menu_screen.update_network_status();
 
     if (ui_manager_->menu_screen.is_scale_page_active()) {
         float display_weight = sensor ? sensor->get_display_weight() : 0.0f;

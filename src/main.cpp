@@ -10,11 +10,15 @@
 #include "ui/ui_manager.h"
 #include "config/constants.h"
 #include "system/screensaver_settings.h"
+#include "config/build_info.h"
 #include "bluetooth/manager.h"
 #include "tasks/task_manager.h"
 #include "tasks/weight_sampling_task.h"
 #include "tasks/grind_control_task.h"
 #include "tasks/file_io_task.h"
+#include "network/network_manager.h"
+#include "network/provisioning_service.h"
+#include "network/device_web_server.h"
 
 HardwareManager hardware_manager;
 StateMachine state_machine;
@@ -114,6 +118,13 @@ void setup() {
     
     // Set up the reference so HardwareManager can query GrindController state
     hardware_manager.set_grind_controller(&grind_controller);
+
+    // Wi-Fi and HTTP services start asynchronously so they never block the
+    // real-time scale, motor, touch, or rendering tasks.
+    network_manager.init(hardware_manager.get_preferences());
+    device_web_server.init(&hardware_manager, &grind_controller);
+    provisioning_service.init(hardware_manager.get_preferences(), &device_web_server.server());
+    device_web_server.begin();
     
     bluetooth_manager.init(hardware_manager.get_preferences());
     
@@ -200,6 +211,9 @@ void loop() {
     static uint32_t last_uptime_update = 0;
     static uint32_t pending_uptime_minutes = 0;
     uint32_t current_time = millis();
+    network_manager.update();
+    provisioning_service.update();
+    device_web_server.update();
     if (last_uptime_update == 0) {
         last_uptime_update = current_time;
     }
