@@ -80,8 +80,8 @@ jobs:
                   version = tag.lstrip('v')
                   base = f"smart-grind-by-weight-{tag}"
                   variants = (
-                      ("Waveshare 1.64 V1", base),
-                      ("Waveshare 1.64 V2", f"{base}-waveshare-164-v2"),
+                      ("Original CO5300 (V1 firmware)", base),
+                      ("Newer SH8601 (V2 firmware; may say Rev1.1)", f"{base}-waveshare-164-v2"),
                   )
 
                   for board, artifact_base in variants:

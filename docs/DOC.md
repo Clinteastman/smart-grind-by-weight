@@ -209,6 +209,8 @@ ESP32-S3 GND       →    Pin 4 (Ground)
 
 The 1.64-inch Waveshare board now exists in two firmware-incompatible revisions. V1 uses the original CO5300 display path; V2 uses an SH8601 controller, GPIO 46 chip select, and a 20-pixel framebuffer offset. Firmware built for the wrong revision can boot normally while the AMOLED remains completely black.
 
+The PCB silkscreen is not a dependable way to choose between them. The newer SH8601 hardware verified for this project is marked `Rev1.1` on its back but requires the V2 firmware. Here, “V1” and “V2” are convenient names for the original CO5300 and newer SH8601 display generations, not necessarily the revision number printed on the board.
+
 The external wiring also differs: V1 uses GPIO 2 for HX711 SCK and GPIO 18 for motor control; V2 uses GPIO 1 for HX711 SCK and GPIO 16 for motor control. Select the correct firmware target and follow the matching wiring before powering the grinder.
 
 If the board was supplied with V2 factory firmware, or Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2) works while V1 firmware stays black, use the V2 build target. See the [black-display troubleshooting entry](TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2) before wiring the grinder.
@@ -216,7 +218,7 @@ If the board was supplied with V2 factory firmware, or Waveshare's [official V2 
 ### 🌐 Web Flasher (Recommended)
 **[🔗 Open Community Web Flasher Tool](https://clinteastman.github.io/smart-grind-by-weight/)**
 
-Before flashing, verify that the selected image matches your V1 or V2 hardware revision. If the flasher does not yet list a V2 image, build the `waveshare-esp32s3-touch-amoled-164-v2` source target instead; flashing the V1 image to V2 produces a black screen.
+Before flashing, verify that the selected image matches the display generation. Choose **Original CO5300 (V1 firmware)** or **Newer SH8601 (V2 firmware; may say Rev1.1)**. If uncertain, use the official-demo test above; flashing the original CO5300 image to SH8601 hardware produces a black screen.
 
 **Browser Compatibility:**
 - ✅ **Chrome** (Desktop & Android) - Full support
