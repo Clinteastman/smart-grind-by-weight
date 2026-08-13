@@ -42,6 +42,29 @@ the original project or its authorship.
      outstanding community work as separate changes with attribution, tests
      and V1/V2 compatibility checks.
 
+## Delivery status
+
+| Area | Software status | Remaining acceptance work |
+| --- | --- | --- |
+| V1/V2 install and USB recovery | Complete | Recheck release packages before the next public release |
+| Wi-Fi setup, discovery and guarded OTA | Implemented | Validate station/AP reconnect, on-device arming and a full V2 OTA cycle on hardware |
+| Versioned live API and browser UI | Implemented | Validate sustained live graphing, touch responsiveness and memory headroom on V2 hardware |
+| Improv serial provisioning | Planned | Implement and test without delaying the control loop |
+| Native Home Assistant integration | Planned | Build separately against the documented v1 API, then test discovery and reconnect behaviour |
+
+## Reviewed upstream work
+
+Original commit authorship is retained for incorporated contributions. Follow-up
+hardening is kept in separate commits so the provenance remains clear.
+
+| Upstream PR | Decision | Review outcome |
+| --- | --- | --- |
+| #111 BLE crash fixes | Integrated | Retained the contributor's commits and validated both hardware builds |
+| #106 coast compensation | Integrated with follow-up | Restored the existing neutral `1.0` default instead of changing behaviour to `0.9` |
+| #136 sensor-free time mode and pause | Integrated; supersedes #135 | Added state-ordering, completion and null-safety fixes |
+| #114 screensaver | Integrated with follow-up | Added V2 compatibility, transactional image replacement and explicit upload acknowledgement |
+| #82 alternate board/display support | Redesign required | The proposed pin/display assumptions conflict with the maintained V1/V2 targets and cannot be safely cherry-picked |
+
 ## Contribution and upstream policy
 
 - Keep feature commits and pull requests narrowly scoped where practical.

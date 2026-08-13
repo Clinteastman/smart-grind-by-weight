@@ -14,18 +14,19 @@ See the [community roadmap](docs/COMMUNITY_ROADMAP.md) for the Wi-Fi OTA, live w
 | --- | --- | --- |
 | V1/V2 maintained baseline | Complete | Tested firmware, V2 wiring, simulator, and faster/reliable display gestures |
 | Public web flasher and releases | Complete | Explicit controller-generation selection and downloadable, reproducible V1/V2 firmware packages |
-| Wi-Fi provisioning and safe OTA | In progress | Reliable network setup, discovery, and browser-based full-image updates |
-| Shared live device API | Planned | One versioned WebSocket interface for state, controls, diagnostics, and configuration |
+| Wi-Fi provisioning and safe OTA | Implemented; hardware validation pending | Reliable network setup, discovery, and physically armed browser-based full-image updates |
+| Shared live device API | Implemented; hardware validation pending | Bounded 10 Hz WebSocket state feed with safe stop/dismiss requests |
 | Native Home Assistant integration | High priority | Zeroconf discovery and local-push entities without requiring MQTT Discovery |
-| Live grinder web UI | High priority | Real-time weight, grind state, controls, and graphs using the same device API |
+| Live grinder web UI | Implemented; hardware validation pending | Real-time weight, grind state, controls, and rolling graph using the same device API |
 
 Each substantial pull request updates this status, its relevant user/developer documentation, and its release notes. The [detailed roadmap](docs/COMMUNITY_ROADMAP.md) records the architecture and contribution plan.
 
 The network work follows the independently implemented design in
 [Wi-Fi, Web and Home Assistant Architecture](docs/WIFI_ARCHITECTURE.md). It uses
 lessons from GaggiMate's mature ESP32 appliance behaviour—secured captive setup,
-careful reconnect/mDNS lifecycle and guarded OTA now, with Improv serial and
-bounded WebSocket clients in the next phases—without copying its source code.
+careful reconnect/mDNS lifecycle, guarded OTA and bounded WebSocket clients—
+without copying its source code. Improv serial remains a planned provisioning
+alternative.
 
 **Turn any grinder into a precision smart grind-by-weight system**
 

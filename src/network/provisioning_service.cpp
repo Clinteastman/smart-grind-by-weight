@@ -24,28 +24,33 @@ button{margin-top:1.2rem;background:#86a869;color:#10140d;font-weight:700;border
 constexpr char DEVICE_PAGE[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Grind</title><style>
-body{font-family:system-ui,sans-serif;background:#161914;color:#f4f4ed;max-width:34rem;margin:3rem auto;padding:0 1.2rem}
-main,section{background:#242920;padding:1.4rem;border-radius:1rem;margin-bottom:1rem}dt{color:#b8c1b0;margin-top:.8rem}dd{margin:.15rem 0;font-size:1.15rem}
-input,button{box-sizing:border-box;width:100%;padding:.8rem;border-radius:.55rem;border:1px solid #68735e;font-size:1rem;margin-top:.7rem}
-button{background:#86a869;color:#10140d;font-weight:700;border:0}button:disabled{background:#596052;color:#bec4b8}progress{width:100%;margin-top:.8rem}
-</style></head><body><main><h1>Smart Grind</h1><p>Connected and ready.</p><dl>
-<dt>Firmware</dt><dd id="firmware">Loading...</dd><dt>Network</dt><dd id="network">Loading...</dd>
-<dt>Address</dt><dd id="address">Loading...</dd></dl></main>
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#161914;color:#f4f4ed;max-width:54rem;margin:1.5rem auto;padding:0 1rem}
+main,section{background:#242920;padding:1.25rem;border-radius:1rem;margin-bottom:1rem}.top{display:flex;justify-content:space-between;align-items:center;gap:1rem}
+.live{color:#8fc971}.offline{color:#e5a45d}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin:1rem 0}.metric{background:#191d17;padding:.85rem;border-radius:.7rem}
+.metric span{display:block;color:#b8c1b0;font-size:.82rem}.metric strong{font-size:1.6rem}canvas{display:block;width:100%;height:220px;background:#11140f;border-radius:.7rem}
+input,button{width:100%;padding:.8rem;border-radius:.55rem;border:1px solid #68735e;font-size:1rem;margin-top:.7rem}button{background:#86a869;color:#10140d;font-weight:700;border:0}
+button.danger{background:#c65f54;color:#fff}button:disabled{background:#596052;color:#bec4b8}progress{width:100%;margin-top:.8rem}.actions{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}.muted{color:#b8c1b0}
+@media(max-width:520px){.metrics{grid-template-columns:1fr 1fr}.actions{grid-template-columns:1fr}}
+</style></head><body><main><div class="top"><div><h1>Smart Grind</h1><div id="connection" class="offline">Connecting…</div></div><div id="phase">—</div></div>
+<div class="metrics"><div class="metric"><span>Weight</span><strong id="weight">—</strong></div><div class="metric"><span>Flow</span><strong id="flow">—</strong></div><div class="metric"><span>Progress</span><strong id="progressText">—</strong></div></div>
+<canvas id="chart"></canvas><progress id="grindProgress" max="100" value="0"></progress><p id="target" class="muted">Waiting for grinder state…</p>
+<div class="actions"><button id="stopButton" class="danger" disabled>Stop grind</button><button id="dismissButton" disabled>Dismiss result</button></div><p id="commandMessage" class="muted"></p></main>
+<section><h2>Device</h2><p><span id="firmware">Loading…</span><br><span id="network">Loading…</span><br><span id="address"></span></p></section>
 <section><h2>Firmware update</h2><p id="otaMessage">Arm firmware update from the grinder's Wi-Fi screen first.</p>
 <form id="otaForm"><input id="firmwareFile" name="firmware" type="file" accept=".bin,application/octet-stream" required>
 <button id="otaButton" type="submit" disabled>Upload firmware</button></form><progress id="otaProgress" max="100" value="0"></progress></section><script>
-async function refresh(){try{const s=await fetch('/api/v1/status',{cache:'no-store'}).then(r=>r.json());
-firmware.textContent=`${s.firmware.version} (build ${s.firmware.build})`;
-network.textContent=s.network.ssid||s.network.state;address.textContent=s.network.ip||'Not connected';
-otaProgress.value=s.ota.progress||0;otaButton.disabled=!s.ota.armed||s.ota.active;
-otaMessage.textContent=s.ota.active?`Uploading: ${s.ota.progress||0}% — do not remove power.`:
-s.ota.armed?`Upload armed for ${s.ota.arm_seconds} seconds.`:"Arm firmware update from the grinder's Wi-Fi screen first.";
-}catch(e){network.textContent='Unavailable';}}
-otaForm.addEventListener('submit',async e=>{e.preventDefault();otaButton.disabled=true;otaMessage.textContent='Uploading — do not remove power.';
+const $=id=>document.getElementById(id),samples=[];let ws,retry=500;
+function draw(){const c=$('chart'),d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==w*d||c.height!==h*d){c.width=w*d;c.height=h*d}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,w,h);x.strokeStyle='#30372c';x.beginPath();for(let i=1;i<4;i++){x.moveTo(0,h*i/4);x.lineTo(w,h*i/4)}x.stroke();if(samples.length<2)return;let lo=Math.min(...samples),hi=Math.max(...samples);if(hi-lo<2){lo-=1;hi+=1}x.strokeStyle='#8fc971';x.lineWidth=2;x.beginPath();samples.forEach((v,i)=>{const px=i*w/239,py=h-(v-lo)*h/(hi-lo);i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()}
+function render(s){const g=s.grind;$('weight').textContent=`${s.scale.weight.toFixed(2)} g`;$('flow').textContent=`${s.scale.flow.toFixed(2)} g/s`;$('phase').textContent=g.phase;$('progressText').textContent=`${g.progress}%`;$('grindProgress').value=g.progress;
+$('target').textContent=g.mode==='time'?`Time target ${(g.target_time_ms/1000).toFixed(1)} s`:`Weight target ${g.target_weight.toFixed(1)} g`;$('stopButton').disabled=!g.active;$('dismissButton').disabled=!['COMPLETED','TIMEOUT'].includes(g.phase);samples.push(s.scale.weight);if(samples.length>240)samples.shift();draw()}
+function connect(){ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>{$('connection').textContent='Live';$('connection').className='live';retry=500};ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='state')render(m);if(m.type==='ack')$('commandMessage').textContent=m.reason};ws.onclose=()=>{$('connection').textContent='Reconnecting…';$('connection').className='offline';setTimeout(connect,retry);retry=Math.min(retry*2,10000)}}
+function command(action){if(ws?.readyState===1)ws.send(JSON.stringify({type:'command',action}))}$('stopButton').onclick=()=>command('stop');$('dismissButton').onclick=()=>command('dismiss');window.onresize=draw;
+async function refresh(){try{const s=await fetch('/api/v1/status',{cache:'no-store'}).then(r=>r.json());$('firmware').textContent=`${s.firmware.version} (build ${s.firmware.build})`;$('network').textContent=s.network.ssid||s.network.state;$('address').textContent=s.network.ip||'Not connected';
+$('otaProgress').value=s.ota.progress||0;$('otaButton').disabled=!s.ota.armed||s.ota.active;$('otaMessage').textContent=s.ota.active?`Uploading: ${s.ota.progress||0}% — do not remove power.`:s.ota.armed?`Upload armed for ${s.ota.arm_seconds} seconds.`:"Arm firmware update from the grinder's Wi-Fi screen first.";}catch(e){$('network').textContent='Unavailable';}}
+$('otaForm').addEventListener('submit',async e=>{e.preventDefault();$('otaButton').disabled=true;$('otaMessage').textContent='Uploading — do not remove power.';
 try{const s=await fetch('/api/v1/status',{cache:'no-store'}).then(r=>r.json());if(!s.ota.armed||!s.ota.token)throw new Error('Firmware update is not armed.');
-const body=new FormData();body.append('firmware',firmwareFile.files[0]);const r=await fetch('/api/v1/ota',{method:'POST',headers:{'X-Smart-Grind-OTA-Token':s.ota.token},body});const t=await r.text();
-if(!r.ok)throw new Error(t);otaMessage.textContent=t;}catch(e){otaMessage.textContent=e.message;await refresh();}});
-refresh();setInterval(refresh,1000);
+const body=new FormData();body.append('firmware',$('firmwareFile').files[0]);const r=await fetch('/api/v1/ota',{method:'POST',headers:{'X-Smart-Grind-OTA-Token':s.ota.token},body});const t=await r.text();if(!r.ok)throw new Error(t);$('otaMessage').textContent=t;}catch(e){$('otaMessage').textContent=e.message;await refresh();}});
+connect();refresh();setInterval(refresh,1000);
 </script></body></html>
 )HTML";
 }

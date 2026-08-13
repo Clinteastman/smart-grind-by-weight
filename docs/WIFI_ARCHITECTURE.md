@@ -47,9 +47,9 @@ the grinder's smaller feature set.
 ## Service boundaries
 
 - `NetworkManager`: credentials, station/AP state, reconnect policy and hostname.
-- `ProvisioningService`: secured setup AP, captive DNS/HTTP and Improv serial.
-- `DeviceWebServer`: static web application, versioned REST setup endpoints,
-  full-image OTA and `/ws`.
+- `ProvisioningService`: secured setup AP, captive DNS/HTTP, static setup/device
+  pages and (when implemented) Improv serial.
+- `DeviceWebServer`: versioned status endpoints and guarded full-image OTA.
 - `DeviceApi`: one versioned state/control contract shared by the web UI and the
   native Home Assistant integration.
 - `DiscoveryService`: `.local`, `_http._tcp` and `_smartgrind._tcp` records with
@@ -62,4 +62,45 @@ the grinder's smaller feature set.
 3. HTTP status surface and safe full-image OTA.
 4. Versioned WebSocket state/control API with backpressure.
 5. Live web UI and native Home Assistant integration on the same API.
+
+## WebSocket API v1
+
+The device serves `/ws` and publishes at most one state message every 100 ms.
+It accepts no more than four clients and disconnects a client whose outbound
+queue cannot keep up. Browser handshakes must have the same HTTP origin as the
+device page; native clients without an `Origin` header remain supported.
+
+State messages have this shape:
+
+```json
+{
+  "api": "v1",
+  "type": "state",
+  "seq": 42,
+  "timestamp_ms": 123456,
+  "grind": {
+    "active": true,
+    "phase": "GRINDING",
+    "mode": "weight",
+    "progress": 63,
+    "target_weight": 18.0,
+    "target_time_ms": 0
+  },
+  "scale": { "weight": 11.34, "flow": 2.17 },
+  "motor": { "running": true },
+  "system": { "free_heap": 118240 }
+}
+```
+
+Clients may request only actions that reduce risk or clear a finished result:
+
+```json
+{"type":"command","action":"stop"}
+{"type":"command","action":"dismiss"}
+```
+
+Each request receives a v1 acknowledgement containing `action`, `accepted` and
+`reason`. There is deliberately no network command that starts the motor. The
+network callback only queues requests; the normal UI/control task decides
+whether to execute them.
 

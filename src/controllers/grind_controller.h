@@ -239,6 +239,8 @@ public:
     bool is_active() const;
     bool is_control_loop_paused() const { return control_loop_paused_; }
     GrindPhase get_phase() const { return phase; }
+    const char* get_current_phase_name() const { return get_phase_name(phase); }
+    int get_current_progress_percent() const { return get_progress_percent(); }
     float get_target_weight() const { return target_weight; }
     uint32_t get_target_time_ms() const { return target_time_ms; }
     static constexpr const char* PREF_KEY_PRIME_ENABLED = "prime_enabled";

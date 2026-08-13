@@ -6,6 +6,9 @@
 #include "screens/calibration_screen.h"
 #include "../logging/grind_logging.h"
 #include "../controllers/grind_mode_traits.h"
+#ifndef SMART_GRIND_SIM
+#include "../network/device_api.h"
+#endif
 #include <utility>
 // Static instance pointer for grind event callbacks
 UIManager* UIManager::instance = nullptr;
@@ -132,6 +135,12 @@ void UIManager::create_ui() {
 
 void UIManager::update() {
     if (!initialized) return;
+
+#ifndef SMART_GRIND_SIM
+    // Execute network commands on the UI/application task, never in the
+    // asynchronous TCP callback that parsed them.
+    device_api.process_commands();
+#endif
 
     // Update diagnostics controller
     if (diagnostics_controller_) {

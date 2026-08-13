@@ -10,6 +10,7 @@
 #include "../controllers/grind_controller.h"
 #include "../hardware/hardware_manager.h"
 #include "network_manager.h"
+#include "device_api.h"
 
 namespace {
 const char* network_state_name(NetworkState state) {
@@ -63,6 +64,7 @@ void DeviceWebServer::init(HardwareManager* hardware_manager, GrindController* g
     if (initialized_) return;
     hardware_manager_ = hardware_manager;
     grind_controller_ = grind_controller;
+    device_api.init(&server_, hardware_manager_, grind_controller_);
     configure_routes();
     initialized_ = true;
 }
@@ -75,6 +77,7 @@ void DeviceWebServer::begin() {
 }
 
 void DeviceWebServer::update() {
+    device_api.update();
     if (ota_armed_.load() && !ota_active_.load() && !is_ota_armed()) ota_armed_.store(false);
     if (reboot_pending_.load() &&
         static_cast<int32_t>(millis() - reboot_at_ms_.load()) >= 0) {
