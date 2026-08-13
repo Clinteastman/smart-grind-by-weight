@@ -112,14 +112,27 @@ bool ImageUploadHandler::complete_upload() {
         return false;
     }
 
-    // Remove existing image if present
-    if (LittleFS.exists(BLE_IMAGE_FILENAME)) {
-        LittleFS.remove(BLE_IMAGE_FILENAME);
+    // LittleFS cannot replace an existing file with rename(). Preserve the
+    // known-good image until the new file has been committed so an interrupted
+    // or failed finalisation does not leave the grinder without a screensaver.
+    constexpr const char* backup_filename = "/screensaver.rgb565.bak";
+    LittleFS.remove(backup_filename);
+    const bool had_existing_image = LittleFS.exists(BLE_IMAGE_FILENAME);
+    if (had_existing_image &&
+        !LittleFS.rename(BLE_IMAGE_FILENAME, backup_filename)) {
+        LOG_BLE("Image Upload: Failed to preserve existing image\n");
+        cleanup_temp_file();
+        upload_in_progress_ = false;
+        current_status_ = BLE_IMG_STATUS_ERROR;
+        return false;
     }
 
-    // Rename temp file to final filename
+    // Rename the fully received temp file to the final filename.
     if (!LittleFS.rename(BLE_IMAGE_TEMP_FILENAME, BLE_IMAGE_FILENAME)) {
         LOG_BLE("Image Upload: Failed to rename temp file\n");
+        if (had_existing_image) {
+            LittleFS.rename(backup_filename, BLE_IMAGE_FILENAME);
+        }
         cleanup_temp_file();
         upload_in_progress_ = false;
         current_status_ = BLE_IMG_STATUS_ERROR;
@@ -129,11 +142,23 @@ bool ImageUploadHandler::complete_upload() {
     upload_in_progress_ = false;
 
     // Verify file exists after rename
-    if (!LittleFS.exists(BLE_IMAGE_FILENAME)) {
+    File committed_file = LittleFS.open(BLE_IMAGE_FILENAME, "r");
+    const bool committed_ok = committed_file &&
+                              committed_file.size() == BLE_IMAGE_EXPECTED_SIZE;
+    if (committed_file) {
+        committed_file.close();
+    }
+    if (!committed_ok) {
         LOG_BLE("Image Upload: File missing after rename\n");
+        LittleFS.remove(BLE_IMAGE_FILENAME);
+        if (had_existing_image) {
+            LittleFS.rename(backup_filename, BLE_IMAGE_FILENAME);
+        }
         current_status_ = BLE_IMG_STATUS_ERROR;
         return false;
     }
+
+    LittleFS.remove(backup_filename);
 
     current_status_ = BLE_IMG_STATUS_SUCCESS;
     LOG_BLE("Image Upload: Complete (%lu bytes)\n", (unsigned long)received_size_);
@@ -177,7 +202,12 @@ bool ImageUploadHandler::delete_image() {
 }
 
 bool ImageUploadHandler::has_image() const {
-    return LittleFS.exists(BLE_IMAGE_FILENAME);
+    File image = LittleFS.open(BLE_IMAGE_FILENAME, "r");
+    const bool valid = image && image.size() == BLE_IMAGE_EXPECTED_SIZE;
+    if (image) {
+        image.close();
+    }
+    return valid;
 }
 
 float ImageUploadHandler::get_progress() const {

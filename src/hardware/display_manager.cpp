@@ -211,6 +211,17 @@ DisplayPerformanceSnapshot DisplayManager::get_performance_snapshot() {
 }
 
 bool DisplayManager::draw_rgb565_file(const char* path, uint16_t width, uint16_t height) {
+#if HW_DISPLAY_VARIANT_V2
+    // The SH8601 path submits transfers asynchronously.  The normal LVGL
+    // startup screensaver remains available on V2, but this early, direct
+    // Arduino_GFX optimisation is V1-only until it has a dedicated transfer
+    // completion path.  Do not reference the V1-only gfx_device here: doing so
+    // makes the V2 firmware fail to compile.
+    (void)path;
+    (void)width;
+    (void)height;
+    return false;
+#else
     if (!initialized || !gfx_device || !path || width == 0 || height == 0) {
         return false;
     }
@@ -271,6 +282,7 @@ bool DisplayManager::draw_rgb565_file(const char* path, uint16_t width, uint16_t
     heap_caps_free(row_buffer);
     file.close();
     return success;
+#endif
 }
 
 // Update the refresh area to be full width

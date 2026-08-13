@@ -826,6 +826,35 @@ function screensaverSettingsErrorMessage(code) {
     }
 }
 
+function characteristicBytes(event) {
+    const value = event.target.value;
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
+function waitForScreensaverImageStatus(statusChar, expectedStatuses, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            cleanup();
+            reject(new Error('Timed out waiting for the grinder to confirm the image transfer'));
+        }, timeoutMs);
+
+        const handler = (event) => {
+            const val = characteristicBytes(event);
+            if (val.length > 0 && expectedStatuses.includes(val[0])) {
+                cleanup();
+                resolve(val[0]);
+            }
+        };
+
+        function cleanup() {
+            clearTimeout(timeoutId);
+            statusChar.removeEventListener('characteristicvaluechanged', handler);
+        }
+
+        statusChar.addEventListener('characteristicvaluechanged', handler);
+    });
+}
+
 function waitForScreensaverSettings(statusChar, timeoutMs = 5000) {
     return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
@@ -834,7 +863,7 @@ function waitForScreensaverSettings(statusChar, timeoutMs = 5000) {
         }, timeoutMs);
 
         const handler = (event) => {
-            const val = new Uint8Array(event.target.value.buffer);
+            const val = characteristicBytes(event);
             if (val.length === 0) return;
 
             if (val[0] === BLE_SETTINGS_STATUS_VALUE && val.length >= 4) {
@@ -1055,7 +1084,6 @@ async function uploadScreensaver() {
     let bleDevice = null;
     let controlChar = null;
     let statusChar = null;
-    let statusHandler = null;
     let uploadActive = false;
 
     try {
@@ -1067,14 +1095,9 @@ async function uploadScreensaver() {
         statusChar = connection.statusChar;
         updateScreensaverStatus('Getting data service...', 'info');
 
-        // Set up status notifications
-        let lastStatus = BLE_IMG_STATUS_IDLE;
+        // Set up status notifications before sending any command so a fast
+        // acknowledgement cannot be missed.
         await statusChar.startNotifications();
-        statusHandler = (event) => {
-            const val = new Uint8Array(event.target.value.buffer);
-            if (val.length > 0) lastStatus = val[0];
-        };
-        statusChar.addEventListener('characteristicvaluechanged', statusHandler);
 
         // Send START command: [0x30][size:4 LE]
         updateScreensaverStatus('Starting upload...', 'info');
@@ -1084,12 +1107,14 @@ async function uploadScreensaver() {
         startCmd[2] = (screensaverRgb565Data.length >> 8) & 0xFF;
         startCmd[3] = (screensaverRgb565Data.length >> 16) & 0xFF;
         startCmd[4] = (screensaverRgb565Data.length >> 24) & 0xFF;
+        const startStatusPromise = waitForScreensaverImageStatus(
+            statusChar,
+            [BLE_IMG_STATUS_RECEIVING, BLE_IMG_STATUS_ERROR]
+        );
         await controlChar.writeValue(startCmd);
         uploadActive = true;
-
-        await sleep(200); // Wait for device to prepare
-
-        if (lastStatus === BLE_IMG_STATUS_ERROR) {
+        const startStatus = await startStatusPromise;
+        if (startStatus !== BLE_IMG_STATUS_RECEIVING) {
             throw new Error('Device rejected the upload (check image size or OTA status)');
         }
 
@@ -1109,12 +1134,14 @@ async function uploadScreensaver() {
 
         // Send END command
         updateScreensaverStatus('Finalizing...', 'info');
+        const endStatusPromise = waitForScreensaverImageStatus(
+            statusChar,
+            [BLE_IMG_STATUS_SUCCESS, BLE_IMG_STATUS_ERROR]
+        );
         const endCmd = new Uint8Array([BLE_IMG_CMD_END]);
         await controlChar.writeValue(endCmd);
-
-        await sleep(500); // Wait for device to finalize
-
-        if (lastStatus === BLE_IMG_STATUS_ERROR) {
+        const endStatus = await endStatusPromise;
+        if (endStatus !== BLE_IMG_STATUS_SUCCESS) {
             throw new Error('Device reported error during finalization');
         }
         uploadActive = false;
@@ -1134,8 +1161,7 @@ async function uploadScreensaver() {
             }
         }
 
-        if (statusChar && statusHandler) {
-            statusChar.removeEventListener('characteristicvaluechanged', statusHandler);
+        if (statusChar) {
             try {
                 await statusChar.stopNotifications();
             } catch (e) {
@@ -1154,24 +1180,40 @@ async function deleteScreensaver() {
     const deleteBtn = document.getElementById('deleteScreensaverBtn');
     deleteBtn.disabled = true;
     let bleDevice = null;
+    let statusChar = null;
 
     try {
         updateScreensaverStatus('Connecting to device...', 'info');
 
         const connection = await connectScreensaverDataService();
         bleDevice = connection.bleDevice;
+        statusChar = connection.statusChar;
+        await statusChar.startNotifications();
 
         // Send DELETE command
+        const deleteStatusPromise = waitForScreensaverImageStatus(
+            statusChar,
+            [BLE_IMG_STATUS_IDLE, BLE_IMG_STATUS_ERROR]
+        );
         const deleteCmd = new Uint8Array([BLE_IMG_CMD_DELETE]);
         await connection.controlChar.writeValue(deleteCmd);
-
-        await sleep(500);
+        const deleteStatus = await deleteStatusPromise;
+        if (deleteStatus !== BLE_IMG_STATUS_IDLE) {
+            throw new Error('Device could not delete the screensaver image');
+        }
         updateScreensaverStatus('Screensaver image deleted from device.', 'success');
 
     } catch (error) {
         updateScreensaverStatus(`Delete failed: ${error.message}`, 'error');
         console.error('Screensaver delete error:', error);
     } finally {
+        if (statusChar) {
+            try {
+                await statusChar.stopNotifications();
+            } catch (e) {
+                // Ignore cleanup errors.
+            }
+        }
         disconnectBleDevice(bleDevice);
         deleteBtn.disabled = false;
     }

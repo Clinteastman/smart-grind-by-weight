@@ -689,6 +689,11 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
     
     switch (command) {
         case BLE_OTA_CMD_START:
+            if (image_handler.is_upload_active() || data_export_in_progress) {
+                log("Bluetooth OTA: Rejected while data channel is busy\n");
+                set_ota_status(BLE_OTA_ERROR);
+                break;
+            }
             // New protocol: [CMD][patch_size:4][is_full_update:1][build_number_length:1][build_number:N]
             if (data.length() >= 6) {  // 1 + 4 + 1 bytes minimum (cmd + patch_size + full_update_flag)
                 uint32_t patch_size = *(uint32_t*)(data.c_str() + 1);
@@ -810,6 +815,16 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
     
     uint8_t command = data[0];
     log("Bluetooth Data: Received command 0x%02X\n", command);
+
+    const bool is_image_command = command == BLE_IMG_CMD_START ||
+                                  command == BLE_IMG_CMD_END ||
+                                  command == BLE_IMG_CMD_ABORT ||
+                                  command == BLE_IMG_CMD_DELETE;
+    if (image_handler.is_upload_active() && !is_image_command) {
+        log("Bluetooth Data: Rejected command 0x%02X during image upload\n", command);
+        set_data_status(BLE_DATA_ERROR);
+        return;
+    }
     
     switch (command) {
         case BLE_DATA_CMD_STOP_EXPORT:
@@ -937,6 +952,11 @@ void BluetoothManager::onRead(BLECharacteristic* characteristic) {
 void BluetoothManager::handle_image_control_command(uint8_t command, const String& value) {
     switch (command) {
         case BLE_IMG_CMD_START: {
+            if (data_export_in_progress) {
+                LOG_BLE("Image: START rejected while data export is active\n");
+                set_image_status(BLE_IMG_STATUS_ERROR);
+                return;
+            }
             if (value.length() < 5) {
                 LOG_BLE("Image: START command too short\n");
                 set_image_status(BLE_IMG_STATUS_ERROR);

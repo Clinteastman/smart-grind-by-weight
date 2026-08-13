@@ -21,7 +21,12 @@ ScreensaverController::~ScreensaverController() {
 }
 
 bool ScreensaverController::has_image() const {
-    return LittleFS.exists(BLE_IMAGE_FILENAME);
+    File image = LittleFS.open(BLE_IMAGE_FILENAME, "r");
+    const bool valid = image && image.size() == BLE_IMAGE_EXPECTED_SIZE;
+    if (image) {
+        image.close();
+    }
+    return valid;
 }
 
 bool ScreensaverController::is_startup_enabled() const {
