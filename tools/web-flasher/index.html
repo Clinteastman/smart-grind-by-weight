@@ -243,7 +243,12 @@
         </div>
 
         <div class="board-warning">
-            <strong>Choose the correct board revision.</strong> V1 and V2 use incompatible display drivers and different wiring. The wrong firmware can leave the display black. If the back of the board is marked <strong>Rev2.0</strong>, select <strong>Waveshare 1.64 V2</strong>.
+            <strong>Choose by display generation, not the PCB revision text.</strong>
+            The newer SH8601 board can still be marked <strong>Rev1.1</strong> on the back;
+            a <strong>Rev1.1</strong> marking does not mean that the V1/CO5300 firmware is correct.
+            Select <strong>Newer SH8601 (V2 firmware)</strong> if Waveshare's official
+            <a href="https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2">v2 demo</a>
+            works on the board, or if the original CO5300 Smart Grind firmware boots with a black display. The two generations also use different grinder wiring.
         </div>
         
         <div id="browserWarning" class="browser-support">

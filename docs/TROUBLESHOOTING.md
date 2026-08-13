@@ -26,7 +26,9 @@
 Waveshare's V2 revision is not display-compatible with the original board. It uses an SH8601 panel controller, GPIO 46 for display chip select, a 40 MHz QSPI bus, and a 20-pixel X offset. The original V1 target uses a different display path and can boot successfully without lighting a V2 panel.
 
 ### Confirm the Revision
-Flash Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2). If that works but the V1 demo or normal Smart Grind image remains black, treat the board as V2. Do this test before connecting the grinder wiring so display compatibility is isolated from the rest of the installation.
+Do **not** identify this display generation from the PCB revision text alone. A physically verified newer SH8601 board is silkscreened `Rev1.1`, despite requiring what this project calls the V2 firmware and wiring. The V1/V2 names in this project distinguish incompatible display generations, not a reliable marking printed on the PCB.
+
+Flash Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2). If that works but the original CO5300 demo or normal V1 Smart Grind image remains black, treat the board as the newer SH8601 generation and use the V2 target. Do this test before connecting the grinder wiring so display compatibility is isolated from the rest of the installation.
 
 ### Resolution
 Build and flash the V2 target:
@@ -39,7 +41,7 @@ For a complete V2 installation, wire HX711 SCK to GPIO 1 and the grinder motor-c
 
 Do not change only the chip-select pin in a V1 build. Hardware validation showed that an Arduino_GFX SH8601 attempt remained black; the working V2 target uses Waveshare's native Espressif `esp_lcd` SH8601 driver and initialization sequence.
 
-If using the Web Flasher, select an image explicitly labelled for the 1.64-inch V2 board. If no V2 image is listed, do not flash the V1 image; build the V2 target from source or wait for a V2 release artifact.
+If using the Web Flasher, select **Newer SH8601 (V2 firmware; may say Rev1.1)** for this generation. Do not select the original CO5300 image merely because the PCB says `Rev1.1`.
 
 ---
 
