@@ -50,7 +50,7 @@ the original project or its authorship.
 | Wi-Fi setup, discovery and guarded OTA | Implemented | Validate station/AP reconnect, on-device arming and a full V2 OTA cycle on hardware |
 | Versioned live API and browser UI | Implemented | Validate sustained live graphing, touch responsiveness and memory headroom on V2 hardware |
 | Improv serial provisioning | Implemented | Validate browser-to-USB provisioning and failure recovery on V2 hardware |
-| Native Home Assistant integration | Planned | Build separately against the documented v1 API, then test discovery and reconnect behaviour |
+| Native Home Assistant integration | Implemented in a separate local package | Validate discovery, entities, commands and reconnect behaviour on a live Home Assistant instance |
 
 ## Reviewed upstream work
 

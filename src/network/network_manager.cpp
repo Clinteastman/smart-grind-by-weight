@@ -138,6 +138,13 @@ String SmartGrindNetworkManager::hostname() const {
     return value;
 }
 
+String SmartGrindNetworkManager::device_id() const {
+    char value[13];
+    snprintf(value, sizeof(value), "%012llx",
+             static_cast<unsigned long long>(ESP.getEfuseMac()));
+    return String(value);
+}
+
 String SmartGrindNetworkManager::network_name() const {
     if (settings_mutex_) xSemaphoreTake(settings_mutex_, portMAX_DELAY);
     const String value = ssid_;
@@ -200,12 +207,14 @@ void SmartGrindNetworkManager::handle_connected() {
     ever_connected_ = true;
     set_state(NetworkState::WIFI_CONNECTED);
     const String current_hostname = hostname();
+    const String current_device_id = device_id();
     mdns_started_ = MDNS.begin(current_hostname.c_str());
     if (mdns_started_) {
         MDNS.addService("http", "tcp", 80);
         MDNS.addService("smartgrind", "tcp", 80);
         MDNS.addServiceTxt("smartgrind", "tcp", "api", "v1");
         MDNS.addServiceTxt("smartgrind", "tcp", "version", BUILD_FIRMWARE_VERSION);
+        MDNS.addServiceTxt("smartgrind", "tcp", "id", current_device_id.c_str());
     }
     LOG_BLE("[WIFI] Connected: %s (%s.local, mDNS=%s)\n",
             WiFi.localIP().toString().c_str(), current_hostname.c_str(), mdns_started_ ? "OK" : "FAILED");

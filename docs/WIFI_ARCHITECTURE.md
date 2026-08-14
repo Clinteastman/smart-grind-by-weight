@@ -118,3 +118,8 @@ Each request receives a v1 acknowledgement containing `action`, `accepted` and
 network callback only queues requests; the normal UI/control task decides
 whether to execute them.
 
+`GET /api/v1/status` also exposes a stable 12-character device identifier,
+model and hardware revision. The same identifier is advertised as the `id` TXT
+property on `_smartgrind._tcp`; integrations use it as the config-entry and
+entity identity so DHCP address changes do not create duplicate devices.
+

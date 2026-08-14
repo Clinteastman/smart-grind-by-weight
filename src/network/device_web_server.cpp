@@ -131,17 +131,24 @@ void DeviceWebServer::configure_routes() {
     server_.on("/api/v1/status", HTTP_GET, [](AsyncWebServerRequest* request) {
         AsyncResponseStream* response = request->beginResponseStream("application/json");
         const String hostname = json_escape(network_manager.hostname());
+        const String device_id = json_escape(network_manager.device_id());
         const String network_name = json_escape(network_manager.network_name());
         const String ip_address = json_escape(network_manager.ip_address());
         const String ota_token = device_web_server.is_ota_armed()
                                      ? device_web_server.ota_token_string()
                                      : String();
         response->printf(
-            "{\"api\":\"v1\",\"firmware\":{\"version\":\"%s\",\"build\":%d,\"commit\":\"%s\"},"
+#ifdef HW_DISPLAY_VARIANT_V2
+            "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"v2\"},"
+#else
+            "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"v1\"},"
+#endif
+            "\"firmware\":{\"version\":\"%s\",\"build\":%d,\"commit\":\"%s\"},"
             "\"network\":{\"state\":\"%s\",\"hostname\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\"},"
             "\"system\":{\"uptime_ms\":%lu,\"free_heap\":%u,\"free_internal_heap\":%u,"
             "\"largest_internal_block\":%u,\"free_psram\":%u},"
             "\"ota\":{\"armed\":%s,\"active\":%s,\"arm_seconds\":%lu,\"progress\":%u,\"token\":\"%s\"}}",
+            device_id.c_str(),
             BUILD_FIRMWARE_VERSION,
             BUILD_NUMBER,
             GIT_COMMIT_ID,

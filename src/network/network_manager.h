@@ -32,6 +32,7 @@ public:
     bool has_credentials() const;
     NetworkState state() const { return state_.load(); }
     String hostname() const;
+    String device_id() const;
     String network_name() const;
     String ip_address() const;
 
