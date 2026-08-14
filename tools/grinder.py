@@ -138,7 +138,13 @@ class GrinderTool:
             self.print_error(f"Failed to set up environment: {e}")
             return False
     
-    def run_command(self, cmd: List[str], cwd: Optional[Path] = None, capture_output: bool = False) -> subprocess.CompletedProcess:
+    def run_command(
+        self,
+        cmd: List[str],
+        cwd: Optional[Path] = None,
+        capture_output: bool = False,
+        env: Optional[Dict[str, str]] = None,
+    ) -> subprocess.CompletedProcess:
         """Run a command with proper error handling."""
         try:
             return subprocess.run(
@@ -146,7 +152,8 @@ class GrinderTool:
                 cwd=cwd or self.project_dir,
                 capture_output=capture_output,
                 text=True,
-                check=False
+                check=False,
+                env=env,
             )
         except FileNotFoundError as e:
             self.print_error(f"Command not found: {cmd[0]}")
@@ -208,11 +215,31 @@ class GrinderTool:
         jobs = max(1, getattr(args, "jobs", min(8, os.cpu_count() or 1)))
         self.print_info(f"Target: {args.hardware.upper()} ({jobs} parallel jobs)")
 
+        build_env = os.environ.copy()
+        # PlatformIO and some package scripts print Unicode status symbols.
+        # Force UTF-8 so redirected Windows builds do not lose their final
+        # output to a background cp1252 UnicodeEncodeError.
+        build_env.setdefault("PYTHONUTF8", "1")
+        build_env.setdefault("PYTHONIOENCODING", "utf-8")
+        cache_override = build_env.get("SMART_GRIND_BUILD_CACHE_DIR")
+        if cache_override:
+            build_env["PLATFORMIO_BUILD_CACHE_DIR"] = cache_override
+        elif not build_env.get("PLATFORMIO_BUILD_CACHE_DIR"):
+            if platform.system() == "Windows":
+                cache_root = Path(build_env.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+            else:
+                cache_root = Path(build_env.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+            build_env["PLATFORMIO_BUILD_CACHE_DIR"] = str(
+                cache_root / "smart-grind-by-weight" / "platformio-build-cache"
+            )
+        self.print_info(f"Shared build cache: {build_env['PLATFORMIO_BUILD_CACHE_DIR']}")
+
         # Keep local Windows builds responsive. PlatformIO otherwise uses every
         # logical CPU, which can make this source-heavy project slower through
         # compiler and filesystem contention.
         result = self.run_command(
-            platformio_cmd + ["run", "-e", environment, "-j", str(jobs)]
+            platformio_cmd + ["run", "-e", environment, "-j", str(jobs)],
+            env=build_env,
         )
         
         if result.returncode == 0:

@@ -47,6 +47,7 @@ the original project or its authorship.
 | Area | Software status | Remaining acceptance work |
 | --- | --- | --- |
 | V1/V2 install and USB recovery | Complete | Recheck release packages before the next public release |
+| Reproducible, cached firmware and simulator builds | Complete locally | Confirm cache restore and both hardware jobs on the first published CI run |
 | Wi-Fi setup, discovery and guarded OTA | Implemented | Validate station/AP reconnect, on-device arming and a full V2 OTA cycle on hardware |
 | Versioned live API and browser UI | Implemented | Validate sustained live graphing, touch responsiveness and memory headroom on V2 hardware |
 | Improv serial provisioning | Implemented | Validate browser-to-USB provisioning and failure recovery on V2 hardware |

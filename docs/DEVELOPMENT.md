@@ -122,6 +122,12 @@ python3 tools/grinder.py build
 # Equivalent: platformio run -e waveshare-esp32s3-touch-amoled-164
 ```
 
+The grinder tool keeps PlatformIO's compiled-object cache in the operating
+system's user cache directory, so compatible objects are reused across Git
+worktrees and branches. Set `SMART_GRIND_BUILD_CACHE_DIR` to choose a different
+shared location, or `PLATFORMIO_BUILD_CACHE_DIR` when invoking PlatformIO
+directly.
+
 **Build V2 production firmware:**
 ```bash
 python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-v2

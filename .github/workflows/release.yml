@@ -26,6 +26,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Restore PlatformIO package cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-pio-deps-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-deps-
+
+      - name: Restore compiled-object cache
+        uses: actions/cache@v4
+        with:
+          path: .pio/build-cache
+          key: ${{ runner.os }}-pio-objects-release-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-pio-objects-release-
+            ${{ runner.os }}-pio-objects-
     
       - name: Install PlatformIO
         run: |
