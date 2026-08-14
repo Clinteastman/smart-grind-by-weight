@@ -68,13 +68,11 @@ void StatusIndicatorController::update_warning_icon() {
 
     // Check if there are any diagnostic warnings
     if (ui_manager_->diagnostics_controller_) {
-        DiagnosticCode diagnostic = ui_manager_->diagnostics_controller_->get_highest_priority_warning();
-
-        // In TIME mode, a missing sensor is intentional — suppress the warning
-        if (diagnostic == DiagnosticCode::HX711_NOT_CONNECTED &&
-            ui_manager_->current_mode == GrindMode::TIME) {
-            diagnostic = DiagnosticCode::NONE;
-        }
+        // All load-cell diagnostics are irrelevant in sensor-free TIME mode,
+        // but non-sensor warnings (for example mechanical instability) remain.
+        const bool include_load_cell = ui_manager_->current_mode != GrindMode::TIME;
+        DiagnosticCode diagnostic =
+            ui_manager_->diagnostics_controller_->get_highest_priority_warning(include_load_cell);
 
         if (diagnostic != DiagnosticCode::NONE) {
             lv_obj_clear_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);

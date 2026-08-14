@@ -112,13 +112,10 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
 }
 
 void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
-    target_weight = target;
-    target_time_ms = time_ms;
-    mode = grind_mode;
     LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s\n",
             millis(), target, (unsigned long)time_ms, grind_mode == GrindMode::TIME ? "TIME" : "WEIGHT");
     if (!grinder) return;
-    if (mode == GrindMode::WEIGHT) {
+    if (grind_mode == GrindMode::WEIGHT) {
         if (!weight_sensor) return;
         if (weight_sensor->has_hardware_fault()) {
             LOG_BLE("ERROR: Cannot start grind - load cell hardware fault detected (%d)\n",
@@ -136,6 +133,13 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
             grinder_purge_amount_g_for_session = configured_amount;
         }
     }
+
+    // Do not mutate the active session until all requirements for the selected
+    // mode have passed. A rejected weight grind must not leave the controller
+    // reporting a different mode or target.
+    target_weight = target;
+    target_time_ms = time_ms;
+    mode = grind_mode;
 
     start_time = millis();
     pulse_attempts = 0;
@@ -494,7 +498,8 @@ void GrindController::update() {
 
         case GrindPhase::FINAL_SETTLING:
             // Wait for weight to settle with precision settling window
-            if (weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)) {
+            if (!weight_sensor ||
+                weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)) {
                 final_measurement(loop_data);
             }
             break;
@@ -653,7 +658,7 @@ void GrindController::monitor_mechanical_instability(const GrindLoopData& loop_d
 }
 
 void GrindController::final_measurement(const GrindLoopData& loop_data) {
-    final_weight = weight_sensor->get_weight_high_latency();
+    final_weight = weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f;
 
     if (mode == GrindMode::WEIGHT && target_weight >= 1.0f && final_weight < NO_WEIGHT_DELIVERED_THRESHOLD_G) {
         timeout_phase = GrindPhase::FINAL_SETTLING;
@@ -897,7 +902,7 @@ void GrindController::send_measurements_data() {
 }
 
 float GrindController::get_current_flow_rate() const {
-    return weight_sensor->get_flow_rate(); 
+    return weight_sensor ? weight_sensor->get_flow_rate() : 0.0f;
 }
 
 void GrindController::set_ui_event_callback(void (*callback)(const GrindEventData&)) {

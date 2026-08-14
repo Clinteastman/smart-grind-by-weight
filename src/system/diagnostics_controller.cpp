@@ -128,7 +128,7 @@ void DiagnosticsController::check_mechanical_stability(GrindController* grind_ct
     }
 }
 
-DiagnosticCode DiagnosticsController::get_highest_priority_warning() const {
+DiagnosticCode DiagnosticsController::get_highest_priority_warning(bool include_load_cell) const {
     // Priority order (highest to lowest):
     // 1. HX711_NOT_CONNECTED - load cell hardware missing
     // 2. HX711_SAMPLE_RATE_INVALID - incorrect RATE pin configuration
@@ -136,19 +136,19 @@ DiagnosticCode DiagnosticsController::get_highest_priority_warning() const {
     // 4. LOAD_CELL_NOISY_SUSTAINED - affects grind quality
     // 5. LOAD_CELL_NOT_CALIBRATED - initial setup issue
 
-    if (find_diagnostic(DiagnosticCode::HX711_NOT_CONNECTED)) {
+    if (include_load_cell && find_diagnostic(DiagnosticCode::HX711_NOT_CONNECTED)) {
         return DiagnosticCode::HX711_NOT_CONNECTED;
     }
-    if (find_diagnostic(DiagnosticCode::HX711_SAMPLE_RATE_INVALID)) {
+    if (include_load_cell && find_diagnostic(DiagnosticCode::HX711_SAMPLE_RATE_INVALID)) {
         return DiagnosticCode::HX711_SAMPLE_RATE_INVALID;
     }
     if (find_diagnostic(DiagnosticCode::MECHANICAL_INSTABILITY)) {
         return DiagnosticCode::MECHANICAL_INSTABILITY;
     }
-    if (find_diagnostic(DiagnosticCode::LOAD_CELL_NOISY_SUSTAINED)) {
+    if (include_load_cell && find_diagnostic(DiagnosticCode::LOAD_CELL_NOISY_SUSTAINED)) {
         return DiagnosticCode::LOAD_CELL_NOISY_SUSTAINED;
     }
-    if (find_diagnostic(DiagnosticCode::LOAD_CELL_NOT_CALIBRATED)) {
+    if (include_load_cell && find_diagnostic(DiagnosticCode::LOAD_CELL_NOT_CALIBRATED)) {
         return DiagnosticCode::LOAD_CELL_NOT_CALIBRATED;
     }
 
