@@ -327,7 +327,8 @@ function extractVersionFromUrl(url, fallbackVersion = null) {
     return null;
 }
 
-// Web flasher always does full updates (no delta compression)
+// Published BLE OTA assets are already detools patches. Do not transform them
+// again in the browser; the firmware streams them through its delta decoder.
 function prepareFirmwareData(firmwareData) {
     return firmwareData;
 }
