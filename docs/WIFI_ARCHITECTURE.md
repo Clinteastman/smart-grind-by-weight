@@ -106,6 +106,11 @@ State messages have this shape:
 }
 ```
 
+The public `phase` value is deliberately independent of internal controller
+state names. API v1 publishes one of `IDLE`, `PREPARING`, `PRIMING`,
+`GRINDING`, `PAUSED`, `COASTING`, `FINAL_SETTLING`, `COMPLETED`, or `TIMEOUT`,
+so clients remain compatible if the firmware state machine is refined.
+
 Clients may request only actions that reduce risk or clear a finished result:
 
 ```json

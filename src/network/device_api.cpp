@@ -22,6 +22,38 @@ bool websocket_origin_allowed(AsyncWebServerRequest* request) {
     if (!origin_header) return false;
     return origin_header->value() == ("http://" + request->host());
 }
+
+const char* api_phase_name(const GrindController& controller) {
+    switch (controller.get_phase()) {
+        case GrindPhase::IDLE:
+            return "IDLE";
+        case GrindPhase::INITIALIZING:
+        case GrindPhase::SETUP:
+        case GrindPhase::TARING:
+        case GrindPhase::TARE_CONFIRM:
+            return "PREPARING";
+        case GrindPhase::PRIME:
+        case GrindPhase::PRIME_SETTLING:
+        case GrindPhase::PURGE_CONFIRM:
+            return "PRIMING";
+        case GrindPhase::PREDICTIVE:
+        case GrindPhase::PULSE_EXECUTE:
+        case GrindPhase::TIME_ADDITIONAL_PULSE:
+            return "GRINDING";
+        case GrindPhase::TIME_GRINDING:
+            return controller.is_grind_paused() ? "PAUSED" : "GRINDING";
+        case GrindPhase::PULSE_DECISION:
+        case GrindPhase::PULSE_SETTLING:
+            return "COASTING";
+        case GrindPhase::FINAL_SETTLING:
+            return "FINAL_SETTLING";
+        case GrindPhase::COMPLETED:
+            return "COMPLETED";
+        case GrindPhase::TIMEOUT:
+            return "TIMEOUT";
+    }
+    return "IDLE";
+}
 }
 
 void DeviceApi::init(AsyncWebServer* server, HardwareManager* hardware,
@@ -187,7 +219,7 @@ String DeviceApi::build_state_message() {
              "\"motor\":{\"running\":%s},\"system\":{\"free_heap\":%u}}",
              static_cast<unsigned long>(sequence_.fetch_add(1) + 1), static_cast<unsigned long>(millis()),
              grind_controller_->is_active() ? "true" : "false",
-             grind_controller_->get_current_phase_name(),
+             api_phase_name(*grind_controller_),
              mode == GrindMode::TIME ? "time" : "weight",
              grind_controller_->get_current_progress_percent(),
              grind_controller_->get_target_weight(),
