@@ -10,14 +10,19 @@ See the [community roadmap](docs/COMMUNITY_ROADMAP.md) for the Wi-Fi OTA, live w
 
 ## Community development timeline
 
+All feature rows below are implemented for both V1 and V2 and both firmware
+targets pass CI. Physical acceptance has been completed on V2 because that is
+the hardware currently available to the maintainers; there are no known V1
+incompatibilities, and a community V1 hardware acceptance run is welcome.
+
 | Stage | Status | Outcome |
 | --- | --- | --- |
 | V1/V2 maintained baseline | Complete | Tested firmware, V2 wiring, simulator, and faster/reliable display gestures |
 | Public web flasher and releases | Complete | Explicit controller-generation selection and downloadable, reproducible V1/V2 firmware packages |
-| Wi-Fi provisioning and safe OTA | V2 station/captive setup and full OTA validated | Reliable network setup, `smartgrind.local` discovery, and confirmed browser-based full-image updates |
-| Shared live device API | Complete on V2 hardware | Bounded 10 Hz WebSocket state feed, safe stop/dismiss requests, settings and history APIs |
+| Wi-Fi provisioning and safe OTA | Complete | Reliable network setup, `smartgrind.local` discovery, and confirmed browser-based full-image updates |
+| Shared live device API | Complete | Bounded 10 Hz WebSocket state feed, safe stop/dismiss requests, settings and history APIs |
 | Native Home Assistant integration | Package validation complete; hardware validation pending | Separate integration with Zeroconf/local-push entities, automated tests, Ruff, hassfest and HACS CI |
-| Live grinder web UI | Complete on V2 hardware | Light/dark dashboard, live graph, grinder settings, grind history/analytics, downloads, OTA and screensavers |
+| Live grinder web UI | Complete | Light/dark dashboard, live graph, grinder settings, grind history/analytics, downloads, OTA and screensavers |
 
 Each substantial pull request updates this status, its relevant user/developer documentation, and its release notes. The [detailed roadmap](docs/COMMUNITY_ROADMAP.md) records the architecture and contribution plan.
 

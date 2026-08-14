@@ -54,13 +54,18 @@ the original project or its authorship.
 
 ## Delivery status
 
+The feature set is built for both maintained controller targets and both pass
+CI. Physical acceptance currently uses the available V2 grinder; there are no
+known V1 incompatibilities, and equivalent community V1 hardware validation is
+welcome.
+
 | Area | Software status | Remaining acceptance work |
 | --- | --- | --- |
 | V1/V2 install and USB recovery | Complete | Recheck release packages before the next public release |
 | Reproducible, cached firmware and simulator builds | Complete locally | Confirm cache restore and both hardware jobs on the first published CI run |
-| Wi-Fi setup, discovery and OTA | Station/captive setup plus direct unarmed V2 web OTA, cancellation and failure recovery validated | Recheck the release package and router reconnect on the final installed build |
-| Versioned live API and browser UI | Real grind, live graph, completed trace, profile selection and touch interaction validated on V2 | Continue long-duration memory monitoring in routine use |
-| Browser settings, analytics and screensavers | Visual/mobile review and installed-grinder acceptance complete on V2 | Continue cross-browser checks in routine use |
+| Wi-Fi setup, discovery and OTA | Complete | Recheck the release package and router reconnect during routine release acceptance |
+| Versioned live API and browser UI | Complete | Continue long-duration memory monitoring in routine use |
+| Browser settings, analytics and screensavers | Complete | Continue cross-browser checks in routine use |
 | Improv serial provisioning | Implemented | Validate browser-to-USB provisioning and failure recovery on V2 hardware |
 | Native Home Assistant integration | Separate package passes tests, Ruff and hassfest; HACS CI configured | Validate HACS remotely plus discovery, entities, commands and reconnect behaviour on a live Home Assistant instance |
 
