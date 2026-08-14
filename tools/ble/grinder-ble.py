@@ -259,7 +259,16 @@ class GrinderBLETool:
                     # changes, so force fresh service discovery there.
                     client_args = {"timeout": 20}
                     if sys.platform == "win32":
-                        client_args["winrt"] = {"use_cached_services": False}
+                        # Cached discovery is usually more reliable for a
+                        # reconnect to unchanged firmware. If it fails, the
+                        # second attempt refreshes Windows' GATT cache before
+                        # the final cached retry.
+                        use_cached_services = attempt != 2
+                        client_args["winrt"] = {
+                            "use_cached_services": use_cached_services
+                        }
+                        discovery_mode = "cached" if use_cached_services else "refreshed"
+                        self.safe_print(f"[INFO] Windows GATT discovery: {discovery_mode}")
                     self.client = BleakClient(device, **client_args)
                     await asyncio.wait_for(self.client.connect(), timeout=25)
 
@@ -437,11 +446,9 @@ class GrinderBLETool:
             patch_path = patch_file.name
             patch_file.close()
             
-            # Use detools from the project venv (ensured by ensure_venv_requirements)
-            venv_dir = Path(__file__).parent.parent / "venv"
-            detools_cmd = str(venv_dir / "bin" / "detools")
-
-            cmd = [detools_cmd, 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
+            # Invoke detools through the active venv interpreter so this works
+            # with both Windows Scripts/ and Unix bin/ layouts.
+            cmd = [sys.executable, '-m', 'detools', 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
@@ -479,7 +486,12 @@ class GrinderBLETool:
                     self.safe_print(f"[INFO] Upgrading to build: #{new_build}")
                 cached_firmware = self.find_cached_firmware(device_build)
                 if cached_firmware:
-                    patch_data = self.generate_delta_patch(cached_firmware, firmware_data)
+                    # detools performs CPU-bound compression in a subprocess.
+                    # Keep it off the asyncio thread so Windows can continue
+                    # servicing the active WinRT BLE connection.
+                    patch_data = await asyncio.to_thread(
+                        self.generate_delta_patch, cached_firmware, firmware_data
+                    )
                     if patch_data and len(patch_data) < original_size * 0.8:
                         use_delta = True
                     else: full_reason = "delta not beneficial"
@@ -498,7 +510,9 @@ class GrinderBLETool:
         
         if not use_delta:
             with tempfile.NamedTemporaryFile() as empty_file:
-                patch_data = self.generate_delta_patch(Path(empty_file.name), firmware_data)
+                patch_data = await asyncio.to_thread(
+                    self.generate_delta_patch, Path(empty_file.name), firmware_data
+                )
             if not patch_data: return False
         
         self.update_method = "delta" if use_delta else "full"
