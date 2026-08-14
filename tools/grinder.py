@@ -437,6 +437,16 @@ class GrinderTool:
 
         return await self.run_async_command(cmd)
 
+    async def cmd_preflight(self, args: argparse.Namespace) -> int:
+        """Verify the BLE OTA path without writing firmware."""
+        self.print_header("BLE OTA Preflight")
+        if not self.check_venv():
+            return 1
+        cmd = [str(self.venv_python), str(self.ble_tool), "preflight"]
+        if hasattr(args, 'device') and args.device:
+            cmd.extend(["--device", args.device])
+        return await self.run_async_command(cmd)
+
     async def cmd_diagnostics(self, args: argparse.Namespace) -> int:
         """Get comprehensive diagnostic report."""
         self.print_header("Diagnostic Report")
@@ -569,6 +579,9 @@ def create_parser() -> argparse.ArgumentParser:
     info_parser = subparsers.add_parser('info', help='Get comprehensive device system information')
     info_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
 
+    preflight_parser = subparsers.add_parser('preflight', help='Verify BLE OTA readiness without uploading')
+    preflight_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
+
     diagnostics_parser = subparsers.add_parser('diagnostics', help='Get comprehensive diagnostic report for GitHub issues')
     diagnostics_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     diagnostics_parser.add_argument('--save', metavar='FILE', help='Save report to file (default: print to console)')
@@ -613,6 +626,8 @@ async def main():
             return await tool.cmd_debug(args)
         elif args.command == 'info':
             return await tool.cmd_info(args)
+        elif args.command == 'preflight':
+            return await tool.cmd_preflight(args)
         elif args.command == 'diagnostics':
             return await tool.cmd_diagnostics(args)
         elif args.command == 'install':
