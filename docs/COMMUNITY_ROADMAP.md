@@ -57,6 +57,10 @@ The complete physical release gate is maintained in
 hardware validation pending should be promoted to complete until that checklist
 has been run on the installed grinder.
 
+The reviewed work will be split for publication according to the
+[publication plan](PUBLICATION_PLAN.md), even though the consolidated branch is
+used for integration and hardware testing.
+
 ## Reviewed upstream work
 
 Original commit authorship is retained for incorporated contributions. Follow-up
