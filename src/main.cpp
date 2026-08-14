@@ -122,7 +122,7 @@ void setup() {
     // Wi-Fi and HTTP services start asynchronously so they never block the
     // real-time scale, motor, touch, or rendering tasks.
     network_manager.init(hardware_manager.get_preferences());
-    device_web_server.init(&hardware_manager, &grind_controller);
+    device_web_server.init(&hardware_manager, &grind_controller, &bluetooth_manager);
     provisioning_service.init(hardware_manager.get_preferences(), &device_web_server.server());
     device_web_server.begin();
     
@@ -233,7 +233,7 @@ void loop() {
     
     // Check OTA state and suspend hardware tasks if needed
     static bool hardware_suspended = false;
-    bool ota_active = bluetooth_manager.is_updating();
+    bool ota_active = bluetooth_manager.is_updating() || device_web_server.is_ota_active();
     
     if (ota_active && !hardware_suspended) {
         task_manager.suspend_hardware_tasks();

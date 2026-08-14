@@ -5,10 +5,12 @@
 
 class GrindController;
 class HardwareManager;
+class BluetoothManager;
 
 class DeviceWebServer {
 public:
-    void init(HardwareManager* hardware_manager, GrindController* grind_controller);
+    void init(HardwareManager* hardware_manager, GrindController* grind_controller,
+              BluetoothManager* bluetooth_manager);
     void begin();
     void update();
     bool arm_ota();
@@ -32,6 +34,7 @@ private:
     std::atomic<uint64_t> ota_token_{0};
     HardwareManager* hardware_manager_ = nullptr;
     GrindController* grind_controller_ = nullptr;
+    BluetoothManager* bluetooth_manager_ = nullptr;
 
     void configure_routes();
     void handle_ota_upload(AsyncWebServerRequest* request, const String& filename,

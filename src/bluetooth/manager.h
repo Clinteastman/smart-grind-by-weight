@@ -206,6 +206,10 @@ public:
     bool is_enabled() const { return ble_enabled; }
     bool is_connected() const { return device_connected; }
     bool is_updating() const { return ota_handler.is_ota_active(); }
+    bool is_transfer_active() const {
+        return ota_handler.is_ota_active() || data_export_in_progress ||
+               image_handler.is_upload_active();
+    }
     bool is_debug_stream_active() const { return debug_stream_active; }
     bool has_screensaver_image() const { return image_handler.has_image(); }
     

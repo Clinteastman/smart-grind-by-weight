@@ -19,6 +19,7 @@
 #include "../hardware/hardware_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
+#include "../network/device_web_server.h"
 
 extern HardwareManager hardware_manager;
 
@@ -423,6 +424,11 @@ unsigned long BluetoothManager::get_bluetooth_timeout_remaining_ms() const {
 
 
 void BluetoothManager::start_data_export() {
+    if (device_web_server.is_ota_armed() || device_web_server.is_ota_active()) {
+        log("Bluetooth Data: Export rejected while web OTA is armed or active\n");
+        set_data_status(BLE_DATA_ERROR);
+        return;
+    }
     if (!ble_enabled || !device_connected) {
         log("Bluetooth Data: Cannot start export - BLE not enabled or not connected\n");
         return;
@@ -690,7 +696,8 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
     
     switch (command) {
         case BLE_OTA_CMD_START:
-            if (image_handler.is_upload_active() || data_export_in_progress) {
+            if (device_web_server.is_ota_armed() || device_web_server.is_ota_active() ||
+                image_handler.is_upload_active() || data_export_in_progress) {
                 log("Bluetooth OTA: Rejected while data channel is busy\n");
                 set_ota_status(BLE_OTA_ERROR);
                 break;
@@ -816,6 +823,15 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
     
     uint8_t command = data[0];
     log("Bluetooth Data: Received command 0x%02X\n", command);
+
+    const bool is_transfer_stop = command == BLE_DATA_CMD_STOP_EXPORT ||
+                                  command == BLE_IMG_CMD_ABORT;
+    if ((device_web_server.is_ota_armed() || device_web_server.is_ota_active()) &&
+        !is_transfer_stop) {
+        log("Bluetooth Data: Rejected command 0x%02X while web OTA is armed or active\n", command);
+        set_data_status(BLE_DATA_ERROR);
+        return;
+    }
 
     const bool is_image_command = command == BLE_IMG_CMD_START ||
                                   command == BLE_IMG_CMD_END ||
@@ -953,8 +969,9 @@ void BluetoothManager::onRead(BLECharacteristic* characteristic) {
 void BluetoothManager::handle_image_control_command(uint8_t command, const String& value) {
     switch (command) {
         case BLE_IMG_CMD_START: {
-            if (data_export_in_progress) {
-                LOG_BLE("Image: START rejected while data export is active\n");
+            if (device_web_server.is_ota_armed() || device_web_server.is_ota_active() ||
+                data_export_in_progress) {
+                LOG_BLE("Image: START rejected while another transfer is active\n");
                 set_image_status(BLE_IMG_STATUS_ERROR);
                 return;
             }

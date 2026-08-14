@@ -8,6 +8,7 @@
 #include "../config/build_info.h"
 #include "../config/constants.h"
 #include "../controllers/grind_controller.h"
+#include "../bluetooth/manager.h"
 #include "../hardware/hardware_manager.h"
 #include "network_manager.h"
 #include "device_api.h"
@@ -60,10 +61,12 @@ UpdateClass web_firmware_update;
 
 DeviceWebServer device_web_server;
 
-void DeviceWebServer::init(HardwareManager* hardware_manager, GrindController* grind_controller) {
+void DeviceWebServer::init(HardwareManager* hardware_manager, GrindController* grind_controller,
+                           BluetoothManager* bluetooth_manager) {
     if (initialized_) return;
     hardware_manager_ = hardware_manager;
     grind_controller_ = grind_controller;
+    bluetooth_manager_ = bluetooth_manager;
     device_api.init(&server_, hardware_manager_, grind_controller_);
     configure_routes();
     initialized_ = true;
@@ -89,7 +92,8 @@ void DeviceWebServer::update() {
 
 bool DeviceWebServer::arm_ota() {
     if (!initialized_ || ota_active_.load() || !network_manager.is_connected() ||
-        !grind_controller_ || grind_controller_->is_active()) {
+        !grind_controller_ || grind_controller_->is_active() ||
+        (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
         return false;
     }
     uint64_t token = (static_cast<uint64_t>(esp_random()) << 32) | esp_random();
@@ -230,6 +234,11 @@ void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const St
         if (!grind_controller_ || grind_controller_->is_active()) {
             finish_ota(false);
             request->send(409, "text/plain", "Stop the grinder before updating firmware");
+            return;
+        }
+        if (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) {
+            finish_ota(false);
+            request->send(409, "text/plain", "Wait for the Bluetooth transfer to finish");
             return;
         }
         const size_t internal_heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
