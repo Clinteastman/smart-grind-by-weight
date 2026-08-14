@@ -13,7 +13,7 @@ get_filename_component(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 FetchContent_Declare(
     lvgl
     GIT_REPOSITORY https://github.com/lvgl/lvgl.git
-    GIT_TAG v9.3.0
+    GIT_TAG v9.5.0
     GIT_SHALLOW TRUE
 )
 set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)

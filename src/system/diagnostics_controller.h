@@ -40,7 +40,7 @@ public:
     void update(HardwareManager* hw_mgr, GrindController* grind_ctrl, uint32_t uptime_ms);
 
     // Query diagnostic state
-    DiagnosticCode get_highest_priority_warning() const;
+    DiagnosticCode get_highest_priority_warning(bool include_load_cell = true) const;
     std::vector<DiagnosticState> get_active_diagnostics() const;
     bool has_active_diagnostics() const;
 

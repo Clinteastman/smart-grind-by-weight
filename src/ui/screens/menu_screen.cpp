@@ -1,10 +1,17 @@
 #include "menu_screen.h"
+#include "../../config/build_info.h"
 #include <Arduino.h>
 #include <algorithm>
+#include <LittleFS.h>
+#include <Preferences.h>
+#include <WiFi.h>
 #include "../../config/constants.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/statistics_manager.h"
 #include "../../hardware/hardware_manager.h"
+#include "../../network/network_manager.h"
+#include "../../network/provisioning_service.h"
+#include "../../network/device_web_server.h"
 #include "grinding_screen.h"
 #include "../event_bridge_lvgl.h"
 #include "../../config/logging.h"
@@ -41,11 +48,20 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     scale_weight_label = nullptr;
     scale_tare_button = nullptr;
     scale_item = nullptr;
+    network_page = nullptr;
+    network_status_label = nullptr;
+    network_detail_label = nullptr;
+    network_qr = nullptr;
+    network_status_text.clear();
+    network_detail_text.clear();
+    network_qr_payload.clear();
     grinder_purge_mode_radio_group = nullptr;
     grinder_purge_amount_slider = nullptr;
     grinder_purge_amount_label = nullptr;
     grind_freshness_hours_slider = nullptr;
     grind_freshness_hours_label = nullptr;
+    coast_ratio_slider = nullptr;
+    coast_ratio_label = nullptr;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 
     // Create menu UI immediately at boot for instant access
@@ -126,6 +142,9 @@ void MenuScreen::create_menu_ui() {
     bluetooth_page = lv_menu_page_create(menu, "Bluetooth");
     create_bluetooth_page(bluetooth_page);
 
+    network_page = lv_menu_page_create(menu, "Wi-Fi");
+    create_network_page(network_page);
+
     display_page = lv_menu_page_create(menu, "Display");
     create_display_page(display_page);
     
@@ -175,6 +194,9 @@ void MenuScreen::create_menu_ui() {
     create_separator(main_page, "Settings");
     lv_obj_t* bluetooth_item = create_menu_item(main_page, "Bluetooth");
     lv_menu_set_load_page_event(menu, bluetooth_item, bluetooth_page);
+
+    lv_obj_t* network_item = create_menu_item(main_page, "Wi-Fi");
+    lv_menu_set_load_page_event(menu, network_item, network_page);
 
     lv_obj_t* display_item = create_menu_item(main_page, "Display");
     lv_menu_set_load_page_event(menu, display_item, display_page);
@@ -293,6 +315,115 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
     }
 }
 
+namespace {
+String escape_wifi_qr_value(const String& value) {
+    String escaped;
+    escaped.reserve(value.length() + 8);
+    for (size_t i = 0; i < value.length(); ++i) {
+        const char ch = value[i];
+        if (ch == '\\' || ch == ';' || ch == ',' || ch == ':' || ch == '"') escaped += '\\';
+        escaped += ch;
+    }
+    return escaped;
+}
+}
+
+void MenuScreen::create_network_page(lv_obj_t* parent) {
+    lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+
+    network_status_label = lv_label_create(parent);
+    lv_obj_set_style_text_font(network_status_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(network_status_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+
+    network_detail_label = lv_label_create(parent);
+    lv_obj_set_width(network_detail_label, LV_PCT(90));
+    lv_label_set_long_mode(network_detail_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(network_detail_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(network_detail_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(network_detail_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+
+    network_qr = lv_qrcode_create(parent);
+    lv_qrcode_set_size(network_qr, 180);
+    lv_qrcode_set_dark_color(network_qr, lv_color_hex(0x000000));
+    lv_qrcode_set_light_color(network_qr, lv_color_hex(0xFFFFFF));
+    lv_qrcode_set_quiet_zone(network_qr, true);
+    lv_obj_add_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
+
+    update_network_status();
+}
+
+void MenuScreen::update_network_status() {
+    if (!network_status_label || !network_detail_label || !network_qr) return;
+
+    String status;
+    String detail;
+    String qr_payload;
+    switch (network_manager.state()) {
+        case NetworkState::WIFI_DISABLED:
+            status = "Wi-Fi disabled";
+            detail = "Wi-Fi can be enabled after setup support is complete.";
+            break;
+        case NetworkState::WIFI_NO_CREDENTIALS:
+        case NetworkState::WIFI_SETUP_REQUIRED:
+            status = "Starting setup";
+            detail = "Preparing a secure setup network...";
+            break;
+        case NetworkState::WIFI_CONNECTING:
+            status = "Connecting";
+            detail = network_manager.network_name();
+            break;
+        case NetworkState::WIFI_CONNECTED:
+            if (device_web_server.is_ota_active()) {
+                status = "Updating firmware";
+                detail = String(device_web_server.ota_progress_percent()) + "% received\nDo not remove power.";
+            } else {
+                status = "Connected";
+                detail = network_manager.network_name() + "\nhttp://" + network_manager.hostname() + ".local\n" + network_manager.ip_address();
+            }
+            break;
+        case NetworkState::WIFI_RETRY_WAIT:
+            status = "Connection lost";
+            detail = "Will retry automatically.";
+            break;
+        case NetworkState::WIFI_SETUP_AP: {
+            status = "Wi-Fi setup";
+            const String& ssid = provisioning_service.access_point_ssid();
+            const String& password = provisioning_service.access_point_password();
+            detail = "Scan to join\n" + ssid + "\nPassword: " + password +
+                     "\nthen use the sign-in page or open " + WiFi.softAPIP().toString();
+            qr_payload = "WIFI:T:";
+            qr_payload += password.isEmpty() ? "nopass" : "WPA";
+            qr_payload += ";S:" + escape_wifi_qr_value(ssid);
+            if (!password.isEmpty()) qr_payload += ";P:" + escape_wifi_qr_value(password);
+            qr_payload += ";;";
+            break;
+        }
+    }
+
+    if (status != network_status_text) {
+        lv_label_set_text(network_status_label, status.c_str());
+        network_status_text = status;
+    }
+    if (detail != network_detail_text) {
+        lv_label_set_text(network_detail_label, detail.c_str());
+        network_detail_text = detail;
+    }
+    if (qr_payload.isEmpty()) {
+        lv_obj_add_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        if (qr_payload != network_qr_payload) {
+            lv_qrcode_update(network_qr, qr_payload.c_str(), qr_payload.length());
+            network_qr_payload = qr_payload;
+        }
+        lv_obj_clear_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
+    }
+
+}
+
 void MenuScreen::create_display_page(lv_obj_t* parent) {
     lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
@@ -318,6 +449,22 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
         lv_obj_add_event_cb(brightness_screensaver_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED)));
     }
+
+    // Custom screensaver image toggles
+    create_separator(parent, "Custom Image");
+    create_description_label(parent, "Show uploaded image on startup or when display dims.");
+    create_toggle_row(parent, "Startup", &screensaver_startup_toggle);
+    create_toggle_row(parent, "Sleep", &screensaver_sleep_toggle);
+
+    if (screensaver_startup_toggle) {
+        lv_obj_add_event_cb(screensaver_startup_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::SCREENSAVER_STARTUP_TOGGLE)));
+    }
+    if (screensaver_sleep_toggle) {
+        lv_obj_add_event_cb(screensaver_sleep_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::SCREENSAVER_SLEEP_TOGGLE)));
+    }
+
 }
 
 
@@ -408,6 +555,16 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_slider_row(parent, "Freshness", &grind_freshness_hours_label, &grind_freshness_hours_slider,
                      lv_color_hex(THEME_COLOR_ACCENT), 0, 8);  // 9 positions (0-8)
 
+    // Coast Compensation section
+    create_separator(parent, "Coast Compensation");
+    create_description_label(parent, "How much coast the system expects after motor stop. Higher values reduce overshoot.");
+
+    // Slider for coast ratio (0.70 to 1.50 in 0.05 steps)
+    const uint32_t coast_slider_min = static_cast<uint32_t>(GRIND_LATENCY_TO_COAST_RATIO_MIN * kCoastRatioSliderScale + 0.5f);
+    const uint32_t coast_slider_max = static_cast<uint32_t>(GRIND_LATENCY_TO_COAST_RATIO_MAX * kCoastRatioSliderScale + 0.5f);
+    create_slider_row(parent, "Coast Ratio", &coast_ratio_label, &coast_ratio_slider,
+                     lv_color_hex(THEME_COLOR_ACCENT), coast_slider_min, coast_slider_max);
+
     // Register events for the toggles (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
     if (grind_mode_swipe_toggle) {
@@ -433,6 +590,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_FRESHNESS_HOURS_SLIDER)));
         lv_obj_add_event_cb(grind_freshness_hours_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED)));
+    }
+    if (coast_ratio_slider) {
+        lv_obj_add_event_cb(coast_ratio_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::COAST_RATIO_SLIDER)));
+        lv_obj_add_event_cb(coast_ratio_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::COAST_RATIO_SLIDER_RELEASED)));
     }
 }
 
@@ -617,6 +780,7 @@ void MenuScreen::show() {
     update_bluetooth_startup_toggle();
     update_logging_toggle();
     update_grind_mode_toggles();
+    update_screensaver_toggles();
 
     LOG_BLE("[%lums MENU] Menu screen shown successfully\n", millis());
 }
@@ -909,6 +1073,52 @@ void MenuScreen::update_grind_freshness_hours_label(float hours) {
     }
 }
 
+void MenuScreen::update_coast_ratio_label(float ratio) {
+    if (coast_ratio_label) {
+        char buffer[24];
+        int percent = static_cast<int>(ratio * 100.0f + 0.5f);
+        snprintf(buffer, sizeof(buffer), "Coast Ratio: %d%%", percent);
+        lv_label_set_text(coast_ratio_label, buffer);
+    }
+}
+
+void MenuScreen::update_screensaver_toggles() {
+    bool image_exists = LittleFS.exists(BLE_IMAGE_FILENAME);
+
+    Preferences prefs;
+    prefs.begin("screensaver", true);
+    bool startup_on = prefs.getBool("startup", false);
+    bool sleep_on = prefs.getBool("sleep", false);
+    prefs.end();
+
+    if (screensaver_startup_toggle) {
+        if (startup_on && image_exists) {
+            lv_obj_add_state(screensaver_startup_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(screensaver_startup_toggle, LV_STATE_CHECKED);
+        }
+        // Disable toggles if no image is uploaded
+        if (image_exists) {
+            lv_obj_clear_state(screensaver_startup_toggle, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(screensaver_startup_toggle, LV_STATE_DISABLED);
+        }
+    }
+
+    if (screensaver_sleep_toggle) {
+        if (sleep_on && image_exists) {
+            lv_obj_add_state(screensaver_sleep_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(screensaver_sleep_toggle, LV_STATE_CHECKED);
+        }
+        if (image_exists) {
+            lv_obj_clear_state(screensaver_sleep_toggle, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(screensaver_sleep_toggle, LV_STATE_DISABLED);
+        }
+    }
+}
+
 lv_obj_t* MenuScreen::create_separator(lv_obj_t* parent, const char* text) {
     // Create separator container
     lv_obj_t* separator_container = lv_obj_create(parent);
@@ -977,7 +1187,7 @@ void MenuScreen::update_logging_toggle() {
     prefs.begin("logging", true); // read-only
 
     // Load logging enabled value from preferences (default to false)
-    bool logging_enabled = prefs.getBool("enabled", false);
+    bool logging_enabled = prefs.getBool("enabled", true);
     prefs.end();
 
     // Update toggle state
@@ -1203,4 +1413,20 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     update_grind_freshness_hours_label(freshness_hours);
+
+    // Load and set coast ratio
+    float coast_ratio = GRIND_LATENCY_TO_COAST_RATIO_DEFAULT;
+    if (grind_controller) {
+        coast_ratio = grind_controller->get_coast_ratio();
+    }
+
+    if (coast_ratio_slider) {
+        int slider_value = static_cast<int>(coast_ratio * kCoastRatioSliderScale + 0.5f);
+        const int coast_slider_min = static_cast<int>(GRIND_LATENCY_TO_COAST_RATIO_MIN * kCoastRatioSliderScale + 0.5f);
+        const int coast_slider_max = static_cast<int>(GRIND_LATENCY_TO_COAST_RATIO_MAX * kCoastRatioSliderScale + 0.5f);
+        slider_value = std::clamp(slider_value, coast_slider_min, coast_slider_max);
+        lv_slider_set_value(coast_ratio_slider, slider_value, LV_ANIM_OFF);
+    }
+
+    update_coast_ratio_label(coast_ratio);
 }

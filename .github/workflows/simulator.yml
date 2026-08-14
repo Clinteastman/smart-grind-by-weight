@@ -22,8 +22,15 @@ on:
 jobs:
   build-and-smoke-test:
     runs-on: windows-latest
+    env:
+      SMART_GRIND_FETCHCONTENT_BASE_DIR: ${{ github.workspace }}\.cache\fetchcontent
     steps:
       - uses: actions/checkout@v4
+      - name: Restore simulator dependency cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/fetchcontent
+          key: ${{ runner.os }}-sim-lvgl-9.5.0
       - name: Build and test simulator
         shell: pwsh
         run: .\sim\build.ps1 -Test

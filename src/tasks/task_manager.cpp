@@ -1,4 +1,5 @@
 #include "task_manager.h"
+#include "../config/build_info.h"
 #include "weight_sampling_task.h"
 #include "grind_control_task.h"
 #include "file_io_task.h"
@@ -260,10 +261,14 @@ void TaskManager::suspend_hardware_tasks() {
     LOG_BLE("TaskManager: Suspending hardware tasks for OTA operations\n");
     
     if (task_handles.weight_sampling_task) {
+        // A suspended task cannot feed the task watchdog. Unsubscribe it before
+        // suspension so a long flash erase/write cannot trigger a false reset.
+        esp_task_wdt_delete(task_handles.weight_sampling_task);
         vTaskSuspend(task_handles.weight_sampling_task);
     }
     
     if (task_handles.grind_control_task) {
+        esp_task_wdt_delete(task_handles.grind_control_task);
         vTaskSuspend(task_handles.grind_control_task);
     }
 
@@ -280,10 +285,12 @@ void TaskManager::resume_hardware_tasks() {
     LOG_BLE("TaskManager: Resuming hardware tasks after OTA operations\n");
     
     if (task_handles.weight_sampling_task) {
+        esp_task_wdt_add(task_handles.weight_sampling_task);
         vTaskResume(task_handles.weight_sampling_task);
     }
     
     if (task_handles.grind_control_task) {
+        esp_task_wdt_add(task_handles.grind_control_task);
         vTaskResume(task_handles.grind_control_task);
     }
 

@@ -35,6 +35,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
   - [🔍 Diagnostic Report](#-diagnostic-report)
     - [Report Contents](#report-contents)
     - [Access Methods](#access-methods)
+  - [Screensaver](#screensaver)
   - [📊 Analytics \& Data Export](#-analytics--data-export)
     - [Launch Interactive Dashboard](#launch-interactive-dashboard)
     - [Available Tools](#available-tools)
@@ -247,6 +248,11 @@ Before flashing, verify that the selected image matches the display generation. 
 - ✅ **Automatic version listing** - all releases available in dropdown
 - ✅ **Wireless updates** - once installed, never need USB again
 
+**Screensaver tools:**
+- Upload a custom 280 × 456 image from the **Screensaver** tab
+- Configure idle timeout (30-3600 seconds) and startup image timeout (1-30 seconds)
+- Screensaver brightness and startup/sleep enable toggles remain on the grinder under **Menu → Display**
+
 *Initial USB flashing powered by [ESP Web Tools](https://esphome.github.io/esp-web-tools/)*
 
 ### Command Line (Fallback)
@@ -361,6 +367,7 @@ Need a simple live readout? Open **Menu → Scale** to jump into a full-screen w
 - **Arc Layout**: Clean, minimal arc-based interface
 - **Nerdy Layout**: Detailed charts showing flow rates and real-time grinding analytics
 - **Switching**: Tap anywhere on grind screen to switch between layouts during grinding
+- **Screensaver**: Custom image can show on startup or when the display dims.
 
 ---
 
@@ -397,9 +404,10 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   |   |-- Connection status display
     |   |   \-- Auto-disable timer display
     |   |
-    |   +-- Display
-    |   |   |-- Normal brightness slider
-    |   |   \-- Screensaver brightness slider
+	    |   +-- Display
+	    |   |   |-- Normal brightness slider
+	    |   |   |-- Screensaver brightness slider
+	    |   |   \-- Screensaver startup/sleep toggles
     |   |
     |   \-- Grind Settings
     |       |-- Swipe Gestures toggle (enable/disable vertical swipes)
@@ -460,13 +468,20 @@ Both automation settings rely on the same smoothed weight deltas used for flow d
 
 ## 🔵 Bluetooth Connectivity
 
-Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is configurable in **Menu → Data → Logging** (disabled by default to prevent flash wear) and must be enabled before grinding to save session data for later analysis.
+Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, legacy grind-data export and device management. Grind session logging is configurable in **Menu → Data → Logging** and is enabled by default so the local web History page works immediately; disable it if you do not want sessions written to flash.
 
 ---
 
 ## 🔍 Diagnostic Report
 
 Generate a comprehensive diagnostic report from your device for troubleshooting or attaching to GitHub issues. The report includes firmware version, system health metrics, load cell diagnostics, and all compile-time parameters.
+
+For routine checks without opening the grinder, visit `http://smartgrind.local`,
+open **Settings → System & updates**, and refresh or download the recent
+diagnostic log. The latest 4 KiB of boot/runtime messages are retained in RAM,
+so this adds no ongoing flash wear. USB serial is only needed when the firmware
+cannot boot far enough to reconnect to Wi-Fi; the full compile-time diagnostic
+report below remains available through the legacy Bluetooth tooling.
 
 ### Report Contents
 
@@ -505,14 +520,29 @@ python3 tools/grinder.py diagnostics --save diagnostic-report.txt
 
 ---
 
+## Screensaver
+
+Open `http://smartgrind.local` and choose **Settings → Display & screensaver**.
+Select the built-in Minimal, Orbit or Black AMOLED design, or upload a normal
+photo; the browser crops and converts it to the display's 280 × 456 RGB565
+format before sending it to the grinder.
+
+- **Timing settings**: Configure idle timeout and startup duration in the local web app.
+- **Device settings**: Brightness and startup/sleep toggles remain available under **Menu → Display** and are synchronized with the web settings.
+- **Startup behavior**: On normal Ready boots, the image is drawn early while the full UI initializes, then the regular timed screensaver overlay takes over.
+- **OTA behavior**: During BLE OTA updates and OTA failure warnings, the screensaver is disabled so progress and recovery prompts stay visible.
+
+---
+
 ## 📊 Analytics & Data Export
 
-⚠️ **Important**: Grind session logging is **disabled by default** to prevent unnecessary flash wear. To analyze grind data:
+Grind session logging is enabled by default. Open `http://smartgrind.local` and
+choose **History** to inspect the latest 10 sessions, including accuracy,
+consistency, weight and flow graphs. Download any session as CSV, JSON or its
+original raw record directly in the browser.
 
-1. **Enable logging** in **Menu → Data → Logging** before grinding
-2. Perform your grind sessions (data will be saved to flash storage)
-3. **Export and analyze** the data using the tools below
-4. **Disable logging** again when analysis is complete (recommended for daily use)
+The Python dashboard remains a legacy archive/recovery option when you want to
+collect sessions beyond the device's bounded history:
 
 ### Launch Interactive Dashboard
 ```bash

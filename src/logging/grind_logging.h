@@ -199,6 +199,7 @@ public:
     uint32_t get_total_flash_sessions() const;
     bool is_logging_active() const { return logging_active; }
     uint32_t get_session_storage_version() const { return session_storage_version; }
+    bool validate_stored_session(uint32_t session_id) { return validate_session_file(session_id); }
     
     // Debug output helpers - conditionally compiled based on debug flags (moved to public for BLE access)
 #if ENABLE_GRIND_DEBUG

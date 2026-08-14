@@ -6,6 +6,9 @@
 #include "screens/calibration_screen.h"
 #include "../logging/grind_logging.h"
 #include "../controllers/grind_mode_traits.h"
+#ifndef SMART_GRIND_SIM
+#include "../network/device_api.h"
+#endif
 #include <utility>
 // Static instance pointer for grind event callbacks
 UIManager* UIManager::instance = nullptr;
@@ -57,8 +60,24 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     
     // Register grind event callback
     grind_controller->set_ui_event_callback(GrindingUIController::dispatch_event);
-    
-    
+
+    // Show startup screensaver only on normal ready boot, never over boot warnings.
+    if (screensaver_controller_ &&
+        state_machine &&
+        state_machine->is_state(UIState::READY) &&
+        screensaver_controller_->is_startup_enabled() &&
+        screensaver_controller_->has_image()) {
+        screensaver_controller_->show();
+        uint32_t startup_timeout_ms = screensaver_controller_->get_startup_timeout_ms();
+        lv_timer_create([](lv_timer_t* t) {
+            auto* sc = static_cast<ScreensaverController*>(lv_timer_get_user_data(t));
+            if (sc && sc->is_visible()) {
+                sc->hide();
+            }
+            lv_timer_delete(t);
+        }, startup_timeout_ms, screensaver_controller_.get());
+    }
+
     initialized = true;
 }
 
@@ -117,6 +136,27 @@ void UIManager::create_ui() {
 void UIManager::update() {
     if (!initialized) return;
 
+#ifndef SMART_GRIND_SIM
+    // Execute network commands on the UI/application task, never in the
+    // asynchronous TCP callback that parsed them.
+    if (device_api.process_commands()) {
+        current_tab = profile_controller->get_current_profile();
+        current_mode = profile_controller->get_grind_mode();
+        edit_target = get_current_profile_target(*profile_controller, current_mode);
+        refresh_auto_action_settings();
+        if (screen_timeout_controller_) screen_timeout_controller_->apply_runtime_settings();
+        if (ready_controller_) ready_controller_->refresh_profiles();
+        ready_screen.set_active_tab(current_tab);
+        if (menu_screen.is_visible()) {
+            menu_screen.update_brightness_sliders();
+            menu_screen.update_bluetooth_startup_toggle();
+            menu_screen.update_logging_toggle();
+            menu_screen.update_grind_mode_toggles();
+            menu_screen.update_screensaver_toggles();
+        }
+    }
+#endif
+
     // Update diagnostics controller
     if (diagnostics_controller_) {
         diagnostics_controller_->update(hardware_manager, grind_controller, millis());
@@ -162,7 +202,9 @@ void UIManager::update() {
             break;
 
         case UIState::READY:
-            // Ready state - no special handling needed
+            if (ready_controller_) {
+                ready_controller_->update();
+            }
             break;
             
         default:
@@ -315,12 +357,18 @@ void UIManager::init_controllers() {
     confirm_controller_ = std::make_unique<ConfirmUIController>(this);
     ota_data_export_controller_ = std::make_unique<OtaDataExportController>(this);
     screen_timeout_controller_ = std::make_unique<ScreenTimeoutController>(this);
+    screensaver_controller_ = std::make_unique<ScreensaverController>();
     jog_adjust_controller_ = std::make_unique<JogAdjustController>(this);
     diagnostics_controller_ = std::make_unique<DiagnosticsController>();
 
     // Initialize diagnostics controller
     if (diagnostics_controller_) {
         diagnostics_controller_->init(hardware_manager);
+    }
+
+    // Wire screensaver controller into screen timeout controller
+    if (screen_timeout_controller_ && screensaver_controller_) {
+        screen_timeout_controller_->set_screensaver_controller(screensaver_controller_.get());
     }
 }
 
@@ -389,7 +437,8 @@ void UIManager::update_auto_actions() {
 
     const uint32_t now = millis();
     const bool grinder_active = (grind_controller && grind_controller->is_active());
-    const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
+    const bool on_ready_tab = state_machine->is_state(UIState::READY) &&
+                              current_tab < ReadyScreen::PROFILE_TAB_COUNT;
 
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_) {
         auto* filter = sensor->get_raw_filter();

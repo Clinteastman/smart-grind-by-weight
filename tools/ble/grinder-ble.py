@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import asyncio
+import importlib.util
 import sys
 import os
 import struct
@@ -45,22 +46,30 @@ def ensure_venv_requirements():
         print("Run: python3 -m venv tools/venv && source tools/venv/bin/activate && pip install -r tools/requirements.txt")
         return False
     
-    pip_cmd = str(venv_dir / "bin" / "pip")
-    
     # Check if requirements.txt exists
     if not requirements_file.exists():
         print(f"[WARNING] Requirements file not found at {requirements_file}")
         return True
     
-    # Check and install missing requirements
+    # Avoid invoking pip on every command. Apart from being slow, repeatedly
+    # modifying an active venv makes short Windows BLE recovery attempts much
+    # less predictable. Install only when a command dependency is absent.
+    required_modules = ("bleak", "detools", "serial")
+    if all(importlib.util.find_spec(module) is not None for module in required_modules):
+        return True
+
+    # Install missing requirements
     try:
-        print("[INFO] Checking venv dependencies...")
-        result = subprocess.run([pip_cmd, "install", "-r", str(requirements_file)], 
+        print("[INFO] Installing missing venv dependencies...")
+        # The script is launched with the project venv interpreter. Using that
+        # interpreter keeps dependency checks portable across Windows
+        # (Scripts/pip.exe) and Unix (bin/pip) layouts.
+        result = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(requirements_file)],
                               capture_output=True, text=True)
         if result.returncode != 0:
             print(f"[WARNING] Some dependencies may not be installed: {result.stderr}")
         else:
-            print("[OK] All venv dependencies verified")
+            print("[OK] Venv dependencies installed")
         return True
     except Exception as e:
         print(f"[ERROR] Failed to check dependencies: {e}")
@@ -219,17 +228,16 @@ class GrinderBLETool:
             self.safe_print(f"[ERROR] Scan error: {e}")
             return []
     
-    async def find_device(self, device_name: str = DEVICE_NAME, timeout: int = 10) -> Optional[str]:
+    async def find_device(self, device_name: str = DEVICE_NAME, timeout: int = 10) -> Optional[BLEDevice]:
         self.safe_print(f"[INFO] Scanning for {device_name}...")
         try:
-            devices_with_adv = await asyncio.wait_for(
-                BleakScanner.discover(timeout=timeout, return_adv=True),
-                timeout=timeout + 5
+            device = await asyncio.wait_for(
+                BleakScanner.find_device_by_name(device_name, timeout=timeout),
+                timeout=timeout + 5,
             )
-            for device, adv_data in devices_with_adv.values():
-                if device.name == device_name:
-                    self.safe_print(f"[OK] Found {device_name}")
-                    return device.address
+            if device:
+                self.safe_print(f"[OK] Found {device_name}")
+                return device
             self.safe_print(f"[ERROR] {device_name} not found")
             return None
         except asyncio.TimeoutError:
@@ -238,41 +246,72 @@ class GrinderBLETool:
     
     # === Connection Management ===
     async def connect_to_device(self, device_name: str = DEVICE_NAME) -> bool:
-        address = await self.find_device(device_name)
-        
-        if not address:
-            return False
-        
-        try:
-            self.client = BleakClient(address)
-            await asyncio.wait_for(self.client.connect(), timeout=10)
-            
-            if not self.client.is_connected:
-                self.safe_print("[ERROR] Connection failed")
-                return False
-            
-            self.safe_print(f"[OK] Connected")
-            
-            await self.client.start_notify(BLE_OTA_STATUS_CHAR_UUID, self.on_ota_status)
-            await self.client.start_notify(BLE_DATA_TRANSFER_CHAR_UUID, self.on_data_received)
-            await self.client.start_notify(BLE_DATA_STATUS_CHAR_UUID, self.on_data_status)
-            await self.client.start_notify(BLE_DEBUG_TX_CHAR_UUID, self.on_debug_message)
-            
-            self.connected = True
-            await asyncio.sleep(0.5)
-            return True
-        except Exception as e:
-            self.safe_print(f"[ERROR] Connection error: {e}")
-            return False
+        last_error = None
+
+        for attempt in range(1, 4):
+            device = await self.find_device(device_name, timeout=15)
+            if not device:
+                last_error = "device not found"
+            else:
+                try:
+                    # Passing BLEDevice avoids Bleak's implicit second scan.
+                    # Windows can retain stale GATT handles after firmware
+                    # changes, so force fresh service discovery there.
+                    client_args = {"timeout": 20}
+                    if sys.platform == "win32":
+                        # Cached discovery is usually more reliable for a
+                        # reconnect to unchanged firmware. If it fails, the
+                        # second attempt refreshes Windows' GATT cache before
+                        # the final cached retry.
+                        use_cached_services = attempt != 2
+                        client_args["winrt"] = {
+                            "use_cached_services": use_cached_services
+                        }
+                        discovery_mode = "cached" if use_cached_services else "refreshed"
+                        self.safe_print(f"[INFO] Windows GATT discovery: {discovery_mode}")
+                    self.client = BleakClient(device, **client_args)
+                    await asyncio.wait_for(self.client.connect(), timeout=25)
+
+                    if not self.client.is_connected:
+                        raise BleakError("connection did not become active")
+
+                    await self.client.start_notify(BLE_OTA_STATUS_CHAR_UUID, self.on_ota_status)
+                    await self.client.start_notify(BLE_DATA_TRANSFER_CHAR_UUID, self.on_data_received)
+                    await self.client.start_notify(BLE_DATA_STATUS_CHAR_UUID, self.on_data_status)
+                    await self.client.start_notify(BLE_DEBUG_TX_CHAR_UUID, self.on_debug_message)
+
+                    self.connected = True
+                    await asyncio.sleep(1.0)
+                    self.safe_print("[OK] Connected")
+                    return True
+                except (Exception, asyncio.CancelledError) as e:
+                    last_error = str(e) or type(e).__name__
+                    if self.client:
+                        try:
+                            await asyncio.wait_for(self.client.disconnect(), timeout=5)
+                        except Exception:
+                            pass
+                    self.client = None
+                    self.connected = False
+
+            if attempt < 3:
+                self.safe_print(f"[WARNING] Bluetooth attempt {attempt}/3 failed ({last_error}); retrying...")
+                await asyncio.sleep(attempt * 2)
+
+        self.safe_print(f"[ERROR] Connection failed after 3 attempts: {last_error}")
+        return False
     
     async def disconnect(self):
-        if self.client and self.connected:
+        if self.client:
             try:
-                await self.client.disconnect()
-                self.connected = False
-                self.safe_print("[INFO] Disconnected")
+                if self.client.is_connected:
+                    await asyncio.wait_for(self.client.disconnect(), timeout=5)
             except Exception as e:
                 self.safe_print(f"[WARNING] Disconnect error: {e}")
+            finally:
+                self.client = None
+                self.connected = False
+                self.safe_print("[INFO] Disconnected")
     
     # === Notification Handlers ===
     async def on_ota_status(self, _: BleakGATTCharacteristic, data: bytearray):
@@ -342,8 +381,25 @@ class GrinderBLETool:
             build_data = await self.client.read_gatt_char(BLE_OTA_BUILD_NUMBER_CHAR_UUID)
             build_number = build_data.decode('utf-8').strip()
             return build_number if build_number and build_number != "no_build_number" else None
-        except Exception:
+        except Exception as e:
+            self.safe_print(f"[ERROR] Could not read installed build number: {e}")
             return None
+
+    async def ota_preflight(self) -> bool:
+        """Verify the OTA control path without starting an update."""
+        build_number = await self.get_device_build_number()
+        if not build_number:
+            self.safe_print("[ERROR] OTA preflight failed; no firmware data was sent")
+            return False
+
+        self.safe_print(f"[OK] Installed firmware build: #{build_number}")
+        cached_firmware = self.find_cached_firmware(build_number)
+        if cached_firmware:
+            self.safe_print(f"[OK] Matching delta base: {cached_firmware.name}")
+        else:
+            self.safe_print(f"[WARNING] Matching delta base build_{int(build_number):03d}.bin is not cached")
+        self.safe_print("[OK] OTA preflight passed; no firmware data was sent")
+        return True
 
     def find_cached_firmware(self, build_number: str) -> Optional[Path]:
         firmware_file = self.firmware_cache_dir / f"build_{int(build_number):03d}.bin"
@@ -380,6 +436,8 @@ class GrinderBLETool:
         return None
 
     def generate_delta_patch(self, old_firmware_path: Path, new_firmware_data: bytes) -> Optional[bytes]:
+        new_firmware_path = None
+        patch_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False) as new_file:
                 new_file.write(new_firmware_data)
@@ -390,11 +448,9 @@ class GrinderBLETool:
             patch_path = patch_file.name
             patch_file.close()
             
-            # Use detools from the project venv (ensured by ensure_venv_requirements)
-            venv_dir = Path(__file__).parent.parent / "venv"
-            detools_cmd = str(venv_dir / "bin" / "detools")
-
-            cmd = [detools_cmd, 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
+            # Invoke detools through the active venv interpreter so this works
+            # with both Windows Scripts/ and Unix bin/ layouts.
+            cmd = [sys.executable, '-m', 'detools', 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
@@ -402,14 +458,18 @@ class GrinderBLETool:
                 print("[INFO] If detools is missing, the dependency check should have installed it")
                 return None
             with open(patch_path, 'rb') as f: patch_data = f.read()
-            
-            os.unlink(new_firmware_path)
-            os.unlink(patch_path)
             return patch_data
         except FileNotFoundError:
             return None
         except Exception:
             return None
+        finally:
+            for temporary_path in (new_firmware_path, patch_path):
+                if temporary_path:
+                    try:
+                        os.unlink(temporary_path)
+                    except OSError:
+                        pass
 
     async def upload_firmware(self, firmware_path: str, force_full: bool = False) -> bool:
         firmware_file = Path(firmware_path)
@@ -432,23 +492,42 @@ class GrinderBLETool:
                     self.safe_print(f"[INFO] Upgrading to build: #{new_build}")
                 cached_firmware = self.find_cached_firmware(device_build)
                 if cached_firmware:
-                    patch_data = self.generate_delta_patch(cached_firmware, firmware_data)
+                    # detools performs CPU-bound compression in a subprocess.
+                    # Keep it off the asyncio thread so Windows can continue
+                    # servicing the active WinRT BLE connection.
+                    patch_data = await asyncio.to_thread(
+                        self.generate_delta_patch, cached_firmware, firmware_data
+                    )
                     if patch_data and len(patch_data) < original_size * 0.8:
                         use_delta = True
                     else: full_reason = "delta not beneficial"
-                else: full_reason = "no cached firmware"
-            else: 
-                full_reason = "no device build info"
-                if new_build:
-                    self.safe_print(f"[INFO] Installing build: #{new_build}")
+                else:
+                    self.safe_print(f"[ERROR] No cached firmware for installed build #{device_build}")
+                    self.safe_print("[INFO] Refusing to fall back to a full BLE update; use --force-full explicitly")
+                    return False
+            else:
+                self.safe_print("[ERROR] Could not verify the installed build number")
+                self.safe_print("[INFO] Refusing to start an unverified BLE update")
+                return False
         else: 
             full_reason = "forced full update"
             if new_build:
                 self.safe_print(f"[INFO] Installing build: #{new_build}")
         
         if not use_delta:
-            with tempfile.NamedTemporaryFile() as empty_file:
-                patch_data = self.generate_delta_patch(Path(empty_file.name), firmware_data)
+            # Close the empty base file before detools opens it. Windows does
+            # not allow a second process to read a live NamedTemporaryFile.
+            with tempfile.NamedTemporaryFile(delete=False) as empty_file:
+                empty_path = Path(empty_file.name)
+            try:
+                patch_data = await asyncio.to_thread(
+                    self.generate_delta_patch, empty_path, firmware_data
+                )
+            finally:
+                try:
+                    empty_path.unlink()
+                except OSError:
+                    pass
             if not patch_data: return False
         
         self.update_method = "delta" if use_delta else "full"
@@ -1219,10 +1298,11 @@ async def main():
     connect_parser = subparsers.add_parser('connect', help='Connect to device')
     debug_parser = subparsers.add_parser('debug', help='Stream live debug logs from the device')
     sysinfo_parser = subparsers.add_parser('info', help='Get comprehensive device system information')
+    preflight_parser = subparsers.add_parser('preflight', help='Verify BLE OTA readiness without uploading')
     diagnostics_parser = subparsers.add_parser('diagnostics', help='Get comprehensive diagnostic report for GitHub issues')
     diagnostics_parser.add_argument('--save', metavar='FILE', help='Save report to file (default: print to console)')
 
-    for p in [upload_parser, export_parser, analyse_parser, connect_parser, debug_parser, sysinfo_parser, diagnostics_parser]:
+    for p in [upload_parser, export_parser, analyse_parser, connect_parser, debug_parser, sysinfo_parser, preflight_parser, diagnostics_parser]:
         p.add_argument('--device', default=DEVICE_NAME, help='Device name to connect to')
 
     args = parser.parse_args()
@@ -1232,7 +1312,7 @@ async def main():
         if args.command == 'scan':
             await tool.scan_devices()
         
-        elif args.command in ['upload', 'export', 'analyse', 'connect', 'debug', 'info', 'diagnostics']:
+        elif args.command in ['upload', 'export', 'analyse', 'connect', 'debug', 'info', 'preflight', 'diagnostics']:
             if not await tool.connect_to_device(args.device): return 1
 
             if args.command == 'upload':
@@ -1240,7 +1320,8 @@ async def main():
                 if not firmware_path:
                     tool.safe_print("[ERROR] No firmware file found.")
                     return 1
-                await tool.upload_firmware(firmware_path, args.force_full)
+                if not await tool.upload_firmware(firmware_path, args.force_full):
+                    return 1
             elif args.command == 'export':
                 await tool.export_data(args.db)
             elif args.command == 'analyse':
@@ -1254,6 +1335,9 @@ async def main():
             elif args.command == 'info':
                 info = await tool.get_system_info()
                 tool.print_system_info(info)
+            elif args.command == 'preflight':
+                if not await tool.ota_preflight():
+                    return 1
             elif args.command == 'diagnostics':
                 report = await tool.get_diagnostic_report()
                 if report:

@@ -17,5 +17,4 @@
 #include "grind_control.h"
 #include "system.h"
 #include "user.h"
-#include "build_info.h"
 #include "logging.h"

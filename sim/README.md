@@ -14,7 +14,7 @@ motor run-on, settling, and completion data.
 
 - Windows 10 or later
 - Visual Studio 2022 with the Desktop development with C++ workload
-- Git and internet access for the first build (CMake fetches LVGL 9.3.0)
+- Git and internet access for the first standalone build (CMake fetches LVGL 9.5.0)
 
 No ESP32, display, load cell, grinder, PlatformIO, or SDL installation is
 required.
@@ -27,8 +27,10 @@ From PowerShell at the repository root:
 .\sim\run.ps1
 ```
 
-The first run downloads LVGL and builds the executable. Later runs reuse the
-local build.
+If a firmware build has already installed LVGL 9.5.0, the simulator reuses that
+source and performs no second download. Otherwise the first run downloads LVGL;
+later runs reuse the local build. Set `SMART_GRIND_LVGL_SOURCE` to an existing
+LVGL 9.5.0 source directory when using a custom dependency layout.
 
 Use the on-screen circular button to start, stop, acknowledge, and restart the
 grind flow. The desktop-only keyboard shortcuts are kept outside the simulated

@@ -135,7 +135,9 @@ The local PlatformIO `espressif32` platform package was pinned to an older relea
    ```
 
 ### Notes
-- The warning `Ignore unknown configuration option 'monitor_options'` also disappears once PlatformIO core and platform packages are current.
+- `monitor_options` is not a supported PlatformIO setting. Current firmware uses
+  the project-local `monitor/filter_hiding_filter.py` through `monitor_filters`
+  instead; remove any old local override that still defines `monitor_options`.
 - If multiple PlatformIO installations are present, ensure you are updating the instance used for the project.
 
 ---

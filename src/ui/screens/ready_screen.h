@@ -1,5 +1,12 @@
 #pragma once
 #include <lvgl.h>
+#ifdef SMART_GRIND_SIM
+#include <string>
+using ReadyScreenText = std::string;
+#else
+#include <Arduino.h>
+using ReadyScreenText = String;
+#endif
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode.h"
 
@@ -7,16 +14,29 @@ class ReadyScreen {
 private:
     lv_obj_t* screen;
     lv_obj_t* tabview;
-    lv_obj_t* profile_tabs[4];
+    lv_obj_t* profile_tabs[3];
     lv_obj_t* weight_labels[3];
+    lv_obj_t* wifi_tab;
+    lv_obj_t* wifi_status_label;
+    lv_obj_t* wifi_detail_label;
+    lv_obj_t* wifi_qr;
     lv_obj_t* menu_tab;
+    ReadyScreenText wifi_status_text;
+    ReadyScreenText wifi_detail_text;
+    ReadyScreenText wifi_qr_payload;
     bool visible;
 
 public:
+    static constexpr int PROFILE_TAB_COUNT = 3;
+    static constexpr int WIFI_TAB_INDEX = 3;
+    static constexpr int MENU_TAB_INDEX = 4;
+    static constexpr int TAB_COUNT = 5;
+
     void create();
     void show();
     void hide();
     void update_profile_values(const float values[3], GrindMode mode);
+    void update_network_status();
     void set_active_tab(int tab);
     void set_profile_long_press_handler(lv_event_cb_t handler);
     
@@ -27,5 +47,6 @@ public:
     
 private:
     void create_profile_page(lv_obj_t* parent, int profile_index, const char* profile_name, float weight);
+    void create_wifi_page(lv_obj_t* parent);
     void create_menu_page(lv_obj_t* parent);
 };

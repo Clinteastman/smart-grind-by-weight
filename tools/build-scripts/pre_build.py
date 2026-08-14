@@ -94,12 +94,16 @@ def get_next_build_number():
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     build_number_file = os.path.join(project_root, ".build_number")
     
-    # Read current build number
+    # Reuse the local number by default so a no-change build remains truly
+    # incremental. CI/release workflows provide SMART_GRIND_BUILD_NUMBER.
+    # Developers can explicitly request a new local identity when needed.
     build_number = 1
     if os.path.exists(build_number_file):
         try:
             with open(build_number_file, 'r') as f:
-                build_number = int(f.read().strip()) + 1
+                build_number = int(f.read().strip())
+                if os.environ.get("SMART_GRIND_INCREMENT_BUILD", "").strip() == "1":
+                    build_number += 1
         except (ValueError, IOError):
             build_number = 1
     
@@ -127,7 +131,29 @@ def create_git_info_header():
         project_root = env.get("PROJECT_DIR", os.getcwd())
     else:
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    header_path = os.path.join(project_root, "include", "git_info.h")
+    # Keep generated build metadata out of the global include directory.
+    # Rewriting a header under include/ makes PlatformIO invalidate every
+    # framework and library object, turning incremental builds into full builds.
+    header_path = os.path.join(project_root, "src", "config", "git_info.h")
+
+    # Do not rewrite identical metadata on every PlatformIO invocation. A
+    # touched generated header invalidates its consumers even when no source
+    # changed, defeating incremental builds. CI/release builds pass an explicit
+    # SMART_GRIND_BUILD_NUMBER, so release identity remains deterministic.
+    if os.path.exists(header_path):
+        try:
+            with open(header_path, 'r') as existing_file:
+                existing = existing_file.read()
+            expected_markers = (
+                f'#define GIT_COMMIT_ID "{commit_id}"',
+                f'#define GIT_BRANCH "{branch}"',
+                f'#define BUILD_NUMBER {build_number}',
+            )
+            if all(marker in existing for marker in expected_markers):
+                print(f"Reusing unchanged {header_path} (Build #{build_number})")
+                return
+        except IOError:
+            pass
     
     header_content = f"""#pragma once
 

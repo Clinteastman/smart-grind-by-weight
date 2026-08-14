@@ -48,6 +48,7 @@ private:
     // Calibration parameters
     float cal_factor;
     int32_t tare_offset;
+    std::atomic<bool> tare_initialized_{false};
     
     // Current readings (cached)
     float current_weight;
@@ -82,6 +83,7 @@ private:
 
     // Single calibration conversion point
     float raw_to_weight(int32_t raw_adc_value) const {
+        if (!tare_initialized_.load()) return 0.0f;
         return (float)(raw_adc_value - tare_offset) / cal_factor;
     }
     
@@ -123,8 +125,9 @@ public:
     bool getTareStatus();                 // Exact HX711_ADC method
     
     // Legacy wrapper methods for compatibility
-    bool start_nonblocking_tare() { tareNoDelay(); return true; }
+    bool start_nonblocking_tare() { if (!has_hardware_fault()) { tareNoDelay(); } return true; }
     bool is_tare_in_progress() const { return doTare; }
+    bool has_valid_tare() const { return tare_initialized_.load(); }
     
     // Calibration
     void calibrate(float known_weight);

@@ -102,6 +102,29 @@ float ProfileController::get_profile_time(int index) const {
     return 0.0f;
 }
 
+bool ProfileController::apply_web_settings(int current_profile_index, GrindMode mode,
+                                           const float* weights, const float* times) {
+    if (!preferences || !weights || !times || current_profile_index < 0 ||
+        current_profile_index >= USER_PROFILE_COUNT ||
+        (mode != GrindMode::WEIGHT && mode != GrindMode::TIME)) {
+        return false;
+    }
+    for (int i = 0; i < USER_PROFILE_COUNT; ++i) {
+        if (!is_weight_valid(weights[i]) || !is_time_valid(times[i])) return false;
+    }
+
+    current_profile = current_profile_index;
+    current_grind_mode = mode;
+    for (int i = 0; i < USER_PROFILE_COUNT; ++i) {
+        profiles[i].weight = weights[i];
+        profiles[i].time_seconds = times[i];
+    }
+    preferences->putInt("profile", current_profile);
+    preferences->putInt("grind_mode", static_cast<int>(current_grind_mode));
+    save_profiles();
+    return true;
+}
+
 bool ProfileController::is_weight_valid(float weight) const {
     return weight >= USER_MIN_TARGET_WEIGHT_G && weight <= USER_MAX_TARGET_WEIGHT_G;
 }

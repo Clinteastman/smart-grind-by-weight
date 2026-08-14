@@ -10,7 +10,12 @@
 ReadyUIController::ReadyUIController(UIManager* manager)
     : ui_manager_(manager) {}
 
-void ReadyUIController::update() {}
+void ReadyUIController::update() {
+    const uint32_t now = millis();
+    if (now - last_network_update_ms_ < 500) return;
+    last_network_update_ms_ = now;
+    if (ui_manager_) ui_manager_->ready_screen.update_network_status();
+}
 
 void ReadyUIController::refresh_profiles() {
     if (!ui_manager_ || !ui_manager_->profile_controller) {
@@ -30,7 +35,7 @@ void ReadyUIController::handle_tab_change(int tab) {
     }
 
     ui_manager_->current_tab = tab;
-    if (ui_manager_->profile_controller && tab < 3) {
+    if (ui_manager_->profile_controller && tab < ReadyScreen::PROFILE_TAB_COUNT) {
         ui_manager_->profile_controller->set_current_profile(tab);
         refresh_profiles();
     }
@@ -45,7 +50,8 @@ void ReadyUIController::handle_profile_long_press() {
         return;
     }
 
-    if (!ui_manager_->state_machine->is_state(UIState::READY) || ui_manager_->current_tab >= 3) {
+    if (!ui_manager_->state_machine->is_state(UIState::READY) ||
+        ui_manager_->current_tab >= ReadyScreen::PROFILE_TAB_COUNT) {
         return;
     }
 
@@ -59,7 +65,7 @@ void ReadyUIController::handle_profile_long_press() {
 }
 
 void ReadyUIController::toggle_mode() {
-    if (!ui_manager_ || ui_manager_->current_tab >= 3) {
+    if (!ui_manager_ || ui_manager_->current_tab >= ReadyScreen::PROFILE_TAB_COUNT) {
         return;
     }
 
@@ -130,7 +136,7 @@ void ReadyUIController::register_events() {
             lv_obj_t* ready_tabs = ui->ready_screen.get_tabview();
             int target_tab = static_cast<int>(lv_tabview_get_tab_act(ready_tabs));
             target_tab += dir == LV_DIR_LEFT ? 1 : -1;
-            if (target_tab >= 0 && target_tab < 4) {
+            if (target_tab >= 0 && target_tab < ReadyScreen::TAB_COUNT) {
                 lv_tabview_set_act(ready_tabs, static_cast<uint32_t>(target_tab), LV_ANIM_ON);
                 lv_indev_wait_release(input);
             }

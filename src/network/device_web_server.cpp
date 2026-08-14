@@ -1,0 +1,587 @@
+#include "device_web_server.h"
+
+#include <Arduino.h>
+#include <LittleFS.h>
+#include <Update.h>
+#include <WiFi.h>
+#include <algorithm>
+#include <functional>
+#include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
+#include <vector>
+
+#include "../config/build_info.h"
+#include "../config/constants.h"
+#include "../controllers/grind_controller.h"
+#include "../bluetooth/manager.h"
+#include "../hardware/hardware_manager.h"
+#include "../logging/grind_logging.h"
+#include "../logging/diagnostic_log.h"
+#include "network_manager.h"
+#include "device_api.h"
+
+namespace {
+const char* network_state_name(NetworkState state) {
+    switch (state) {
+        case NetworkState::WIFI_DISABLED: return "disabled";
+        case NetworkState::WIFI_NO_CREDENTIALS: return "no_credentials";
+        case NetworkState::WIFI_CONNECTING: return "connecting";
+        case NetworkState::WIFI_CONNECTED: return "connected";
+        case NetworkState::WIFI_RETRY_WAIT: return "retry_wait";
+        case NetworkState::WIFI_SETUP_REQUIRED: return "setup_required";
+        case NetworkState::WIFI_SETUP_AP: return "setup_ap";
+    }
+    return "unknown";
+}
+
+String json_escape(const String& value) {
+    String escaped;
+    escaped.reserve(value.length() + 8);
+    for (size_t i = 0; i < value.length(); ++i) {
+        const char ch = value[i];
+        switch (ch) {
+            case '"': escaped += "\\\""; break;
+            case '\\': escaped += "\\\\"; break;
+            case '\b': escaped += "\\b"; break;
+            case '\f': escaped += "\\f"; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default:
+                if (static_cast<uint8_t>(ch) >= 0x20) escaped += ch;
+                break;
+        }
+    }
+    return escaped;
+}
+
+bool request_origin_allowed(AsyncWebServerRequest* request) {
+    if (!request || !request->hasHeader("Origin")) return true;
+    const AsyncWebHeader* origin = request->getHeader("Origin");
+    return origin && origin->value() == ("http://" + request->host());
+}
+
+bool history_is_busy(const GrindController* controller) {
+    if (!controller) return false;
+    const GrindPhase phase = controller->get_phase();
+    const bool result_is_waiting = phase == GrindPhase::COMPLETED || phase == GrindPhase::TIMEOUT;
+    // A completed result remains on screen until the user dismisses it, but the
+    // saved session is safe to read as soon as the logger has finished writing.
+    return (phase != GrindPhase::IDLE && !result_is_waiting) || grind_logger.is_logging_active();
+}
+
+struct OtaRequestState {
+    bool success;
+    bool complete;
+};
+
+struct ScreensaverUploadState {
+    bool success;
+    bool complete;
+};
+
+constexpr uint32_t OTA_REBOOT_DELAY_MS = 1500;
+constexpr uint32_t OTA_PREPARE_TIMEOUT_MS = 15000;
+constexpr uint32_t OTA_READY_WINDOW_MS = 30000;
+constexpr size_t OTA_MIN_INTERNAL_HEAP = 64U * 1024U;
+UpdateClass web_firmware_update;
+}
+
+DeviceWebServer device_web_server;
+
+void DeviceWebServer::init(HardwareManager* hardware_manager, GrindController* grind_controller,
+                           BluetoothManager* bluetooth_manager, ProfileController* profile_controller) {
+    if (initialized_) return;
+    hardware_manager_ = hardware_manager;
+    grind_controller_ = grind_controller;
+    bluetooth_manager_ = bluetooth_manager;
+    device_api.init(&server_, hardware_manager_, grind_controller_, profile_controller);
+    configure_routes();
+    initialized_ = true;
+}
+
+void DeviceWebServer::begin() {
+    if (!initialized_ || started_) return;
+    // AsyncServer::begin() enters lwIP immediately. Calling it while Wi-Fi is
+    // still WIFI_MODE_NULL reaches an uninitialised lwIP semaphore and aborts
+    // in xQueueSemaphoreTake on ESP32 Arduino 3.x.
+    if (WiFi.getMode() == WIFI_MODE_NULL) return;
+    server_.begin();
+    started_ = true;
+    LOG_BLE("[WEB] HTTP service listening on port 80\n");
+}
+
+void DeviceWebServer::update() {
+    device_api.update();
+    OtaPreparationState preparation = ota_preparation_state_.load();
+    if (preparation == OtaPreparationState::REQUESTED) {
+        const bool unsafe = ota_active_.load() || !grind_controller_ ||
+                            grind_controller_->is_active() ||
+                            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active());
+        if (unsafe) {
+            recover_from_ota_failure();
+        } else {
+            if (bluetooth_manager_ && bluetooth_manager_->is_enabled()) {
+                LOG_BLE("[WEB OTA] Temporarily disabling Bluetooth to free update memory\n");
+                bluetooth_manager_->disable();
+                ota_bluetooth_stopped_.store(true);
+            }
+            if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >=
+                OTA_MIN_INTERNAL_HEAP) {
+                ota_preparation_deadline_ms_.store(millis() + OTA_READY_WINDOW_MS);
+                ota_preparation_state_.store(OtaPreparationState::READY);
+                LOG_BLE("[WEB OTA] Update preparation complete\n");
+            } else if (static_cast<int32_t>(millis() - ota_preparation_deadline_ms_.load()) >= 0) {
+                LOG_BLE("[WEB OTA] Could not recover enough internal memory\n");
+                recover_from_ota_failure();
+            }
+        }
+    } else if (preparation == OtaPreparationState::READY && !ota_active_.load() &&
+               static_cast<int32_t>(millis() - ota_preparation_deadline_ms_.load()) >= 0) {
+        LOG_BLE("[WEB OTA] Prepared upload expired\n");
+        recover_from_ota_failure();
+    }
+    if (reboot_pending_.load() &&
+        static_cast<int32_t>(millis() - reboot_at_ms_.load()) >= 0) {
+        LOG_BLE("[WEB OTA] Restarting device\n");
+        Serial.flush();
+        ESP.restart();
+    }
+}
+
+bool DeviceWebServer::is_ota_ready() const {
+    return ota_preparation_state_.load() == OtaPreparationState::READY &&
+           initialized_ && network_manager.is_connected() && !ota_active_.load() &&
+           (!grind_controller_ || !grind_controller_->is_active()) &&
+           (!bluetooth_manager_ || !bluetooth_manager_->is_transfer_active()) &&
+           heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >= OTA_MIN_INTERNAL_HEAP;
+}
+
+void DeviceWebServer::request_ota_preparation() {
+    ota_bluetooth_stopped_.store(false);
+    ota_preparation_deadline_ms_.store(millis() + OTA_PREPARE_TIMEOUT_MS);
+    ota_preparation_state_.store(OtaPreparationState::REQUESTED);
+}
+
+void DeviceWebServer::recover_from_ota_failure() {
+    ota_preparation_state_.store(OtaPreparationState::IDLE);
+    if (ota_bluetooth_stopped_.exchange(false)) {
+        // Arduino BLE retains its server singleton across deinit(false). Re-enabling
+        // in the same boot duplicates services and leaks heap, so recover through a
+        // clean reboot into the still-valid running firmware instead.
+        LOG_BLE("[WEB OTA] Scheduling clean recovery restart\n");
+        reboot_at_ms_.store(millis() + OTA_REBOOT_DELAY_MS);
+        reboot_pending_.store(true);
+    }
+}
+
+uint8_t DeviceWebServer::ota_progress_percent() const {
+    const size_t total = ota_total_.load();
+    if (!ota_active_.load() || total == 0) return 0;
+    const size_t percent = (ota_received_.load() * 100U) / total;
+    return static_cast<uint8_t>(percent > 100 ? 100 : percent);
+}
+
+void DeviceWebServer::configure_routes() {
+    server_.on(AsyncURIMatcher::exact("/api/v1/status"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        AsyncResponseStream* response = request->beginResponseStream("application/json");
+        const String hostname = json_escape(network_manager.hostname());
+        const String device_id = json_escape(network_manager.device_id());
+        const String network_name = json_escape(network_manager.network_name());
+        const String ip_address = json_escape(network_manager.ip_address());
+        response->printf(
+#ifdef HW_DISPLAY_VARIANT_V2
+            "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"v2\"},"
+#else
+            "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"v1\"},"
+#endif
+            "\"firmware\":{\"version\":\"%s\",\"build\":%d,\"commit\":\"%s\"},"
+            "\"network\":{\"state\":\"%s\",\"hostname\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\"},"
+            "\"system\":{\"uptime_ms\":%lu,\"free_heap\":%u,\"free_internal_heap\":%u,"
+            "\"largest_internal_block\":%u,\"free_psram\":%u},"
+            "\"ota\":{\"active\":%s,\"preparing\":%s,\"ready\":%s,\"progress\":%u}}",
+            device_id.c_str(),
+            BUILD_FIRMWARE_VERSION,
+            BUILD_NUMBER,
+            GIT_COMMIT_ID,
+            network_state_name(network_manager.state()),
+            hostname.c_str(),
+            network_name.c_str(),
+            ip_address.c_str(),
+            static_cast<unsigned long>(millis()),
+            static_cast<unsigned int>(ESP.getFreeHeap()),
+            static_cast<unsigned int>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned int>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned int>(ESP.getFreePsram()),
+            device_web_server.is_ota_active() ? "true" : "false",
+            device_web_server.is_ota_preparing() ? "true" : "false",
+            device_web_server.is_ota_ready() ? "true" : "false",
+            device_web_server.ota_progress_percent());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+
+    server_.on(AsyncURIMatcher::exact("/health"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/plain", "ok");
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/logs"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        AsyncWebServerResponse* response = request->beginResponse(
+            200, "text/plain; charset=utf-8", diagnostic_log_snapshot());
+        response->addHeader("Cache-Control", "private, no-store");
+        request->send(response);
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/history"), HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if (history_is_busy(grind_controller_) || ota_active_.load() ||
+            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
+            request->send(409, "application/json", "{\"error\":\"History is busy; try again when the grinder is idle\"}");
+            return;
+        }
+
+        std::vector<uint32_t> session_ids;
+        File directory = LittleFS.open(GRIND_SESSIONS_DIR);
+        if (directory && directory.isDirectory()) {
+            File entry = directory.openNextFile();
+            while (entry) {
+                const String name = entry.name();
+                const int marker = name.lastIndexOf("session_");
+                const int suffix = name.lastIndexOf(".bin");
+                if (!entry.isDirectory() && marker >= 0 && suffix > marker + 8) {
+                    const uint32_t id = name.substring(marker + 8, suffix).toInt();
+                    if (id > 0) session_ids.push_back(id);
+                }
+                entry.close();
+                entry = directory.openNextFile();
+            }
+            directory.close();
+        }
+        std::sort(session_ids.begin(), session_ids.end(), std::greater<uint32_t>());
+        if (session_ids.size() > MAX_STORED_SESSIONS_FLASH) {
+            session_ids.resize(MAX_STORED_SESSIONS_FLASH);
+        }
+
+        AsyncResponseStream* response = request->beginResponseStream("application/json");
+        response->printf("{\"api\":\"v1\",\"storage_version\":%lu,\"sessions\":[",
+                         static_cast<unsigned long>(grind_logger.get_session_storage_version()));
+        bool first = true;
+        for (uint32_t id : session_ids) {
+            if (!grind_logger.validate_stored_session(id)) continue;
+            char path[48];
+            snprintf(path, sizeof(path), SESSION_FILE_FORMAT, static_cast<unsigned long>(id));
+            File file = LittleFS.open(path, "r");
+            TimeSeriesSessionHeader header{};
+            GrindSession session{};
+            if (!file || file.read(reinterpret_cast<uint8_t*>(&header), sizeof(header)) != sizeof(header) ||
+                file.read(reinterpret_cast<uint8_t*>(&session), sizeof(session)) != sizeof(session) ||
+                header.session_id != id || session.session_id != id) {
+                if (file) file.close();
+                continue;
+            }
+            file.close();
+            char result[sizeof(session.result_status) + 1]{};
+            memcpy(result, session.result_status, sizeof(session.result_status));
+            if (!first) response->print(',');
+            first = false;
+            response->printf(
+                "{\"id\":%lu,\"timestamp\":%lu,\"profile\":%u,\"mode\":\"%s\","
+                "\"target_weight\":%.2f,\"target_time_ms\":%lu,\"final_weight\":%.2f,"
+                "\"error_grams\":%.2f,\"time_error_ms\":%ld,\"duration_ms\":%lu,"
+                "\"motor_time_ms\":%lu,\"pulses\":%u,\"result\":\"%s\","
+                "\"events\":%u,\"measurements\":%u,\"schema\":%u}",
+                static_cast<unsigned long>(id), static_cast<unsigned long>(session.session_timestamp),
+                session.profile_id, session.grind_mode == 1 ? "time" : "weight",
+                session.target_weight, static_cast<unsigned long>(session.target_time_ms),
+                session.final_weight, session.error_grams, static_cast<long>(session.time_error_ms),
+                static_cast<unsigned long>(session.total_time_ms),
+                static_cast<unsigned long>(session.total_motor_on_time_ms), session.pulse_count,
+                json_escape(String(result)).c_str(), header.event_count, header.measurement_count,
+                header.schema_version);
+        }
+        response->print("]}");
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/history/session"), HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if (!request->hasParam("id")) {
+            request->send(400, "application/json", "{\"error\":\"Session id is required\"}");
+            return;
+        }
+        if (history_is_busy(grind_controller_) || ota_active_.load() ||
+            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
+            request->send(409, "application/json", "{\"error\":\"History is busy; try again when the grinder is idle\"}");
+            return;
+        }
+        const String text_id = request->getParam("id")->value();
+        for (size_t i = 0; i < text_id.length(); ++i) {
+            if (!isDigit(text_id[i])) {
+                request->send(400, "application/json", "{\"error\":\"Invalid session id\"}");
+                return;
+            }
+        }
+        const uint32_t id = text_id.toInt();
+        if (id == 0) {
+            request->send(400, "application/json", "{\"error\":\"Invalid session id\"}");
+            return;
+        }
+        char path[48];
+        snprintf(path, sizeof(path), SESSION_FILE_FORMAT, static_cast<unsigned long>(id));
+        if (!LittleFS.exists(path) || !grind_logger.validate_stored_session(id)) {
+            request->send(404, "application/json", "{\"error\":\"Session not found\"}");
+            return;
+        }
+        const bool download = request->hasParam("download");
+        AsyncWebServerResponse* response = request->beginResponse(
+            LittleFS, path, "application/vnd.smartgrind.session", download);
+        response->addHeader("Cache-Control", "private, no-store");
+        request->send(response);
+    });
+
+    server_.on(
+        AsyncURIMatcher::exact("/api/v1/screensaver/image"), HTTP_POST,
+        [](AsyncWebServerRequest* request) {
+            if (request->getResponse()) return;
+            auto* state = static_cast<ScreensaverUploadState*>(request->_tempObject);
+            if (!state || !state->complete) {
+                request->send(400, "application/json", "{\"error\":\"Screensaver image was not received\"}");
+                return;
+            }
+            request->send(state->success ? 200 : 500, "application/json",
+                          state->success ? "{\"saved\":true}" : "{\"error\":\"Screensaver upload failed\"}");
+        },
+        [this](AsyncWebServerRequest* request, String, size_t index,
+               uint8_t* data, size_t len, bool final) {
+            if (request->getResponse()) return;
+            auto* state = static_cast<ScreensaverUploadState*>(request->_tempObject);
+            if (index == 0) {
+                if (!request_origin_allowed(request)) {
+                    request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+                    return;
+                }
+                state = static_cast<ScreensaverUploadState*>(calloc(1, sizeof(ScreensaverUploadState)));
+                request->_tempObject = state;
+                if (!state) {
+                    request->send(503, "application/json", "{\"error\":\"Not enough memory to start upload\"}");
+                    return;
+                }
+                if (!bluetooth_manager_ || ota_active_.load() ||
+                    (grind_controller_ && grind_controller_->is_active()) ||
+                    bluetooth_manager_->is_transfer_active()) {
+                    request->send(409, "application/json", "{\"error\":\"Stop the grinder and other transfers before uploading\"}");
+                    return;
+                }
+                if (!bluetooth_manager_->begin_screensaver_image_upload(BLE_IMAGE_EXPECTED_SIZE)) {
+                    request->send(400, "application/json", "{\"error\":\"Image must be a 280 x 456 RGB565 frame\"}");
+                    return;
+                }
+                request->onDisconnect([this, state]() {
+                    if (state && !state->complete && bluetooth_manager_) {
+                        bluetooth_manager_->abort_screensaver_image_upload();
+                    }
+                });
+            }
+            if (!state || !bluetooth_manager_) return;
+            if (len && !bluetooth_manager_->write_screensaver_image_chunk(data, len)) {
+                state->complete = true;
+                state->success = false;
+                bluetooth_manager_->abort_screensaver_image_upload();
+                request->send(500, "application/json", "{\"error\":\"Could not store image data\"}");
+                return;
+            }
+            if (final) {
+                state->complete = true;
+                state->success = bluetooth_manager_->finish_screensaver_image_upload();
+                if (state->success) device_api.mark_settings_dirty();
+            }
+        });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/screensaver/image"), HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if ((grind_controller_ && grind_controller_->is_active()) || ota_active_.load() ||
+            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
+            request->send(409, "application/json", "{\"error\":\"Screensaver image is busy\"}");
+            return;
+        }
+        if (!LittleFS.exists(BLE_IMAGE_FILENAME)) {
+            request->send(404, "application/json", "{\"error\":\"No custom screensaver is stored\"}");
+            return;
+        }
+        AsyncWebServerResponse* response = request->beginResponse(
+            LittleFS, BLE_IMAGE_FILENAME, "application/vnd.smartgrind.rgb565", false);
+        response->addHeader("Cache-Control", "private, no-store");
+        request->send(response);
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/screensaver/image"), HTTP_DELETE, [this](AsyncWebServerRequest* request) {
+        if (!request_origin_allowed(request)) {
+            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+            return;
+        }
+        if (!bluetooth_manager_ || ota_active_.load() ||
+            (grind_controller_ && grind_controller_->is_active()) ||
+            bluetooth_manager_->is_transfer_active()) {
+            request->send(409, "application/json", "{\"error\":\"Screensaver image is busy\"}");
+            return;
+        }
+        const bool deleted = bluetooth_manager_->delete_screensaver_image();
+        if (deleted) device_api.mark_settings_dirty();
+        request->send(deleted ? 200 : 500, "application/json",
+                      deleted ? "{\"deleted\":true}" : "{\"error\":\"Could not delete screensaver\"}");
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/ota/prepare"), HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (ota_active_.load()) {
+            request->send(409, "application/json", "{\"error\":\"A firmware update is already active\"}");
+            return;
+        }
+        const OtaPreparationState preparation = ota_preparation_state_.load();
+        if (preparation == OtaPreparationState::READY) {
+            request->send(200, "application/json", "{\"ready\":true}");
+            return;
+        }
+        if (preparation == OtaPreparationState::REQUESTED) {
+            request->send(202, "application/json", "{\"preparing\":true}");
+            return;
+        }
+        if (!grind_controller_ || grind_controller_->is_active()) {
+            request->send(409, "application/json", "{\"error\":\"Stop the grinder before updating firmware\"}");
+            return;
+        }
+        if (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) {
+            request->send(409, "application/json", "{\"error\":\"Wait for the Bluetooth transfer to finish\"}");
+            return;
+        }
+        request_ota_preparation();
+        request->send(202, "application/json", "{\"preparing\":true}");
+    });
+
+    server_.on(
+        AsyncURIMatcher::exact("/api/v1/ota"), HTTP_POST,
+        [](AsyncWebServerRequest* request) {
+            if (request->getResponse()) return;
+            OtaRequestState* state = static_cast<OtaRequestState*>(request->_tempObject);
+            if (!state || !state->complete) {
+                request->send(400, "text/plain", "Firmware file was not received");
+                return;
+            }
+            if (!state->success) {
+                request->send(500, "text/plain", "Firmware update failed");
+                return;
+            }
+            request->send(200, "text/plain", "Firmware accepted; Smart Grind is restarting");
+        },
+        [this](AsyncWebServerRequest* request, String filename, size_t index,
+               uint8_t* data, size_t len, bool final) {
+            handle_ota_upload(request, filename, index, data, len, final);
+        });
+}
+
+void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const String& filename,
+                                         size_t index, uint8_t* data, size_t len, bool final) {
+    if (request->getResponse()) return;
+
+    OtaRequestState* state = static_cast<OtaRequestState*>(request->_tempObject);
+    if (index == 0) {
+        if (!is_ota_ready()) {
+            request->send(409, "text/plain", "Prepare the firmware update before uploading");
+            return;
+        }
+        bool expected_inactive = false;
+        if (!ota_active_.compare_exchange_strong(expected_inactive, true)) {
+            request->send(409, "text/plain", "Another firmware update is already active");
+            return;
+        }
+        ota_preparation_state_.store(OtaPreparationState::IDLE);
+        state = static_cast<OtaRequestState*>(calloc(1, sizeof(OtaRequestState)));
+        request->_tempObject = state;
+        if (!state) {
+            finish_ota(false);
+            request->send(503, "text/plain", "Not enough memory to start firmware update");
+            return;
+        }
+        if (!filename.endsWith(".bin") || len == 0 || data[0] != 0xE9) {
+            finish_ota(false);
+            request->send(400, "text/plain", "Not a valid ESP32 firmware image");
+            return;
+        }
+        if (!grind_controller_ || grind_controller_->is_active()) {
+            finish_ota(false);
+            request->send(409, "text/plain", "Stop the grinder before updating firmware");
+            return;
+        }
+        if (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) {
+            finish_ota(false);
+            request->send(409, "text/plain", "Wait for the Bluetooth transfer to finish");
+            return;
+        }
+        const size_t internal_heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (internal_heap < OTA_MIN_INTERNAL_HEAP) {
+            finish_ota(false);
+            request->send(503, "text/plain", "Prepare the update first so Bluetooth can release memory");
+            return;
+        }
+        const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
+        if (!target || request->contentLength() > target->size + 8192U) {
+            finish_ota(false);
+            request->send(413, "text/plain", "Firmware image is too large");
+            return;
+        }
+        if (hardware_manager_ && hardware_manager_->get_grinder()) {
+            hardware_manager_->get_grinder()->stop();
+        }
+        if (!web_firmware_update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+            LOG_BLE("[WEB OTA] Update.begin failed: %s\n", web_firmware_update.errorString());
+            finish_ota(false);
+            request->send(500, "text/plain", "Could not open the inactive firmware partition");
+            return;
+        }
+        ota_received_.store(0);
+        ota_total_.store(request->contentLength());
+        request->onDisconnect([this, state]() {
+            if (ota_active_.load() && state && !state->complete) {
+                LOG_BLE("[WEB OTA] Client disconnected; aborting incomplete upload\n");
+                web_firmware_update.abort();
+                finish_ota(false);
+            }
+        });
+        LOG_BLE("[WEB OTA] Receiving %s\n", filename.c_str());
+    }
+
+    if (!state || !ota_active_.load()) return;
+    if (len > 0 && web_firmware_update.write(data, len) != len) {
+        LOG_BLE("[WEB OTA] Write failed at %lu: %s\n",
+                static_cast<unsigned long>(ota_received_.load()), web_firmware_update.errorString());
+        web_firmware_update.abort();
+        state->complete = true;
+        state->success = false;
+        finish_ota(false);
+        request->send(500, "text/plain", "Firmware write failed");
+        return;
+    }
+    ota_received_.fetch_add(len);
+
+    if (final) {
+        state->complete = true;
+        state->success = web_firmware_update.end(true);
+        if (!state->success) {
+            LOG_BLE("[WEB OTA] Image validation failed: %s\n", web_firmware_update.errorString());
+            finish_ota(false);
+            return;
+        }
+        LOG_BLE("[WEB OTA] Firmware validated (%lu bytes)\n",
+                static_cast<unsigned long>(ota_received_.load()));
+        finish_ota(true);
+    }
+}
+
+void DeviceWebServer::finish_ota(bool success) {
+    ota_active_.store(false);
+    if (success) {
+        ota_bluetooth_stopped_.store(false);
+        ota_preparation_state_.store(OtaPreparationState::IDLE);
+        reboot_at_ms_.store(millis() + OTA_REBOOT_DELAY_MS);
+        reboot_pending_.store(true);
+    } else {
+        recover_from_ota_failure();
+    }
+}

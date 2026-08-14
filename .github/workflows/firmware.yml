@@ -33,8 +33,30 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Restore PlatformIO package cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-pio-deps-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-deps-
+
+      - name: Restore compiled-object cache
+        uses: actions/cache@v4
+        with:
+          path: .pio/build-cache/${{ matrix.environment }}
+          key: ${{ runner.os }}-pio-objects-${{ matrix.environment }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-pio-objects-${{ matrix.environment }}-
+            ${{ runner.os }}-pio-objects-
+
       - name: Install PlatformIO
-        run: pip install platformio
+        run: pip install platformio==6.1.19
 
       - name: Build firmware
+        env:
+          PLATFORMIO_BUILD_CACHE_DIR: .pio/build-cache/${{ matrix.environment }}
         run: pio run -e ${{ matrix.environment }}

@@ -14,6 +14,7 @@ private:
     lv_obj_t* menu;
     lv_obj_t* info_page;
     lv_obj_t* bluetooth_page;
+    lv_obj_t* network_page;
     lv_obj_t* display_page;
     lv_obj_t* grind_mode_page;
     lv_obj_t* data_page;
@@ -48,11 +49,19 @@ private:
     lv_obj_t* ble_startup_toggle;
     lv_obj_t* ble_status_label;
     lv_obj_t* ble_timer_label;
+    lv_obj_t* network_status_label;
+    lv_obj_t* network_detail_label;
+    lv_obj_t* network_qr;
+    String network_status_text;
+    String network_detail_text;
+    String network_qr_payload;
     lv_obj_t* logging_toggle;
     lv_obj_t* brightness_normal_slider;
     lv_obj_t* brightness_screensaver_slider;
     lv_obj_t* brightness_normal_label;
     lv_obj_t* brightness_screensaver_label;
+    lv_obj_t* screensaver_startup_toggle;
+    lv_obj_t* screensaver_sleep_toggle;
     lv_obj_t* purge_button;
     lv_obj_t* reset_button;
     
@@ -66,6 +75,8 @@ private:
     lv_obj_t* grinder_purge_amount_label;
     lv_obj_t* grind_freshness_hours_slider;
     lv_obj_t* grind_freshness_hours_label;
+    lv_obj_t* coast_ratio_slider;
+    lv_obj_t* coast_ratio_label;
 
     // Tools entries / scale page elements
     lv_obj_t* scale_item;
@@ -97,6 +108,7 @@ private:
 
 public:
     static constexpr float kPurgeSliderScale = 10.0f; // Slider uses 0.1g increments
+    static constexpr float kCoastRatioSliderScale = 20.0f; // Slider uses 0.05 increments
 
     void create(BluetoothManager* bluetooth, GrindController* grind_ctrl, GrindingScreen* grind_screen, class HardwareManager* hw_mgr, DiagnosticsController* diag_ctrl);
     void show();
@@ -104,6 +116,7 @@ public:
     void update_info(const WeightSensor* weight_sensor, unsigned long uptime_ms, size_t free_heap);
     void update_diagnostics(WeightSensor* weight_sensor);
     void update_ble_status();
+    void update_network_status();
     void refresh_statistics(bool show_overlay = true);
     void update_brightness_labels(int normal_percent = -1, int screensaver_percent = -1); // Use negative value to leave unchanged
     void update_brightness_sliders();
@@ -112,6 +125,7 @@ public:
     void update_grind_mode_toggles();
     void update_grinder_purge_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
+    void update_coast_ratio_label(float ratio);
     void reset_scale_display();
     void update_scale_weight(float weight);
 
@@ -139,11 +153,16 @@ public:
     lv_obj_t* get_grinder_purge_mode_radio_group() const { return grinder_purge_mode_radio_group; }
     lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
+    lv_obj_t* get_coast_ratio_slider() const { return coast_ratio_slider; }
+    lv_obj_t* get_screensaver_startup_toggle() const { return screensaver_startup_toggle; }
+    lv_obj_t* get_screensaver_sleep_toggle() const { return screensaver_sleep_toggle; }
+    void update_screensaver_toggles();
 
 private:
     void create_menu_ui();
     void create_info_page(lv_obj_t* parent);
     void create_bluetooth_page(lv_obj_t* parent);
+    void create_network_page(lv_obj_t* parent);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);

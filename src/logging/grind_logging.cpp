@@ -1,5 +1,6 @@
 #include "grind_logging.h"
 #include <LittleFS.h>
+#include <time.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include "../hardware/WeightSensor.h"
@@ -92,7 +93,10 @@ void GrindLogger::start_grind_session(const GrindSessionDescriptor& descriptor, 
     _next_session_id++;
     _preferences->putUInt("next_session_id", _next_session_id);
 
-    current_session->session_timestamp = millis() / 1000;
+    const time_t now = time(nullptr);
+    current_session->session_timestamp = now >= 1609459200
+                                             ? static_cast<uint32_t>(now)
+                                             : 0;
     current_session->profile_id = descriptor.profile_id;
     current_session->target_weight = descriptor.target_weight;
     current_session->tolerance = descriptor.tolerance;
@@ -185,7 +189,7 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
     // Check if logging is enabled before saving to flash
     Preferences logging_prefs;
     logging_prefs.begin("logging", true); // read-only
-    bool logging_enabled = logging_prefs.getBool("enabled", false);
+    bool logging_enabled = logging_prefs.getBool("enabled", true);
     logging_prefs.end();
 
     const char* mode_name = (mode == GrindMode::TIME) ? "TIME" : "WEIGHT";

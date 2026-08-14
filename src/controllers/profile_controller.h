@@ -33,6 +33,8 @@ public:
     const char* get_profile_name(int index) const;
     void set_profile_time(int index, float seconds);
     float get_profile_time(int index) const;
+    bool apply_web_settings(int current_profile_index, GrindMode mode,
+                            const float* weights, const float* times);
     
     void update_current_weight(float weight);
     void update_current_time(float seconds);

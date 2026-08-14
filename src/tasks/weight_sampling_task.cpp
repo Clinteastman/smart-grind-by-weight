@@ -1,4 +1,5 @@
 #include "weight_sampling_task.h"
+#include "../config/build_info.h"
 #include "../hardware/WeightSensor.h"
 #include "../logging/grind_logging.h"
 #include "../config/constants.h"
@@ -231,6 +232,11 @@ bool WeightSamplingTask::initialize_hx711_hardware() {
     
     // Mark WeightSensor as hardware-ready
     weight_sensor->set_hardware_initialized();
+    // Calibration restores the grams-per-count factor, but the zero offset is
+    // intentionally established fresh on each boot to account for load-cell
+    // drift and the assembled grinder's static preload.
+    weight_sensor->tareNoDelay();
+    LOG_BLE("[STARTUP] Automatic load-cell tare requested\n");
     hardware_initialized = true;
     
     // Attempt single verification reading (optional since validation already succeeded)

@@ -44,7 +44,11 @@
  * - LV_STDLIB_RTTHREAD:    RT-Thread implementation
  * - LV_STDLIB_CUSTOM:      Implement the functions externally
  */
+#ifdef SMART_GRIND_SIM
 #define LV_USE_STDLIB_MALLOC    LV_STDLIB_CLIB
+#else
+#define LV_USE_STDLIB_MALLOC    LV_STDLIB_BUILTIN
+#endif
 
 /** Possible values
  * - LV_STDLIB_BUILTIN:     LVGL's built in implementation
@@ -72,8 +76,9 @@
 #define LV_STDARG_INCLUDE       <stdarg.h>
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
-    /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    #define LV_MEM_SIZE (96U * 1024U)          /**< [bytes] */
+    /** UI object heap. Hardware keeps it in PSRAM to preserve scarce internal
+     * RAM for Wi-Fi/lwIP buffers; the desktop simulator uses host malloc. */
+    #define LV_MEM_SIZE (512U * 1024U)          /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0
@@ -81,9 +86,9 @@
     /** Set an address for the memory pool instead of allocating it as a normal array. Can be in external SRAM too. */
     #define LV_MEM_ADR 0     /**< 0: unused*/
     /* Instead of an address give a memory allocator that will be called to get a memory pool for LVGL. E.g. my_malloc */
-    #if LV_MEM_ADR == 0
-        #undef LV_MEM_POOL_INCLUDE
-        #undef LV_MEM_POOL_ALLOC
+    #if LV_MEM_ADR == 0 && !defined(SMART_GRIND_SIM)
+        #define LV_MEM_POOL_INCLUDE <esp_heap_caps.h>
+        #define LV_MEM_POOL_ALLOC(size) heap_caps_malloc((size), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
     #endif
 #endif  /*LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN*/
 
@@ -951,7 +956,7 @@
 #define LV_USE_RLE 0
 
 /** QR code library */
-#define LV_USE_QRCODE 0
+#define LV_USE_QRCODE 1
 
 /** Barcode code library */
 #define LV_USE_BARCODE 0

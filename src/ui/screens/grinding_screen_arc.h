@@ -14,6 +14,7 @@ private:
     bool time_mode;
     char displayed_weight_text[16];
     int displayed_progress;
+    float target_time_seconds_;
 
 public:
     void create() override;

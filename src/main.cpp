@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <esp_system.h>
 #include "hardware/hardware_manager.h"
 #include "system/state_machine.h"
@@ -8,11 +9,16 @@
 #include "controllers/grind_controller.h"
 #include "ui/ui_manager.h"
 #include "config/constants.h"
+#include "system/screensaver_settings.h"
+#include "config/build_info.h"
 #include "bluetooth/manager.h"
 #include "tasks/task_manager.h"
 #include "tasks/weight_sampling_task.h"
 #include "tasks/grind_control_task.h"
 #include "tasks/file_io_task.h"
+#include "network/network_manager.h"
+#include "network/provisioning_service.h"
+#include "network/device_web_server.h"
 
 HardwareManager hardware_manager;
 StateMachine state_machine;
@@ -30,6 +36,45 @@ static uint32_t core1_cycle_time_min_ms = UINT32_MAX;
 static uint32_t core1_cycle_time_max_ms = 0;
 static uint32_t core1_last_heartbeat_time = 0;
 #endif
+
+namespace {
+
+float load_startup_display_brightness() {
+    Preferences prefs;
+    float brightness = USER_SCREEN_BRIGHTNESS_NORMAL;
+    if (prefs.begin("brightness", true)) {
+        brightness = prefs.getFloat("normal", USER_SCREEN_BRIGHTNESS_NORMAL);
+        prefs.end();
+    }
+
+    if (brightness < 0.15f) {
+        brightness = 0.15f;
+    }
+    return brightness;
+}
+
+void draw_early_startup_splash_if_ready() {
+    if (!state_machine.is_state(UIState::READY) ||
+        !ScreensaverSettings::is_startup_enabled() ||
+        !LittleFS.exists(BLE_IMAGE_FILENAME)) {
+        return;
+    }
+
+    DisplayManager* display = hardware_manager.get_display();
+    if (!display || !display->is_initialized()) {
+        return;
+    }
+
+    display->set_brightness(load_startup_display_brightness());
+
+    if (display->draw_rgb565_file(BLE_IMAGE_FILENAME,
+                                  HW_DISPLAY_WIDTH_PX,
+                                  HW_DISPLAY_HEIGHT_PX)) {
+        LOG_BLE("[STARTUP] Early screensaver splash drawn\n");
+    }
+}
+
+}  // namespace
 
 void setup() {
     Serial.begin(HW_SERIAL_BAUD_RATE);
@@ -73,6 +118,12 @@ void setup() {
     
     // Set up the reference so HardwareManager can query GrindController state
     hardware_manager.set_grind_controller(&grind_controller);
+
+    // Wi-Fi and HTTP services start asynchronously so they never block the
+    // real-time scale, motor, touch, or rendering tasks.
+    network_manager.init(hardware_manager.get_preferences());
+    device_web_server.init(&hardware_manager, &grind_controller, &bluetooth_manager, &profile_controller);
+    provisioning_service.init(hardware_manager.get_preferences(), &device_web_server.server());
     
     bluetooth_manager.init(hardware_manager.get_preferences());
     
@@ -82,16 +133,19 @@ void setup() {
 
     // Check calibration status to determine initial screen
     bool is_calibrated = hardware_manager.get_weight_sensor()->is_calibrated();
+    GrindMode boot_grind_mode = profile_controller.get_grind_mode();
 
     if (ota_failed) {
         LOG_BLE("BOOT: Starting in OTA failure state for expected build %s\n", failed_ota_build.c_str());
         state_machine.init(UIState::OTA_UPDATE_FAILED);
-    } else if (!is_calibrated) {
+    } else if (!is_calibrated && boot_grind_mode != GrindMode::TIME) {
         LOG_BLE("BOOT: Device not calibrated - starting in CALIBRATION state\n");
         state_machine.init(UIState::CALIBRATION);
     } else {
         state_machine.init(UIState::READY);
     }
+
+    draw_early_startup_splash_if_ready();
     
     ui_manager.init(&hardware_manager, &state_machine, &profile_controller, &grind_controller, &bluetooth_manager);
     
@@ -156,6 +210,13 @@ void loop() {
     static uint32_t last_uptime_update = 0;
     static uint32_t pending_uptime_minutes = 0;
     uint32_t current_time = millis();
+    network_manager.update();
+    provisioning_service.update();
+    // AsyncTCP requires lwIP's TCP/IP task and mutexes to exist. They are only
+    // created after Wi-Fi enters station or access-point mode, so defer the
+    // HTTP listener until NetworkManager/ProvisioningService has done that.
+    device_web_server.begin();
+    device_web_server.update();
     if (last_uptime_update == 0) {
         last_uptime_update = current_time;
     }
@@ -175,7 +236,7 @@ void loop() {
     
     // Check OTA state and suspend hardware tasks if needed
     static bool hardware_suspended = false;
-    bool ota_active = bluetooth_manager.is_updating();
+    bool ota_active = bluetooth_manager.is_updating() || device_web_server.is_ota_active();
     
     if (ota_active && !hardware_suspended) {
         task_manager.suspend_hardware_tasks();

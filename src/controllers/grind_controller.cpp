@@ -10,6 +10,10 @@
 #include <cmath>
 #include <algorithm>
 
+#ifndef SMART_GRIND_SIM
+#include "../network/device_web_server.h"
+#endif
+
 #if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
 #include "../hardware/mock_hx711_driver.h"
 #endif
@@ -106,38 +110,55 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
 
     // Load motor response latency from preferences
     load_motor_latency();
+
+    // Load coast ratio from preferences
+    load_coast_ratio();
 }
 
 void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
     LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s\n",
             millis(), target, (unsigned long)time_ms, grind_mode == GrindMode::TIME ? "TIME" : "WEIGHT");
-    if (!weight_sensor || !grinder) return;
-    if (weight_sensor->has_hardware_fault()) {
-        LOG_BLE("ERROR: Cannot start grind - load cell hardware fault detected (%d)\n",
-                static_cast<int>(weight_sensor->get_hardware_fault()));
+#ifndef SMART_GRIND_SIM
+    if (device_web_server.is_ota_active()) {
+        LOG_BLE("[CONTROLLER] Grind blocked while firmware update is active\n");
         return;
     }
-    
+#endif
+    if (!grinder) return;
+    if (grind_mode == GrindMode::WEIGHT) {
+        if (!weight_sensor) return;
+        if (weight_sensor->has_hardware_fault()) {
+            LOG_BLE("ERROR: Cannot start grind - load cell hardware fault detected (%d)\n",
+                    static_cast<int>(weight_sensor->get_hardware_fault()));
+            return;
+        }
+        // Read grinder purge settings from preferences (weight mode only)
+        grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
+        grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+        if (preferences) {
+            int purge_mode_int = preferences->getInt(PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
+            grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(purge_mode_int);
+            float configured_amount = preferences->getFloat(PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
+            configured_amount = std::clamp(configured_amount, GRIND_PURGE_AMOUNT_MIN_G, GRIND_PURGE_AMOUNT_MAX_G);
+            grinder_purge_amount_g_for_session = configured_amount;
+        }
+    }
+
+    // Do not mutate the active session until all requirements for the selected
+    // mode have passed. A rejected weight grind must not leave the controller
+    // reporting a different mode or target.
     target_weight = target;
     target_time_ms = time_ms;
     mode = grind_mode;
-
-    // Read grinder purge settings from preferences (always run for weight mode)
-    grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-    grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
-    if (preferences) {
-        int purge_mode_int = preferences->getInt(PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
-        grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(purge_mode_int);
-        float configured_amount = preferences->getFloat(PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
-        configured_amount = std::clamp(configured_amount, GRIND_PURGE_AMOUNT_MIN_G, GRIND_PURGE_AMOUNT_MAX_G);
-        grinder_purge_amount_g_for_session = configured_amount;
-    }
 
     start_time = millis();
     pulse_attempts = 0;
     timeout_phase = GrindPhase::IDLE; // Initialize timeout phase
     timeout_pause_start = 0;
     timeout_offset_ms = 0;
+    grind_paused_ = false;
+    pause_start_ms_ = 0;
+    total_pause_ms_ = 0;
     last_session_result_ = GrindSessionResult::UNKNOWN;
     // Load cell now runs at constant high speed - no mode switching needed
     
@@ -282,6 +303,33 @@ void GrindController::continue_from_purge() {
     switch_phase(GrindPhase::PREDICTIVE);  // No loop_data needed for phase transition
 }
 
+void GrindController::pause_grind() {
+    if (phase != GrindPhase::TIME_GRINDING || grind_paused_) return;
+
+    grind_paused_ = true;
+    pause_start_ms_ = millis();
+    timeout_pause_start = pause_start_ms_;
+
+    if (grinder) grinder->stop();
+
+    LOG_BLE("[%lums CONTROLLER] Time mode grind paused\n", millis());
+}
+
+void GrindController::resume_grind() {
+    if (phase != GrindPhase::TIME_GRINDING || !grind_paused_) return;
+
+    uint32_t pause_duration = millis() - pause_start_ms_;
+    total_pause_ms_ += pause_duration;
+    timeout_offset_ms += pause_duration;
+    timeout_pause_start = 0;
+    grind_paused_ = false;
+
+    if (grinder) grinder->start();
+
+    LOG_BLE("[%lums CONTROLLER] Time mode grind resumed (paused %lums, total paused %lums)\n",
+            millis(), (unsigned long)pause_duration, (unsigned long)total_pause_ms_);
+}
+
 void GrindController::update() {
     if (!is_active()) return;
     
@@ -322,19 +370,19 @@ void GrindController::update() {
             break;
             
         case GrindPhase::SETUP: {
-            // Snapshot pre-tare weight so we can log the initial Cup state
+            // A boot-time tare normally finishes long before user input. If a
+            // grind is requested unusually early, wait rather than starting a
+            // time-mode session against an undefined zero reference.
+            if (weight_sensor && weight_sensor->is_tare_in_progress()) break;
             float pre_tare_weight = weight_sensor ? weight_sensor->get_weight_low_latency() : 0.0f;
-
-            // Start logging immediately (synchronous PSRAM setup only)
             grind_logger.start_grind_session(session_descriptor, pre_tare_weight);
-
-            // Initialize logging event for upcoming TARING phase
-            memset(&event_in_progress, 0, sizeof(GrindEvent));
-            if (session_descriptor.mode == GrindMode::TIME) {
-                event_in_progress.event_flags |= GRIND_EVENT_FLAG_TIME_MODE;
+            if (mode == GrindMode::TIME) {
+                if (!grinder->is_grinding()) grinder->start();
+                time_grind_start_ms = loop_data.now;
+                switch_phase(GrindPhase::TIME_GRINDING, loop_data);
+            } else {
+                switch_phase(GrindPhase::TARING, loop_data);
             }
-
-            switch_phase(GrindPhase::TARING, loop_data);
             break;
         }
             
@@ -464,7 +512,8 @@ void GrindController::update() {
 
         case GrindPhase::FINAL_SETTLING:
             // Wait for weight to settle with precision settling window
-            if (weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)) {
+            if (!weight_sensor ||
+                weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)) {
                 final_measurement(loop_data);
             }
             break;
@@ -550,7 +599,8 @@ void GrindController::update() {
 
     // Check for negative weight failsafe after TARE_CONFIRM phase during active grinding
     // Only check after motor has settled to avoid false positives from startup transients
-    if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT &&
+    if (mode == GrindMode::WEIGHT &&
+        phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT &&
         phase != GrindPhase::IDLE && phase != GrindPhase::INITIALIZING &&
         phase != GrindPhase::SETUP && phase != GrindPhase::TARING &&
         phase != GrindPhase::TARE_CONFIRM &&
@@ -622,7 +672,7 @@ void GrindController::monitor_mechanical_instability(const GrindLoopData& loop_d
 }
 
 void GrindController::final_measurement(const GrindLoopData& loop_data) {
-    final_weight = weight_sensor->get_weight_high_latency();
+    final_weight = weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f;
 
     if (mode == GrindMode::WEIGHT && target_weight >= 1.0f && final_weight < NO_WEIGHT_DELIVERED_THRESHOLD_G) {
         timeout_phase = GrindPhase::FINAL_SETTLING;
@@ -796,9 +846,11 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
 
 
 bool GrindController::check_timeout() const {
-    // Calculate elapsed time excluding paused states (like PURGE_CONFIRM)
+    // Calculate elapsed time excluding paused states (PURGE_CONFIRM and TIME mode pause)
     unsigned long elapsed_ms = millis() - start_time;
-    unsigned long active_time_ms = elapsed_ms - timeout_offset_ms;
+    unsigned long current_pause_ms = (grind_paused_ && pause_start_ms_ > 0)
+                                   ? (millis() - pause_start_ms_) : 0;
+    unsigned long active_time_ms = elapsed_ms - timeout_offset_ms - current_pause_ms;
     return active_time_ms >= (GRIND_TIMEOUT_SEC * 1000);
 }
 
@@ -864,7 +916,7 @@ void GrindController::send_measurements_data() {
 }
 
 float GrindController::get_current_flow_rate() const {
-    return weight_sensor->get_flow_rate(); 
+    return weight_sensor ? weight_sensor->get_flow_rate() : 0.0f;
 }
 
 void GrindController::set_ui_event_callback(void (*callback)(const GrindEventData&)) {
@@ -1135,4 +1187,60 @@ void GrindController::set_motor_response_latency(float value) {
 
     motor_response_latency_ms = value;
     LOG_BLE("Motor latency: Set to %.1fms (not saved to NVS)\n", value);
+}
+
+//==============================================================================
+// Coast Ratio Management
+//==============================================================================
+
+void GrindController::load_coast_ratio() {
+    if (!preferences) {
+        coast_ratio_ = GRIND_LATENCY_TO_COAST_RATIO_DEFAULT;
+        LOG_BLE("Coast ratio: Using default %.2f (no preferences)\n", coast_ratio_);
+        return;
+    }
+
+    coast_ratio_ = preferences->getFloat(PREF_KEY_COAST_RATIO, GRIND_LATENCY_TO_COAST_RATIO_DEFAULT);
+
+    // Validate loaded value
+    if (coast_ratio_ < GRIND_LATENCY_TO_COAST_RATIO_MIN ||
+        coast_ratio_ > GRIND_LATENCY_TO_COAST_RATIO_MAX) {
+        LOG_BLE("Warning: Invalid coast ratio %.2f in preferences, using default %.2f\n",
+                coast_ratio_, GRIND_LATENCY_TO_COAST_RATIO_DEFAULT);
+        coast_ratio_ = GRIND_LATENCY_TO_COAST_RATIO_DEFAULT;
+    } else {
+        LOG_BLE("Coast ratio: Loaded %.2f from preferences\n", coast_ratio_);
+    }
+}
+
+void GrindController::save_coast_ratio(float value) {
+    if (!preferences) {
+        LOG_BLE("ERROR: Cannot save coast ratio - no preferences available\n");
+        return;
+    }
+
+    if (value < GRIND_LATENCY_TO_COAST_RATIO_MIN || value > GRIND_LATENCY_TO_COAST_RATIO_MAX) {
+        LOG_BLE("ERROR: Cannot save invalid coast ratio %.2f (range: %.2f-%.2f)\n",
+                value, GRIND_LATENCY_TO_COAST_RATIO_MIN, GRIND_LATENCY_TO_COAST_RATIO_MAX);
+        return;
+    }
+
+    coast_ratio_ = value;
+    size_t written = preferences->putFloat(PREF_KEY_COAST_RATIO, value);
+    if (written == 0) {
+        LOG_BLE("ERROR: Failed to save coast ratio to NVS\n");
+    } else {
+        LOG_BLE("Coast ratio: Saved %.2f to preferences\n", value);
+    }
+}
+
+void GrindController::set_coast_ratio(float value) {
+    if (value < GRIND_LATENCY_TO_COAST_RATIO_MIN || value > GRIND_LATENCY_TO_COAST_RATIO_MAX) {
+        LOG_BLE("ERROR: Cannot set invalid coast ratio %.2f (range: %.2f-%.2f)\n",
+                value, GRIND_LATENCY_TO_COAST_RATIO_MIN, GRIND_LATENCY_TO_COAST_RATIO_MAX);
+        return;
+    }
+
+    coast_ratio_ = value;
+    LOG_BLE("Coast ratio: Set to %.2f (not saved to NVS)\n", value);
 }

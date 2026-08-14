@@ -1,4 +1,5 @@
 #include "manager.h"
+#include "../config/build_info.h"
 #include <algorithm>
 #include <cstdarg>
 #include <Arduino.h>
@@ -7,6 +8,7 @@
 #include <nvs_flash.h>
 #include <nvs.h>
 #include "../system/performance_monitor.h"
+#include "../system/screensaver_settings.h"
 #include "../system/statistics_manager.h"
 #include "../system/diagnostics_controller.h"
 #include "../config/constants.h"
@@ -17,6 +19,7 @@
 #include "../hardware/hardware_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
+#include "../network/device_web_server.h"
 
 extern HardwareManager hardware_manager;
 
@@ -65,6 +68,7 @@ BluetoothManager::~BluetoothManager() {
 void BluetoothManager::init(Preferences* prefs) {
     log("Bluetooth: Manager initialized (enable via Developer Mode)\n");
     ota_handler.init(prefs);
+    image_handler.init(&ota_handler);
     // Create UI status queue to marshal UI updates to UI task
     if (!ui_status_queue) {
         ui_status_queue = xQueueCreate(8, sizeof(UIStatusMessage));
@@ -133,7 +137,7 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     ble_server->setCallbacks(this);
     
     // Create OTA service
-    ota_service = ble_server->createService(BLE_OTA_SERVICE_UUID);
+    ota_service = ble_server->createService(BLEUUID(BLE_OTA_SERVICE_UUID), 12);
     delay(BLE_INIT_SERVICE_DELAY_MS);
     
     ota_data_characteristic = ota_service->createCharacteristic(
@@ -163,8 +167,8 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     build_number_characteristic->setValue(ota_handler.get_build_number().c_str());
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
-    // Create measurement data service
-    data_service = ble_server->createService(BLE_DATA_SERVICE_UUID);
+    // Create data service (also used for image upload)
+    data_service = ble_server->createService(BLEUUID(BLE_DATA_SERVICE_UUID), 12);
     delay(BLE_INIT_SERVICE_DELAY_MS);
     
     data_control_characteristic = data_service->createCharacteristic(
@@ -176,8 +180,9 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     
     data_transfer_characteristic = data_service->createCharacteristic(
         BLE_DATA_TRANSFER_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
     );
+    data_transfer_characteristic->setCallbacks(this);
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     data_status_characteristic = data_service->createCharacteristic(
@@ -187,7 +192,7 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     // Create debug service (Nordic UART)
-    debug_service = ble_server->createService(BLE_DEBUG_SERVICE_UUID);
+    debug_service = ble_server->createService(BLEUUID(BLE_DEBUG_SERVICE_UUID), 8);
     delay(BLE_INIT_SERVICE_DELAY_MS);
 
     debug_rx_characteristic = debug_service->createCharacteristic(
@@ -204,7 +209,7 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     // Create system info service
-    sysinfo_service = ble_server->createService(BLE_SYSINFO_SERVICE_UUID);
+    sysinfo_service = ble_server->createService(BLEUUID(BLE_SYSINFO_SERVICE_UUID), 15);
     delay(BLE_INIT_SERVICE_DELAY_MS);
     
     sysinfo_system_characteristic = sysinfo_service->createCharacteristic(
@@ -249,7 +254,7 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     
     sysinfo_service->start();
     delay(BLE_INIT_START_DELAY_MS);
-    
+
     BLEAdvertising* advertising = BLEDevice::getAdvertising();
     advertising->addServiceUUID(BLE_OTA_SERVICE_UUID);
     advertising->addServiceUUID(BLE_DEBUG_SERVICE_UUID);
@@ -302,16 +307,22 @@ void BluetoothManager::disable() {
     if (data_export_in_progress) {
         stop_data_export();
     }
-    
+
+    if (image_handler.is_upload_active()) {
+        image_handler.abort_upload();
+    }
+
+    // Set flags before deinit so that callbacks fired during teardown
+    // (e.g. onDisconnect → start_advertising) see BLE as already disabled.
+    ble_enabled = false;
+    device_connected = false;
+
     stop_advertising();
     delay(BLE_SHUTDOWN_ADVERTISING_DELAY_MS);
-    
+
     log("Bluetooth: Deinitializing BLE stack...\n");
     BLEDevice::deinit(false);
     delay(BLE_SHUTDOWN_DEINIT_DELAY_MS);
-    
-    ble_enabled = false;
-    device_connected = false;
     ble_server = nullptr;
     ota_service = nullptr;
     data_service = nullptr;
@@ -413,6 +424,11 @@ unsigned long BluetoothManager::get_bluetooth_timeout_remaining_ms() const {
 
 
 void BluetoothManager::start_data_export() {
+    if (device_web_server.is_ota_active()) {
+        log("Bluetooth Data: Export rejected while web OTA is armed or active\n");
+        set_data_status(BLE_DATA_ERROR);
+        return;
+    }
     if (!ble_enabled || !device_connected) {
         log("Bluetooth Data: Cannot start export - BLE not enabled or not connected\n");
         return;
@@ -646,8 +662,7 @@ void BluetoothManager::log(const char* format, ...) {
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    // Note: This is the log method itself, so we print to Serial directly
-    Serial.print(buffer);
+    diagnostic_log_write(buffer);
 
     // is_debug_stream_active() is the same as debug_stream_active
     if (debug_stream_active) {
@@ -680,6 +695,12 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
     
     switch (command) {
         case BLE_OTA_CMD_START:
+            if (device_web_server.is_ota_active() ||
+                image_handler.is_upload_active() || data_export_in_progress) {
+                log("Bluetooth OTA: Rejected while data channel is busy\n");
+                set_ota_status(BLE_OTA_ERROR);
+                break;
+            }
             // New protocol: [CMD][patch_size:4][is_full_update:1][build_number_length:1][build_number:N]
             if (data.length() >= 6) {  // 1 + 4 + 1 bytes minimum (cmd + patch_size + full_update_flag)
                 uint32_t patch_size = *(uint32_t*)(data.c_str() + 1);
@@ -801,6 +822,25 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
     
     uint8_t command = data[0];
     log("Bluetooth Data: Received command 0x%02X\n", command);
+
+    const bool is_transfer_stop = command == BLE_DATA_CMD_STOP_EXPORT ||
+                                  command == BLE_IMG_CMD_ABORT;
+    if (device_web_server.is_ota_active() &&
+        !is_transfer_stop) {
+        log("Bluetooth Data: Rejected command 0x%02X while web OTA is armed or active\n", command);
+        set_data_status(BLE_DATA_ERROR);
+        return;
+    }
+
+    const bool is_image_command = command == BLE_IMG_CMD_START ||
+                                  command == BLE_IMG_CMD_END ||
+                                  command == BLE_IMG_CMD_ABORT ||
+                                  command == BLE_IMG_CMD_DELETE;
+    if (image_handler.is_upload_active() && !is_image_command) {
+        log("Bluetooth Data: Rejected command 0x%02X during image upload\n", command);
+        set_data_status(BLE_DATA_ERROR);
+        return;
+    }
     
     switch (command) {
         case BLE_DATA_CMD_STOP_EXPORT:
@@ -835,6 +875,19 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
             }
             break;
             
+        // Image upload commands (0x30+ range) routed through data service
+        case BLE_IMG_CMD_START:
+        case BLE_IMG_CMD_END:
+        case BLE_IMG_CMD_ABORT:
+        case BLE_IMG_CMD_DELETE:
+            handle_image_control_command(command, data);
+            break;
+
+        case BLE_SETTINGS_CMD_GET_SCREENSAVER:
+        case BLE_SETTINGS_CMD_SET_SCREENSAVER:
+            handle_screensaver_settings_command(command, data);
+            break;
+
         default:
             log("Bluetooth Data: Unknown command: 0x%02X\n", command);
             set_data_status(BLE_DATA_ERROR);
@@ -847,24 +900,35 @@ void BluetoothManager::onConnect(BLEServer* server) {
     device_connected = true;
     log("BLE: Client connected - timeout paused while connected\n");
     mark_sessions_info_dirty();
+
+    // Notify client whether a screensaver image exists (via data status characteristic)
+    if (data_status_characteristic && image_handler.has_image()) {
+        uint8_t status = BLE_IMG_STATUS_HAS_IMAGE;
+        data_status_characteristic->setValue(&status, 1);
+        data_status_characteristic->notify();
+    }
 }
 
 void BluetoothManager::onDisconnect(BLEServer* server) {
     device_connected = false;
     last_disconnect_time = millis(); // Reset timeout countdown from now
-    
+
     log("BLE: Client disconnected - timeout countdown resumed\n");
-    
+
     if (ota_handler.is_ota_active()) {
         ota_handler.abort_ota();
     }
-    
+
     if (data_export_in_progress) {
         stop_data_export();
     }
-    
+
+    if (image_handler.is_upload_active()) {
+        image_handler.abort_upload();
+    }
+
     debug_stream_active = false;
-    
+
     // Restart advertising for next connection
     delay(500);
     start_advertising();
@@ -881,6 +945,14 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
     } else if (characteristic == data_control_characteristic) {
         LOG_BLE("  -> Handling data control\n");
         handle_data_control_command(characteristic);
+    } else if (characteristic == data_transfer_characteristic) {
+        // Image data chunks arrive here (writes to data transfer characteristic)
+        if (image_handler.is_upload_active()) {
+            String value = characteristic->getValue();
+            if (value.length() > 0 && !image_handler.process_chunk((const uint8_t*)value.c_str(), value.length())) {
+                set_image_status(BLE_IMG_STATUS_ERROR);
+            }
+        }
     } else if (characteristic == sysinfo_diagnostics_characteristic) {
         LOG_BLE("  -> QUEUING DIAGNOSTIC REPORT REQUEST\n");
         diagnostic_report_pending = true; // Defer heavy work to bluetooth task context
@@ -891,6 +963,150 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
 
 void BluetoothManager::onRead(BLECharacteristic* characteristic) {
     // Reserved for future use
+}
+
+void BluetoothManager::handle_image_control_command(uint8_t command, const String& value) {
+    switch (command) {
+        case BLE_IMG_CMD_START: {
+            if (device_web_server.is_ota_active() ||
+                data_export_in_progress) {
+                LOG_BLE("Image: START rejected while another transfer is active\n");
+                set_image_status(BLE_IMG_STATUS_ERROR);
+                return;
+            }
+            if (value.length() < 5) {
+                LOG_BLE("Image: START command too short\n");
+                set_image_status(BLE_IMG_STATUS_ERROR);
+                return;
+            }
+            uint32_t file_size = (uint8_t)value[1] |
+                                 ((uint8_t)value[2] << 8) |
+                                 ((uint8_t)value[3] << 16) |
+                                 ((uint8_t)value[4] << 24);
+            if (image_handler.start_upload(file_size)) {
+                set_image_status(BLE_IMG_STATUS_RECEIVING);
+            } else {
+                set_image_status(BLE_IMG_STATUS_ERROR);
+            }
+            break;
+        }
+        case BLE_IMG_CMD_END:
+            if (image_handler.complete_upload()) {
+                set_image_status(BLE_IMG_STATUS_SUCCESS);
+            } else {
+                set_image_status(BLE_IMG_STATUS_ERROR);
+            }
+            break;
+        case BLE_IMG_CMD_ABORT:
+            image_handler.abort_upload();
+            set_image_status(BLE_IMG_STATUS_IDLE);
+            break;
+        case BLE_IMG_CMD_DELETE:
+            if (image_handler.delete_image()) {
+                set_image_status(BLE_IMG_STATUS_IDLE);
+            } else {
+                set_image_status(BLE_IMG_STATUS_ERROR);
+            }
+            break;
+        default:
+            LOG_BLE("Image: Unknown command 0x%02X\n", command);
+            break;
+    }
+}
+
+void BluetoothManager::set_image_status(BLEImageStatus status) {
+    if (!data_status_characteristic) return;
+    uint8_t val = static_cast<uint8_t>(status);
+    data_status_characteristic->setValue(&val, 1);
+    data_status_characteristic->notify();
+}
+
+void BluetoothManager::handle_screensaver_settings_command(uint8_t command, const String& value) {
+    if (is_data_channel_busy_for_settings()) {
+        LOG_BLE("Screensaver settings: rejected command 0x%02X while data channel is busy\n", command);
+        send_screensaver_settings_error(BLE_SETTINGS_ERROR_BUSY);
+        return;
+    }
+
+    switch (command) {
+        case BLE_SETTINGS_CMD_GET_SCREENSAVER:
+            send_screensaver_settings();
+            break;
+
+        case BLE_SETTINGS_CMD_SET_SCREENSAVER: {
+            if (value.length() != 4) {
+                LOG_BLE("Screensaver settings: invalid SET length %d\n",
+                        static_cast<int>(value.length()));
+                send_screensaver_settings_error(BLE_SETTINGS_ERROR_INVALID_LENGTH);
+                return;
+            }
+
+            const auto* data = reinterpret_cast<const uint8_t*>(value.c_str());
+            uint16_t idle_timeout_s = static_cast<uint16_t>(data[1]) |
+                                      (static_cast<uint16_t>(data[2]) << 8);
+            uint8_t startup_timeout_s = data[3];
+
+            if (!ScreensaverSettings::is_valid_idle_timeout(idle_timeout_s) ||
+                !ScreensaverSettings::is_valid_startup_timeout(startup_timeout_s)) {
+                LOG_BLE("Screensaver settings: rejected idle=%u startup=%u\n",
+                        idle_timeout_s, startup_timeout_s);
+                send_screensaver_settings_error(BLE_SETTINGS_ERROR_INVALID_RANGE);
+                return;
+            }
+
+            if (!ScreensaverSettings::save_timing(idle_timeout_s, startup_timeout_s)) {
+                LOG_BLE("Screensaver settings: failed to save timing preferences\n");
+                send_screensaver_settings_error(BLE_SETTINGS_ERROR_STORAGE);
+                return;
+            }
+
+            LOG_BLE("Screensaver settings: saved idle=%us startup=%us\n",
+                    idle_timeout_s, startup_timeout_s);
+            send_screensaver_settings();
+            break;
+        }
+
+        default:
+            send_screensaver_settings_error(BLE_SETTINGS_ERROR_INVALID_RANGE);
+            break;
+    }
+}
+
+void BluetoothManager::send_screensaver_settings() {
+    if (!data_status_characteristic) {
+        return;
+    }
+
+    auto settings = ScreensaverSettings::load_timing();
+    uint8_t payload[4] = {
+        static_cast<uint8_t>(BLE_SETTINGS_STATUS_VALUE),
+        static_cast<uint8_t>(settings.idle_timeout_s & 0xFF),
+        static_cast<uint8_t>((settings.idle_timeout_s >> 8) & 0xFF),
+        settings.startup_timeout_s,
+    };
+
+    data_status_characteristic->setValue(payload, sizeof(payload));
+    data_status_characteristic->notify();
+}
+
+void BluetoothManager::send_screensaver_settings_error(BLEScreensaverSettingsError error) {
+    if (!data_status_characteristic) {
+        return;
+    }
+
+    uint8_t payload[2] = {
+        static_cast<uint8_t>(BLE_SETTINGS_STATUS_ERROR),
+        static_cast<uint8_t>(error),
+    };
+
+    data_status_characteristic->setValue(payload, sizeof(payload));
+    data_status_characteristic->notify();
+}
+
+bool BluetoothManager::is_data_channel_busy_for_settings() const {
+    return ota_handler.is_ota_active() ||
+           data_export_in_progress ||
+           image_handler.is_upload_active();
 }
 
 String BluetoothManager::check_ota_failure_after_boot() {
@@ -1108,15 +1324,16 @@ void BluetoothManager::generate_diagnostic_report() {
     char buf[512];
 
     // Helper lambda to send chunk and flush in flow-controlled slices
-    auto send_chunk = [this](const char* chunk) {
-        if (!debug_tx_characteristic || !chunk) return;
+    auto send_chunk = [this](const char* chunk) -> bool {
+        if (!debug_tx_characteristic || !chunk || !device_connected) return false;
         size_t len = strlen(chunk);
-        if (len == 0) return;
+        if (len == 0) return true;
 
         const TickType_t chunk_delay = pdMS_TO_TICKS(BLE_DEBUG_CHUNK_DELAY_MS);
 
         size_t offset = 0;
         while (offset < len) {
+            if (!device_connected) return false;
             size_t part_len = std::min(static_cast<size_t>(BLE_DEBUG_MAX_CHUNK_BYTES), len - offset);
             LOG_BLE("TX: %zu bytes\n", part_len);
             debug_tx_characteristic->setValue(reinterpret_cast<const uint8_t*>(chunk + offset), part_len);
@@ -1124,6 +1341,7 @@ void BluetoothManager::generate_diagnostic_report() {
             vTaskDelay(chunk_delay); // Give BLE stack time to drain queue
             offset += part_len;
         }
+        return true;
     };
 
     // Section 1: Header & Firmware Info
@@ -1663,8 +1881,8 @@ void BluetoothManager::generate_diagnostic_report() {
                                         // Calculate event yield (delta)
                                         float event_yield = event.end_weight - event.start_weight;
 
-                                        // Build base event string
-                                        char base_str[256];
+                                        // Build base event string (static to avoid stack pressure in BLE task)
+                                        static char base_str[256];
                                         if (event.pulse_attempt_number > 0) {
                                             snprintf(base_str, sizeof(base_str),
                                                 "    [%lums] %s (pulse #%u): %.2fg -> %.2fg (%+.2fg) (%.1fms pulse)",
@@ -1688,8 +1906,9 @@ void BluetoothManager::generate_diagnostic_report() {
                                             );
                                         }
 
-                                        // Build phase-specific metrics suffix
-                                        char metrics_str[256] = "";
+                                        // Build phase-specific metrics suffix (static to avoid stack pressure in BLE task)
+                                        static char metrics_str[256];
+                                        metrics_str[0] = '\0';
 
                                         switch (event.phase_id) {
                                             case 5: // PREDICTIVE
