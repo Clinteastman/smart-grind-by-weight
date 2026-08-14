@@ -53,6 +53,17 @@ last functional finding was an API mismatch where internal controller phases
 were emitted instead of the documented stable phase values; `b392efb` fixes the
 firmware mapping and `f823d17` enforces the same contract in Home Assistant.
 
+Release-asset validation on the consolidated source produced:
+
+| Target | Full image | Web/BLE OTA patch | Verification |
+| --- | --- | --- | --- |
+| V1 | 2,393,904 bytes; SHA-256 `3e585a8450cad9b284c5069a8dce2bced8cefd5f36396d6f51d7a8bc1b3997ba` | 1,759,922 bytes | detools 0.47 restores the full image byte-for-byte |
+| V2 | 2,367,520 bytes; SHA-256 `0c661d74c446b89586faac5cffa1026bd38b87cb45cca148fa673421059dfce4` | 1,742,021 bytes | detools 0.47 restores the full image byte-for-byte |
+
+Both full images begin with the ESP32 image magic byte `0xE9` and fit the
+3,072 KiB application partitions. Both patches fit the 2,048 KiB patch
+partition.
+
 ## Readiness gate
 
 - The consolidated V1 and V2 builds and simulator suite must pass first.
