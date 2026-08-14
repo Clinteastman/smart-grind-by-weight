@@ -42,4 +42,3 @@ which are follow-up review fixes. Do not squash away original authorship.
   assets before changing any pull request from draft to ready.
 - Publish the Home Assistant integration only after its mock-device tests,
   hassfest/HACS checks and live discovery/reconnect tests pass.
-

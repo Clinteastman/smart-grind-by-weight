@@ -75,4 +75,3 @@ interrupt on this controller and must not be used for the relay.
 
 Record firmware commit, Home Assistant integration commit, test date and any
 deviations in the release notes before marking the pull requests ready.
-
