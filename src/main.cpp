@@ -124,7 +124,6 @@ void setup() {
     network_manager.init(hardware_manager.get_preferences());
     device_web_server.init(&hardware_manager, &grind_controller, &bluetooth_manager);
     provisioning_service.init(hardware_manager.get_preferences(), &device_web_server.server());
-    device_web_server.begin();
     
     bluetooth_manager.init(hardware_manager.get_preferences());
     
@@ -213,6 +212,10 @@ void loop() {
     uint32_t current_time = millis();
     network_manager.update();
     provisioning_service.update();
+    // AsyncTCP requires lwIP's TCP/IP task and mutexes to exist. They are only
+    // created after Wi-Fi enters station or access-point mode, so defer the
+    // HTTP listener until NetworkManager/ProvisioningService has done that.
+    device_web_server.begin();
     device_web_server.update();
     if (last_uptime_update == 0) {
         last_uptime_update = current_time;

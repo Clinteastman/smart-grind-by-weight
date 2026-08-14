@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Update.h>
+#include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 
@@ -74,6 +75,10 @@ void DeviceWebServer::init(HardwareManager* hardware_manager, GrindController* g
 
 void DeviceWebServer::begin() {
     if (!initialized_ || started_) return;
+    // AsyncServer::begin() enters lwIP immediately. Calling it while Wi-Fi is
+    // still WIFI_MODE_NULL reaches an uninitialised lwIP semaphore and aborts
+    // in xQueueSemaphoreTake on ESP32 Arduino 3.x.
+    if (WiFi.getMode() == WIFI_MODE_NULL) return;
     server_.begin();
     started_ = true;
     LOG_BLE("[WEB] HTTP service listening on port 80\n");
