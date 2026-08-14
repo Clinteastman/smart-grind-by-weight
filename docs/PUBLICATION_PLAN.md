@@ -40,13 +40,18 @@ Verified on 2026-08-14 before physical acceptance and publication:
 | --- | --- | --- |
 | Reviewed community grind fixes | `8e3d27e` | V1 and V2 firmware builds pass independently |
 | Screensaver support | `e9c7ad9` | V1 and V2 firmware builds pass independently |
-| Wi-Fi, live web UI and guarded OTA | `d1e5aac` | V1 and V2 firmware builds pass independently |
-| Release and build reliability | `e302239` | Consolidated V1/V2 builds and all three simulator tests pass; cached repeats are about 25 seconds per firmware target and 9 seconds for the simulator |
-| Native Home Assistant integration | `2f2c2c9` | Pytest, Ruff and hassfest pass; remote HACS validation awaits repository publication |
+| Wi-Fi, live web UI and guarded OTA | `b392efb` | V1 and V2 builds pass independently; review aligned the public phase contract with clients |
+| Release and build reliability | `907661c` | Consolidated V1/V2 builds and all three simulator tests pass; cached repeats are about 25 seconds per firmware target and 9 seconds for the simulator |
+| Native Home Assistant integration | `f823d17` | Thirteen API tests, Ruff and hassfest pass; remote HACS validation awaits repository publication |
 
 These results prove that the focused branches compile without relying on later
 changes in the stack. They do not replace the physical and remote-CI gates
 below.
+
+The full local diff review is complete across all four firmware changes. Its
+last functional finding was an API mismatch where internal controller phases
+were emitted instead of the documented stable phase values; `b392efb` fixes the
+firmware mapping and `f823d17` enforces the same contract in Home Assistant.
 
 ## Readiness gate
 
