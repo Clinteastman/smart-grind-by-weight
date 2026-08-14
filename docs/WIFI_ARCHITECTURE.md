@@ -122,4 +122,3 @@ whether to execute them.
 model and hardware revision. The same identifier is advertised as the `id` TXT
 property on `_smartgrind._tcp`; integrations use it as the config-entry and
 entity identity so DHCP address changes do not create duplicate devices.
-

@@ -199,7 +199,7 @@ class GrinderTool:
                 self.print_error("PlatformIO is not installed in the project environment or on PATH")
                 return 1
             platformio_cmd = [pio]
-        
+
         environment = (
             "waveshare-esp32s3-touch-amoled-164-v2"
             if getattr(args, "hardware", "v1") == "v2"
