@@ -52,6 +52,11 @@ the original project or its authorship.
 | Improv serial provisioning | Implemented | Validate browser-to-USB provisioning and failure recovery on V2 hardware |
 | Native Home Assistant integration | Implemented in a separate local package | Validate discovery, entities, commands and reconnect behaviour on a live Home Assistant instance |
 
+The complete physical release gate is maintained in
+[V2 hardware acceptance](HARDWARE_ACCEPTANCE.md). None of the rows marked as
+hardware validation pending should be promoted to complete until that checklist
+has been run on the installed grinder.
+
 ## Reviewed upstream work
 
 Original commit authorship is retained for incorporated contributions. Follow-up
