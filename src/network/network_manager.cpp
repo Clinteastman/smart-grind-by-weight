@@ -105,6 +105,12 @@ bool SmartGrindNetworkManager::set_credentials(const String& ssid, const String&
     return true;
 }
 
+bool SmartGrindNetworkManager::connect_saved_credentials() {
+    if (!initialized_.load() || !enabled_.load() || !has_credentials()) return false;
+    begin_connection();
+    return state() == NetworkState::WIFI_CONNECTING;
+}
+
 void SmartGrindNetworkManager::clear_credentials() {
     if (settings_mutex_) xSemaphoreTake(settings_mutex_, portMAX_DELAY);
     if (preferences_) {

@@ -1,7 +1,9 @@
 #include "provisioning_service.h"
 
+#include <cstring>
 #include <WiFi.h>
 
+#include "../config/build_info.h"
 #include "../config/constants.h"
 #include "network_manager.h"
 
@@ -68,6 +70,8 @@ void ProvisioningService::init(Preferences* preferences, AsyncWebServer* server)
 
 void ProvisioningService::update() {
     if (!initialized_) return;
+
+    update_improv_serial();
 
     const NetworkState state = network_manager.state();
     if (!active_ && (state == NetworkState::WIFI_NO_CREDENTIALS ||
@@ -144,6 +148,185 @@ void ProvisioningService::schedule_reboot() {
     stop_dns();
     reboot_pending_ = true;
     reboot_at_ms_ = millis() + 1500;
+}
+
+void ProvisioningService::update_improv_serial() {
+    constexpr uint32_t FRAME_TIMEOUT_MS = 100;
+    constexpr uint32_t CONNECT_TIMEOUT_MS = 20000;
+    constexpr size_t MAX_BYTES_PER_UPDATE = 64;
+
+    if (improv_rx_position_ > 0 && millis() - improv_last_byte_ms_ > FRAME_TIMEOUT_MS) {
+        improv_rx_position_ = 0;
+    }
+
+    size_t processed = 0;
+    while (Serial.available() > 0 && processed++ < MAX_BYTES_PER_UPDATE) {
+        const uint8_t byte = static_cast<uint8_t>(Serial.read());
+        if (improv_rx_position_ >= sizeof(improv_rx_buffer_)) improv_rx_position_ = 0;
+        const size_t position = improv_rx_position_;
+        improv_rx_buffer_[position] = byte;
+        improv_last_byte_ms_ = millis();
+
+        const bool frame_complete = position >= 9 && position == 9 + improv_rx_buffer_[8];
+        if (frame_complete && improv_rx_buffer_[7] == improv::TYPE_RPC) {
+            const size_t rpc_length = improv_rx_buffer_[8];
+            const uint8_t* rpc = improv_rx_buffer_ + 9;
+            bool structurally_valid = rpc_length >= 2 && rpc[1] == rpc_length - 2;
+            if (structurally_valid && rpc[0] == improv::WIFI_SETTINGS) {
+                structurally_valid = rpc_length >= 4;
+                if (structurally_valid) {
+                    const size_t password_length_index = 3 + rpc[2];
+                    structurally_valid = password_length_index < rpc_length &&
+                                         password_length_index + 1 + rpc[password_length_index] == rpc_length;
+                }
+            }
+            if (!structurally_valid) {
+                send_improv_error(improv::ERROR_INVALID_RPC);
+                improv_rx_position_ = 0;
+                continue;
+            }
+        }
+
+        const bool keep = improv::parse_improv_serial_byte(
+            position, byte, improv_rx_buffer_,
+            [this](improv::ImprovCommand command) {
+                return handle_improv_command(command);
+            },
+            [this](improv::Error error) {
+                send_improv_error(error);
+            });
+        if (frame_complete || !keep) {
+            improv_rx_position_ = 0;
+            if (!keep && byte == 'I') {
+                improv_rx_buffer_[0] = byte;
+                improv_rx_position_ = 1;
+            }
+        } else {
+            improv_rx_position_++;
+        }
+    }
+
+    if (!improv_connect_pending_) return;
+    if (network_manager.is_connected()) {
+        complete_improv_connection();
+    } else if (network_manager.state() == NetworkState::WIFI_SETUP_REQUIRED ||
+               network_manager.state() == NetworkState::WIFI_DISABLED ||
+               millis() - improv_connect_started_ms_ >= CONNECT_TIMEOUT_MS) {
+        improv_connect_pending_ = false;
+        send_improv_error(improv::ERROR_UNABLE_TO_CONNECT);
+        send_improv_state(network_manager.is_enabled() ? improv::STATE_AUTHORIZED
+                                                       : improv::STATE_STOPPED);
+    }
+}
+
+bool ProvisioningService::handle_improv_command(const improv::ImprovCommand& command) {
+    send_improv_error(improv::ERROR_NONE);
+    switch (command.command) {
+        case improv::WIFI_SETTINGS: {
+            if (improv_connect_pending_ || !network_manager.is_enabled()) {
+                send_improv_error(improv::ERROR_UNABLE_TO_CONNECT);
+                return true;
+            }
+            const String ssid(command.ssid.c_str());
+            const String password(command.password.c_str());
+            if (!network_manager.set_credentials(ssid, password)) {
+                send_improv_error(improv::ERROR_INVALID_RPC);
+                return true;
+            }
+            stop_dns();
+            if (network_manager.state() != NetworkState::WIFI_CONNECTING &&
+                !network_manager.connect_saved_credentials()) {
+                send_improv_error(improv::ERROR_UNABLE_TO_CONNECT);
+                return true;
+            }
+            improv_connect_pending_ = true;
+            improv_connect_started_ms_ = millis();
+            send_improv_state(improv::STATE_PROVISIONING);
+            return true;
+        }
+        case improv::GET_CURRENT_STATE: {
+            const improv::State state = !network_manager.is_enabled()
+                                            ? improv::STATE_STOPPED
+                                            : network_manager.is_connected()
+                                                  ? improv::STATE_PROVISIONED
+                                                  : improv_connect_pending_
+                                                        ? improv::STATE_PROVISIONING
+                                                        : improv::STATE_AUTHORIZED;
+            send_improv_state(state);
+            if (state == improv::STATE_PROVISIONED) {
+                send_improv_response(command.command,
+                                     {"http://" + network_manager.ip_address()});
+            }
+            return true;
+        }
+        case improv::GET_DEVICE_INFO: {
+#ifdef HW_DISPLAY_VARIANT_V2
+            const String hardware = "Waveshare ESP32-S3 Touch AMOLED 1.64 V2";
+#else
+            const String hardware = "Waveshare ESP32-S3 Touch AMOLED 1.64 V1";
+#endif
+            send_improv_response(command.command,
+                                 {"Smart Grind-by-Weight", BUILD_FIRMWARE_VERSION,
+                                  hardware, "Smart Grind"});
+            return true;
+        }
+        case improv::GET_NETWORK_STATE: {
+            uint8_t flags = improv::NETWORK_SUPPORTS_WIFI;
+            std::vector<String> values;
+            if (network_manager.is_connected()) {
+                flags |= improv::NETWORK_IS_ONLINE;
+                values.push_back(String(flags));
+                values.push_back("http://" + network_manager.ip_address());
+            } else {
+                values.push_back(String(flags));
+            }
+            send_improv_response(command.command, values);
+            return true;
+        }
+        case improv::BAD_CHECKSUM:
+        case improv::UNKNOWN:
+            send_improv_error(improv::ERROR_INVALID_RPC);
+            return false;
+        default:
+            send_improv_error(improv::ERROR_UNKNOWN_RPC);
+            return false;
+    }
+}
+
+void ProvisioningService::send_improv_state(improv::State state) {
+    const uint8_t value = static_cast<uint8_t>(state);
+    send_improv_packet(improv::TYPE_CURRENT_STATE, &value, 1);
+}
+
+void ProvisioningService::send_improv_error(improv::Error error) {
+    const uint8_t value = static_cast<uint8_t>(error);
+    send_improv_packet(improv::TYPE_ERROR_STATE, &value, 1);
+}
+
+void ProvisioningService::send_improv_response(improv::Command command,
+                                               const std::vector<String>& values) {
+    const std::vector<uint8_t> response = improv::build_rpc_response(command, values, false);
+    send_improv_packet(improv::TYPE_RPC_RESPONSE, response.data(), response.size());
+}
+
+void ProvisioningService::send_improv_packet(improv::ImprovSerialType type,
+                                             const uint8_t* data, size_t length) {
+    if (length > 255 || (length > 0 && !data)) return;
+    uint8_t frame[267] = {'I', 'M', 'P', 'R', 'O', 'V', improv::IMPROV_SERIAL_VERSION,
+                          static_cast<uint8_t>(type), static_cast<uint8_t>(length)};
+    if (length > 0) memcpy(frame + 9, data, length);
+    uint8_t checksum = 0;
+    for (size_t i = 0; i < 9 + length; ++i) checksum += frame[i];
+    frame[9 + length] = checksum;
+    frame[10 + length] = '\n';
+    Serial.write(frame, 11 + length);
+}
+
+void ProvisioningService::complete_improv_connection() {
+    improv_connect_pending_ = false;
+    send_improv_state(improv::STATE_PROVISIONED);
+    send_improv_response(improv::WIFI_SETTINGS,
+                         {"http://" + network_manager.ip_address()});
 }
 
 String ProvisioningService::load_or_create_ap_password() {

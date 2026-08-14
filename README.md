@@ -25,8 +25,8 @@ The network work follows the independently implemented design in
 [Wi-Fi, Web and Home Assistant Architecture](docs/WIFI_ARCHITECTURE.md). It uses
 lessons from GaggiMate's mature ESP32 appliance behaviour—secured captive setup,
 careful reconnect/mDNS lifecycle, guarded OTA and bounded WebSocket clients—
-without copying its source code. Improv serial remains a planned provisioning
-alternative.
+without copying its source code. The secured setup access point and official
+Improv USB serial protocol provide two independent provisioning paths.
 
 **Turn any grinder into a precision smart grind-by-weight system**
 

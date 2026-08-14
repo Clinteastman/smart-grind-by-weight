@@ -63,6 +63,20 @@ the grinder's smaller feature set.
 4. Versioned WebSocket state/control API with backpressure.
 5. Live web UI and native Home Assistant integration on the same API.
 
+## Improv serial provisioning
+
+USB provisioning implements Improv Serial v1 using the pinned official C++
+protocol library. Incoming data is consumed in small bounded batches from the
+normal application loop, partial frames expire after 100 ms, and malformed
+credential frames are rejected before the protocol parser sees them. Wi-Fi
+connection attempts are asynchronous and report `Provisioned` plus the local
+HTTP URL on success, or return to `Authorized` with `Unable to connect` after a
+bounded attempt. Credentials are never written to the serial log.
+
+The supported RPCs are Wi-Fi settings, current state, device information and
+network state. Network scanning, hostname changes and device-name changes are
+optional Improv extensions and currently return `Unknown RPC command`.
+
 ## WebSocket API v1
 
 The device serves `/ws` and publishes at most one state message every 100 ms.

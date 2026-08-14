@@ -23,6 +23,7 @@ public:
 
     bool set_enabled(bool enabled);
     bool set_credentials(const String& ssid, const String& password);
+    bool connect_saved_credentials();
     void clear_credentials();
     bool start_setup_access_point(const String& ssid, const String& password);
 

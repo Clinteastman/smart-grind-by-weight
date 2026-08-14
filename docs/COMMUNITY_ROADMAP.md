@@ -49,7 +49,7 @@ the original project or its authorship.
 | V1/V2 install and USB recovery | Complete | Recheck release packages before the next public release |
 | Wi-Fi setup, discovery and guarded OTA | Implemented | Validate station/AP reconnect, on-device arming and a full V2 OTA cycle on hardware |
 | Versioned live API and browser UI | Implemented | Validate sustained live graphing, touch responsiveness and memory headroom on V2 hardware |
-| Improv serial provisioning | Planned | Implement and test without delaying the control loop |
+| Improv serial provisioning | Implemented | Validate browser-to-USB provisioning and failure recovery on V2 hardware |
 | Native Home Assistant integration | Planned | Build separately against the documented v1 API, then test discovery and reconnect behaviour |
 
 ## Reviewed upstream work
