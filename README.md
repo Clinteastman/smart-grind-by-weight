@@ -16,7 +16,7 @@ See the [community roadmap](docs/COMMUNITY_ROADMAP.md) for the Wi-Fi OTA, live w
 | Public web flasher and releases | Complete | Explicit controller-generation selection and downloadable, reproducible V1/V2 firmware packages |
 | Wi-Fi provisioning and safe OTA | Implemented; hardware validation pending | Reliable network setup, discovery, and physically armed browser-based full-image updates |
 | Shared live device API | Implemented; hardware validation pending | Bounded 10 Hz WebSocket state feed with safe stop/dismiss requests |
-| Native Home Assistant integration | Prototype complete; hardware validation pending | Separate HACS-ready integration with Zeroconf discovery and local-push entities |
+| Native Home Assistant integration | Package validation complete; hardware validation pending | Separate integration with Zeroconf/local-push entities, automated tests, Ruff, hassfest and HACS CI |
 | Live grinder web UI | Implemented; hardware validation pending | Real-time weight, grind state, controls, and rolling graph using the same device API |
 
 Each substantial pull request updates this status, its relevant user/developer documentation, and its release notes. The [detailed roadmap](docs/COMMUNITY_ROADMAP.md) records the architecture and contribution plan.

@@ -51,7 +51,7 @@ the original project or its authorship.
 | Wi-Fi setup, discovery and guarded OTA | Implemented | Validate station/AP reconnect, on-device arming and a full V2 OTA cycle on hardware |
 | Versioned live API and browser UI | Implemented | Validate sustained live graphing, touch responsiveness and memory headroom on V2 hardware |
 | Improv serial provisioning | Implemented | Validate browser-to-USB provisioning and failure recovery on V2 hardware |
-| Native Home Assistant integration | Implemented in a separate local package | Validate discovery, entities, commands and reconnect behaviour on a live Home Assistant instance |
+| Native Home Assistant integration | Separate package passes tests, Ruff and hassfest; HACS CI configured | Validate HACS remotely plus discovery, entities, commands and reconnect behaviour on a live Home Assistant instance |
 
 The complete physical release gate is maintained in
 [V2 hardware acceptance](HARDWARE_ACCEPTANCE.md). None of the rows marked as

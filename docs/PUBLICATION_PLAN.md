@@ -26,7 +26,8 @@ can understand provenance, risk and rollback boundaries.
    - V1/V2 CI, simulator CI, dual-board release assets and flasher guidance
 5. **Native Home Assistant integration**
    - Publish from its own single-integration repository after live validation
-   - HACS and hassfest validation, then a pre-release before any stable release
+   - Local tests, Ruff and hassfest pass; confirm HACS CI after publication,
+     then create a pre-release before any stable release
 
 Each pull request must state which commits came from an existing contributor and
 which are follow-up review fixes. Do not squash away original authorship.
