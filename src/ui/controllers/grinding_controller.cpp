@@ -195,10 +195,11 @@ void GrindingUIController::handle_grind_button() {
             ui_manager_->grind_controller->stop_grind();
         }
     } else if (ui_manager_->state_machine->is_state(UIState::READY)) {
-        if (ui_manager_->current_tab == 3) {
+        if (ui_manager_->current_tab == ReadyScreen::MENU_TAB_INDEX) {
             ui_manager_->switch_to_state(UIState::MENU);
             return;
         }
+        if (ui_manager_->current_tab == ReadyScreen::WIFI_TAB_INDEX) return;
 
         if (ui_manager_->grind_controller && ui_manager_->profile_controller) {
             ui_manager_->grind_controller->set_grind_profile_id(ui_manager_->profile_controller->get_current_profile());
@@ -322,8 +323,13 @@ void GrindingUIController::update_grind_button_icon() {
     } else if (ui_manager_->state_machine->is_state(UIState::GRIND_TIMEOUT)) {
         lv_img_set_src(grind_icon_, LV_SYMBOL_CLOSE);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_WARNING), 0);
-    } else if (ui_manager_->state_machine->is_state(UIState::READY) && ui_manager_->current_tab == 3) {
+    } else if (ui_manager_->state_machine->is_state(UIState::READY) &&
+               ui_manager_->current_tab == ReadyScreen::MENU_TAB_INDEX) {
         lv_img_set_src(grind_icon_, LV_SYMBOL_SETTINGS);
+        lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_NEUTRAL), 0);
+    } else if (ui_manager_->state_machine->is_state(UIState::READY) &&
+               ui_manager_->current_tab == ReadyScreen::WIFI_TAB_INDEX) {
+        lv_img_set_src(grind_icon_, LV_SYMBOL_WIFI);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_NEUTRAL), 0);
     } else {
         lv_img_set_src(grind_icon_, LV_SYMBOL_PLAY);

@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 #include "../../config/constants.h"
+#include "../../config/logging.h"
 #include "../../hardware/display_manager.h"
 #include "../../hardware/hardware_manager.h"
 #include "../ui_manager.h"
@@ -11,6 +12,7 @@
 ScreenTimeoutController::ScreenTimeoutController(UIManager* manager)
     : ui_manager_(manager)
     , timing_settings_(ScreensaverSettings::load_timing())
+    , settings_applied_at_ms_(millis())
     , screen_dimmed_(false) {}
 
 void ScreenTimeoutController::register_events() {}
@@ -48,11 +50,17 @@ void ScreenTimeoutController::update() {
     uint32_t idle_timeout_ms = ScreensaverSettings::idle_timeout_ms(timing_settings_);
     uint32_t weight_activity_window_ms =
         ScreensaverSettings::weight_activity_window_ms(timing_settings_);
+    const uint32_t ms_since_settings_applied = now - settings_applied_at_ms_;
+    // Do not let weight changes from before a runtime settings save keep the
+    // display awake under the newly selected timeout.
+    weight_activity_window_ms = min(weight_activity_window_ms, ms_since_settings_applied);
     bool recent_weight_activity = sensor &&
                                   sensor->weight_range_exceeds(weight_activity_window_ms,
                                                                USER_WEIGHT_ACTIVITY_THRESHOLD_G);
 
-    bool should_dim = (ms_since_touch >= idle_timeout_ms) && !recent_weight_activity;
+    bool should_dim = (ms_since_touch >= idle_timeout_ms) &&
+                      (ms_since_settings_applied >= idle_timeout_ms) &&
+                      !recent_weight_activity;
 
     if (should_dim && !screen_dimmed_) {
         float dimmed = USER_SCREEN_BRIGHTNESS_DIMMED;
@@ -68,9 +76,24 @@ void ScreenTimeoutController::update() {
             screensaver_controller_->has_image()) {
             screensaver_controller_->show();
         }
+        LOG_BLE("[DISPLAY] Idle timeout reached after %lus; dimmed with screensaver=%s\n",
+                static_cast<unsigned long>(timing_settings_.idle_timeout_s),
+                screensaver_controller_ && screensaver_controller_->is_visible() ? "ON" : "OFF");
     } else if (!should_dim && screen_dimmed_) {
         restore_normal_display(display);
     }
+}
+
+void ScreenTimeoutController::apply_runtime_settings() {
+    timing_settings_ = ScreensaverSettings::load_timing();
+    settings_applied_at_ms_ = millis();
+    last_settings_refresh_ms_ = settings_applied_at_ms_;
+    LOG_BLE("[DISPLAY] Runtime settings applied; idle timeout=%lus\n",
+            static_cast<unsigned long>(timing_settings_.idle_timeout_s));
+
+    if (!ui_manager_ || !ui_manager_->hardware_manager) return;
+    DisplayManager* display = ui_manager_->hardware_manager->get_display();
+    if (display) restore_normal_display(display);
 }
 
 void ScreenTimeoutController::refresh_settings_if_needed(uint32_t now_ms) {

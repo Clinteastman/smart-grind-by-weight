@@ -436,6 +436,8 @@ class GrinderBLETool:
         return None
 
     def generate_delta_patch(self, old_firmware_path: Path, new_firmware_data: bytes) -> Optional[bytes]:
+        new_firmware_path = None
+        patch_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False) as new_file:
                 new_file.write(new_firmware_data)
@@ -456,14 +458,18 @@ class GrinderBLETool:
                 print("[INFO] If detools is missing, the dependency check should have installed it")
                 return None
             with open(patch_path, 'rb') as f: patch_data = f.read()
-            
-            os.unlink(new_firmware_path)
-            os.unlink(patch_path)
             return patch_data
         except FileNotFoundError:
             return None
         except Exception:
             return None
+        finally:
+            for temporary_path in (new_firmware_path, patch_path):
+                if temporary_path:
+                    try:
+                        os.unlink(temporary_path)
+                    except OSError:
+                        pass
 
     async def upload_firmware(self, firmware_path: str, force_full: bool = False) -> bool:
         firmware_file = Path(firmware_path)
@@ -509,10 +515,19 @@ class GrinderBLETool:
                 self.safe_print(f"[INFO] Installing build: #{new_build}")
         
         if not use_delta:
-            with tempfile.NamedTemporaryFile() as empty_file:
+            # Close the empty base file before detools opens it. Windows does
+            # not allow a second process to read a live NamedTemporaryFile.
+            with tempfile.NamedTemporaryFile(delete=False) as empty_file:
+                empty_path = Path(empty_file.name)
+            try:
                 patch_data = await asyncio.to_thread(
-                    self.generate_delta_patch, Path(empty_file.name), firmware_data
+                    self.generate_delta_patch, empty_path, firmware_data
                 )
+            finally:
+                try:
+                    empty_path.unlink()
+                except OSError:
+                    pass
             if not patch_data: return False
         
         self.update_method = "delta" if use_delta else "full"

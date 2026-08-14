@@ -1,7 +1,7 @@
 # Wi-Fi, Web and Home Assistant Architecture
 
-This document records the intended Smart Grind network behaviour before the
-public interfaces are built. GaggiMate is used as mature behavioural prior art
+This document records the Smart Grind network behaviour and public local API.
+GaggiMate is used as mature behavioural prior art
 because it runs a real-time coffee appliance on closely related ESP32 hardware.
 Smart Grind's implementation is written independently and kept proportionate to
 the grinder's smaller feature set.
@@ -36,22 +36,35 @@ the grinder's smaller feature set.
   enough internal RAM to accept TCP connections under a fully constructed UI.
 - Captive portal probes used by Android, Apple, Windows and Firefox need explicit
   responses so setup opens reliably on common phones and laptops.
-- OTA must be a controlled appliance state: require a short physical arming
-  window, refuse updates while grinding, stop the motor, validate size/image
-  metadata and internal-heap headroom, incrementally write only the inactive
-  application partition, reboot, and verify the expected version after boot.
+- OTA must be a controlled appliance state: require an explicit browser
+  confirmation, refuse updates while grinding, stop the motor, validate
+  size/image metadata and internal-heap headroom, incrementally write only the
+  inactive application partition, reboot, and verify the expected version
+  after boot. Update authentication and signed images are deliberately deferred
+  until the end-to-end update experience is complete.
+- Wi-Fi and Bluetooth may coexist during normal use. Before a web OTA upload,
+  the main application loop temporarily shuts down idle Bluetooth and waits for
+  internal memory to recover; active BLE transfers are never interrupted. If
+  preparation expires or the upload fails after Bluetooth was stopped, the
+  device cleanly restarts into its existing valid firmware. This restores the
+  configured Bluetooth state without leaking heap by rebuilding the retained
+  Arduino BLE server singleton in the same boot.
 - Do not pre-erase the complete OTA partition or suspend a task while it can hold
   a flash lock. Both patterns can stall an upload or deadlock recovery; use the
-  platform Update API's sector-at-a-time path and keep the file task schedulable.
+  platform Update API's sector-at-a-time path and keep the network/main loop
+  schedulable.
+- Hardware tasks are removed from task-watchdog monitoring before OTA suspends
+  them and registered again before they resume. A deliberately suspended task
+  must never cause a watchdog reboot midway through an otherwise healthy upload.
 
 ## Service boundaries
 
 - `NetworkManager`: credentials, station/AP state, reconnect policy and hostname.
 - `ProvisioningService`: secured setup AP, captive DNS/HTTP, static setup/device
   pages and (when implemented) Improv serial.
-- `DeviceWebServer`: versioned status endpoints and guarded full-image OTA.
+- `DeviceWebServer`: versioned status endpoints and safe full-image OTA.
 - `DeviceApi`: one versioned state/control contract shared by the web UI and the
-  native Home Assistant integration.
+  native Home Assistant integration, plus queued persistent settings changes.
 - `DiscoveryService`: `.local`, `_http._tcp` and `_smartgrind._tcp` records with
   firmware/API metadata.
 
@@ -96,6 +109,7 @@ State messages have this shape:
     "active": true,
     "phase": "GRINDING",
     "mode": "weight",
+    "profile": 1,
     "progress": 63,
     "target_weight": 18.0,
     "target_time_ms": 0
@@ -122,6 +136,34 @@ Each request receives a v1 acknowledgement containing `action`, `accepted` and
 `reason`. There is deliberately no network command that starts the motor. The
 network callback only queues requests; the normal UI/control task decides
 whether to execute them.
+
+The browser applies a display-only exponential filter and near-zero deadband to
+the 10 Hz flow value. Grinder control and saved session samples retain their
+original precision; completed graphs are replaced with the full recorded trace.
+
+## HTTP API v1
+
+- `GET /api/v1/status`: device, build, network, memory and OTA progress state.
+- `GET /api/v1/settings`: the three grinder profiles and the matching on-device
+  automation, purge, display, screensaver, logging, swipe and Bluetooth values.
+- `POST /api/v1/settings`: validates a complete form and queues its application
+  on the normal UI task. It is refused while grinding.
+- `POST /api/v1/profile`: selects Single, Double or Custom while idle, persists
+  the selection and keeps the touchscreen and dashboard target in sync.
+- `GET /api/v1/history`: validated summaries for the latest 10 stored sessions.
+- `GET /api/v1/history/session?id=N`: the checksum-validated raw session used by
+  the browser for graphs and CSV/JSON downloads.
+- `GET /api/v1/logs`: the latest 4 KiB of boot and runtime messages retained in
+  RAM, also viewable and downloadable from the web settings page.
+- `GET`, `POST` and `DELETE /api/v1/screensaver/image`: read, transactionally
+  replace or remove the fixed-size RGB565 custom image while idle.
+
+Settings and screensaver mutations enforce same-origin checks. Web OTA is
+deliberately unauthenticated at this stage; browser confirmation plus the
+motor, transfer, image and partition guards protect the update operation while
+authentication and signed images remain roadmap work. History and image access
+are refused while grind logging, OTA or another transfer could contend for the
+filesystem. No HTTP endpoint starts the motor.
 
 `GET /api/v1/status` also exposes a stable 12-character device identifier,
 model and hardware revision. The same identifier is advertised as the `id` TXT

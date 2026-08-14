@@ -12,6 +12,8 @@ the original project or its authorship.
 - Desktop simulator with deterministic grind and UI performance tests
 - Faster display updates and more reliable short swipe gestures
 - Web flasher release artifacts for both board revisions
+- Local light/dark web app with live status, grinder settings, history and
+  screensaver management
 
 ## Priorities
 
@@ -19,18 +21,23 @@ the original project or its authorship.
    - Publish tested V1 and V2 firmware from one release.
    - Require an explicit board-revision choice in the web flasher.
    - Retain USB recovery even after Wi-Fi updating is introduced.
-2. **Wi-Fi and safe web OTA**
+2. **Wi-Fi and web OTA**
    - Non-blocking station connection with a first-run setup access point.
-   - `grindbyweight.local` mDNS access.
+   - `smartgrind.local` mDNS access.
    - Stream a full firmware image directly to the inactive OTA partition.
-   - Permit updates only while the motor is stopped and a physical update
-     window has been opened on the device.
+   - Permit updates directly from the web app after an explicit confirmation,
+     while retaining motor-stop, transfer-conflict and image-integrity guards.
+   - Automatically pause idle Bluetooth for a web update instead of making the
+     user wait for its startup timer or manually toggle either radio.
 3. **Shared local-push API and live web UI**
    - Define a small, versioned WebSocket protocol for status, live weight,
      target, flow, grind phase and completed-session data.
    - Use the same protocol for the browser UI, simulator and integrations.
    - Keep all safety decisions in the firmware control loop; network clients
      request actions but never drive the relay directly.
+   - Keep history bounded on-device and provide browser CSV/JSON/raw downloads;
+     retain BLE/Python export as the longer-term archive until web parity has
+     been proven across releases.
 4. **Native Home Assistant integration**
    - Follow the current GaggiMate model: zeroconf discovery plus a local-push
      WebSocket API and standard Home Assistant entities.
@@ -38,6 +45,9 @@ the original project or its authorship.
    - Treat MQTT as optional compatibility support, not the primary Home
      Assistant architecture.
 5. **Additional reviewed features**
+   - Revisit update security after the update workflow is stable: assess web
+     authentication, BLE access control and signed firmware without making
+     routine domestic updates cumbersome.
    - Evaluate bean tracking, basket/profile detection, screensavers and other
      outstanding community work as separate changes with attribution, tests
      and V1/V2 compatibility checks.
@@ -48,8 +58,9 @@ the original project or its authorship.
 | --- | --- | --- |
 | V1/V2 install and USB recovery | Complete | Recheck release packages before the next public release |
 | Reproducible, cached firmware and simulator builds | Complete locally | Confirm cache restore and both hardware jobs on the first published CI run |
-| Wi-Fi setup, discovery and guarded OTA | Implemented | Validate station/AP reconnect, on-device arming and a full V2 OTA cycle on hardware |
-| Versioned live API and browser UI | Implemented | Validate sustained live graphing, touch responsiveness and memory headroom on V2 hardware |
+| Wi-Fi setup, discovery and OTA | Station/captive setup plus direct unarmed V2 web OTA, cancellation and failure recovery validated | Recheck the release package and router reconnect on the final installed build |
+| Versioned live API and browser UI | Real grind, live graph, completed trace, profile selection and touch interaction validated on V2 | Continue long-duration memory monitoring in routine use |
+| Browser settings, analytics and screensavers | Visual/mobile review and installed-grinder acceptance complete on V2 | Continue cross-browser checks in routine use |
 | Improv serial provisioning | Implemented | Validate browser-to-USB provisioning and failure recovery on V2 hardware |
 | Native Home Assistant integration | Separate package passes tests, Ruff and hassfest; HACS CI configured | Validate HACS remotely plus discovery, entities, commands and reconnect behaviour on a live Home Assistant instance |
 

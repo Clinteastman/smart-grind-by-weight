@@ -41,7 +41,9 @@ jobs:
       - name: Restore compiled-object cache
         uses: actions/cache@v4
         with:
-          path: .pio/build-cache
+          path: |
+            .pio/build-cache/waveshare-esp32s3-touch-amoled-164
+            .pio/build-cache/waveshare-esp32s3-touch-amoled-164-v2
           key: ${{ runner.os }}-pio-objects-release-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-pio-objects-release-
@@ -57,11 +59,11 @@ jobs:
           # Install dependencies first to ensure exact versions
           pio pkg install
           mkdir -p release-builds/v1 release-builds/v2
-          pio run -e waveshare-esp32s3-touch-amoled-164
+          PLATFORMIO_BUILD_CACHE_DIR=.pio/build-cache/waveshare-esp32s3-touch-amoled-164 pio run -e waveshare-esp32s3-touch-amoled-164
           cp .pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin release-builds/v1/
           cp .pio/build/waveshare-esp32s3-touch-amoled-164/bootloader.bin release-builds/v1/
           cp .pio/build/waveshare-esp32s3-touch-amoled-164/partitions.bin release-builds/v1/
-          pio run -e waveshare-esp32s3-touch-amoled-164-v2
+          PLATFORMIO_BUILD_CACHE_DIR=.pio/build-cache/waveshare-esp32s3-touch-amoled-164-v2 pio run -e waveshare-esp32s3-touch-amoled-164-v2
           cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/firmware.bin release-builds/v2/
           cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/bootloader.bin release-builds/v2/
           cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/partitions.bin release-builds/v2/
@@ -171,7 +173,8 @@ jobs:
       - name: Prepare release notes
         id: changelog
         run: |
-          # Create simple release notes with installation instructions
+          # Combine installation instructions with this version's maintained
+          # changelog entry so the GitHub release is useful on its own.
           cat > release-notes.md << EOF
           ## Installation
 
@@ -191,6 +194,28 @@ jobs:
           - Commit: ${{ github.sha }}
           - Tag: ${{ github.ref_name }}
           EOF
+
+          export RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          python - <<'PY' >> release-notes.md
+          import os
+          import re
+
+          version = os.environ["RELEASE_VERSION"]
+          lines = open("CHANGELOG.md", encoding="utf-8").read().splitlines()
+          heading = re.compile(rf"^## \[{re.escape(version)}\](?:\s|$)")
+          start = next((i for i, line in enumerate(lines) if heading.match(line)), None)
+          if start is None:
+              raise SystemExit(f"CHANGELOG.md has no entry for {version}")
+
+          end = len(lines)
+          for i in range(start + 1, len(lines)):
+              if lines[i].startswith("## [") or lines[i].startswith(f"[{version}]:"):
+                  end = i
+                  break
+
+          print("\n## What's changed\n")
+          print("\n".join(lines[start + 1:end]).strip())
+          PY
 
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
           cat release-notes.md >> $GITHUB_OUTPUT

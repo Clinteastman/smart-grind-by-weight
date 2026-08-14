@@ -20,12 +20,19 @@ interrupt on this controller and must not be used for the relay.
 
 - Run weight mode and confirm progress, coast compensation, final settling and
   completion are correct.
+- Reboot with the assembled grinder unloaded. Confirm the boot-time tare hides
+  the mechanical preload, the first web/UI weight remains near zero, and the
+  idle dashboard shows the selected profile target rather than `0.0 g`.
 - Run time mode with the load cell connected, then with it unavailable. Confirm
   completion and pause/resume do not dereference the missing sensor.
 - Confirm short swipes starting near the centre consistently change screen and
   retain visible transition frames.
 - Leave the controller idle long enough for the standard and custom
   screensavers; confirm touch dismissal and image fallback.
+- Change the idle timeout, dim brightness and built-in screensaver style from
+  the web UI. Confirm the running controller applies them without a reboot and
+  that weight activity recorded before the save does not postpone the new
+  timeout.
 
 ## 3. Wi-Fi provisioning
 
@@ -48,17 +55,30 @@ interrupt on this controller and must not be used for the relay.
 - Leave the page open for 30 minutes and repeatedly disconnect/reconnect Wi-Fi.
   Record free internal heap before and after; it must recover rather than trend
   downwards.
+- Refresh and download the recent diagnostic log. Confirm it contains the reset
+  reason, hardware/task initialization and Wi-Fi/HTTP startup messages without
+  requiring USB serial.
 - Open more than four clients and confirm excess/slow clients are rejected
   without affecting the grinder control loop.
 
-## 5. Guarded OTA and recovery
+## 5. Web OTA and recovery
 
-- Confirm an unarmed upload is rejected and an armed window is refused while
-  grinding.
-- Physically arm OTA from the grinder UI, upload the matching full V2 firmware
-  image, and confirm the reported version/build after restart.
+- Start an update from the web UI while idle Bluetooth is enabled. Confirm
+  Bluetooth pauses automatically, OTA becomes ready without a physical action,
+  and a matching full V2 image installs successfully.
+- Confirm preparation is refused while grinding or during a BLE transfer.
+- Let one prepared window expire and submit one invalid image; confirm both
+  paths cleanly restart into the existing firmware when Bluetooth had been
+  paused, with saved settings intact and no repeated-toggle heap loss.
 - Interrupt one upload before completion and confirm the existing application
   still boots. Then complete a normal upload.
+- Confirm Wi-Fi credentials, profiles and other saved settings survive restart.
+- From the dashboard, select Single, Double and Custom while idle. Confirm the
+  highlighted web target and the active touchscreen tab change together, then
+  restore the desired profile before grinding.
+- With the grinder idle, confirm the dashboard flow readout settles at
+  `0.00 g/s`; during a grind, confirm real flow changes remain responsive and
+  the completed graph still uses the full stored trace.
 - Confirm USB flashing can still recover the controller after the OTA tests.
 
 ## 6. Home Assistant

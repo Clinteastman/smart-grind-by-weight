@@ -370,6 +370,10 @@ void GrindController::update() {
             break;
             
         case GrindPhase::SETUP: {
+            // A boot-time tare normally finishes long before user input. If a
+            // grind is requested unusually early, wait rather than starting a
+            // time-mode session against an undefined zero reference.
+            if (weight_sensor && weight_sensor->is_tare_in_progress()) break;
             float pre_tare_weight = weight_sensor ? weight_sensor->get_weight_low_latency() : 0.0f;
             grind_logger.start_grind_session(session_descriptor, pre_tare_weight);
             if (mode == GrindMode::TIME) {

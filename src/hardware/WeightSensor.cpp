@@ -27,6 +27,7 @@ WeightSensor::WeightSensor() {
     cal_factor = USER_DEFAULT_CALIBRATION_FACTOR;
 #endif
     tare_offset = 0;
+    tare_initialized_.store(false);
     
     // Initialize current readings
     current_weight = 0.0;
@@ -42,6 +43,7 @@ WeightSensor::WeightSensor() {
     doTare = false;
     tareTimes = 0;
     tareStatus = false;
+    tare_initialized_.store(false);
     tareTimeoutFlag = false;
     tareTimeOut = 0;
     
@@ -98,6 +100,7 @@ void WeightSensor::init(Preferences* preferences) {
     doTare = false;
     tareTimes = 0;
     tareStatus = false;
+    tare_initialized_.store(false);
     hardware_fault_ = HardwareFault::NONE;
     detected_sample_rate_sps_ = HW_LOADCELL_SAMPLE_RATE_SPS;
 
@@ -323,6 +326,7 @@ void WeightSensor::set_calibration_factor(float factor) {
 
 void WeightSensor::set_zero_offset(int32_t offset) {
     tare_offset = offset;
+    tare_initialized_.store(true);
 }
 
 void WeightSensor::update() {
@@ -727,6 +731,7 @@ bool WeightSensor::sample_and_feed_filter() {
                     // Use CircularBufferMath smoothed data instead of original smoothedData()
                     int32_t smoothed_raw = raw_filter.get_smoothed_raw(250); // 250ms window for stability
                     tare_offset = smoothed_raw;  // Set tare offset to smoothed raw ADC value
+                    tare_initialized_.store(true);
                     tareTimes = 0;
                     doTare = 0;
                     tareStatus = 1;
@@ -828,6 +833,10 @@ int32_t WeightSensor::get_standard_deviation_adc(uint32_t window_ms) const {
 
 // HX711_ADC exact tare methods
 void WeightSensor::tareNoDelay() {
+    // Weight values are undefined while a new zero reference is being
+    // collected. Suppress the mechanical preload instead of presenting it as
+    // coffee weight to the UI/API.
+    tare_initialized_.store(false);
     doTare = 1;
     tareTimes = 0;
     tareStatus = 0;

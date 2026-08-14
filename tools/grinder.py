@@ -12,9 +12,13 @@ import subprocess
 import platform
 import venv
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import shutil
 import stat
+import json
+import binascii
+import struct
+import tempfile
 
 # Color support for cross-platform output
 try:
@@ -55,6 +59,7 @@ class GrinderTool:
         self.streamlit_dir = self.script_dir / "streamlit-reports"
         self.db_path = self.script_dir / "database" / "grinder_data.db"
         self.requirements_txt = self.script_dir / "requirements.txt"
+        self.build_lock_path = self.project_dir / ".pio" / "smart-grind-build.lock"
     
     def safe_print(self, text: str):
         """Print text with proper encoding handling for all platforms."""
@@ -84,6 +89,112 @@ class GrinderTool:
     def print_info(self, message: str):
         """Print an info message."""
         self.safe_print(f"{COLORS['CYAN']}[INFO] {message}{COLORS['RESET']}")
+
+    def _process_is_running(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        if platform.system() == "Windows":
+            # os.kill(pid, 0) is not a harmless existence probe on Windows:
+            # CPython can route it through TerminateProcess. Query the handle
+            # instead so checking a lock can never stop the active build.
+            try:
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+                if not handle:
+                    return False
+                try:
+                    exit_code = ctypes.c_ulong()
+                    return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) \
+                        and exit_code.value == 259  # STILL_ACTIVE
+                finally:
+                    kernel32.CloseHandle(handle)
+            except (AttributeError, OSError):
+                return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _windows_project_compilers(self) -> List[int]:
+        """Find orphaned compiler children still writing this checkout."""
+        if platform.system() != "Windows":
+            return []
+        build_path = str(self.project_dir / ".pio" / "build").replace("'", "''")
+        script = (
+            "$p='" + build_path + "'; "
+            "Get-CimInstance Win32_Process | Where-Object { "
+            "$_.Name -match 'platformio|python|cmd|xtensa|cc1plus|ld' -and "
+            "$_.CommandLine -and $_.CommandLine.Contains($p) } | "
+            "Select-Object -ExpandProperty ProcessId | ConvertTo-Json -Compress"
+        )
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True, text=True, check=False, timeout=10,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return []
+            value = json.loads(result.stdout)
+            return [int(value)] if isinstance(value, int) else [int(pid) for pid in value]
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return []
+
+    def _acquire_build_lock(self, environment: str) -> bool:
+        """Atomically prevent overlapping builds and detect orphaned compilers."""
+        self.build_lock_path.parent.mkdir(parents=True, exist_ok=True)
+        for _ in range(2):
+            try:
+                fd = os.open(self.build_lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, "w", encoding="utf-8") as lock:
+                    json.dump({"pid": os.getpid(), "environment": environment}, lock)
+                return True
+            except FileExistsError:
+                try:
+                    lock_data = json.loads(self.build_lock_path.read_text(encoding="utf-8"))
+                    owner_pid = int(lock_data.get("pid", 0))
+                except (OSError, ValueError, json.JSONDecodeError):
+                    owner_pid = 0
+                if self._process_is_running(owner_pid):
+                    self.print_error(f"A Smart Grind build is already running (process {owner_pid})")
+                    return False
+                compiler_pids = self._windows_project_compilers()
+                if compiler_pids:
+                    self.print_error(
+                        "An earlier Smart Grind build left compiler processes running: " +
+                        ", ".join(str(pid) for pid in compiler_pids)
+                    )
+                    self.print_info("Wait for them to finish or stop those processes before rebuilding")
+                    return False
+                self.build_lock_path.unlink(missing_ok=True)
+        self.print_error("Could not acquire the Smart Grind build lock")
+        return False
+
+    def _release_build_lock(self):
+        try:
+            lock_data = json.loads(self.build_lock_path.read_text(encoding="utf-8"))
+            if int(lock_data.get("pid", 0)) == os.getpid():
+                self.build_lock_path.unlink(missing_ok=True)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+
+    def _platformio_python(self) -> Optional[Path]:
+        """Return a Python interpreter that has PlatformIO/esptool installed."""
+        candidates = [self.venv_python]
+        if platform.system() == "Windows":
+            candidates.append(Path.home() / ".platformio" / "penv" / "Scripts" / "python.exe")
+        else:
+            candidates.append(Path.home() / ".platformio" / "penv" / "bin" / "python")
+        for candidate in candidates:
+            if candidate.exists():
+                probe = subprocess.run(
+                    [str(candidate), "-m", "esptool", "version"],
+                    capture_output=True, text=True, check=False,
+                )
+                if probe.returncode == 0:
+                    return candidate
+        return None
     
     def check_venv(self) -> bool:
         """Check if virtual environment exists and is properly set up."""
@@ -212,6 +323,8 @@ class GrinderTool:
             if getattr(args, "hardware", "v1") == "v2"
             else "waveshare-esp32s3-touch-amoled-164"
         )
+        if not self._acquire_build_lock(environment):
+            return 2
         jobs = max(1, getattr(args, "jobs", min(8, os.cpu_count() or 1)))
         self.print_info(f"Target: {args.hardware.upper()} ({jobs} parallel jobs)")
 
@@ -223,24 +336,31 @@ class GrinderTool:
         build_env.setdefault("PYTHONIOENCODING", "utf-8")
         cache_override = build_env.get("SMART_GRIND_BUILD_CACHE_DIR")
         if cache_override:
-            build_env["PLATFORMIO_BUILD_CACHE_DIR"] = cache_override
+            cache_base = Path(cache_override)
         elif not build_env.get("PLATFORMIO_BUILD_CACHE_DIR"):
             if platform.system() == "Windows":
                 cache_root = Path(build_env.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
             else:
                 cache_root = Path(build_env.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-            build_env["PLATFORMIO_BUILD_CACHE_DIR"] = str(
-                cache_root / "smart-grind-by-weight" / "platformio-build-cache"
-            )
-        self.print_info(f"Shared build cache: {build_env['PLATFORMIO_BUILD_CACHE_DIR']}")
+            cache_base = cache_root / "smart-grind-by-weight" / "platformio-build-cache"
+        else:
+            cache_base = Path(build_env["PLATFORMIO_BUILD_CACHE_DIR"])
+        # PlatformIO's object cache is not safe to share between the V1 and V2
+        # environments: their display flags produce incompatible LVGL objects.
+        # Keep reuse across worktrees while isolating each hardware target.
+        build_env["PLATFORMIO_BUILD_CACHE_DIR"] = str(cache_base / environment)
+        self.print_info(f"Target-specific build cache: {build_env['PLATFORMIO_BUILD_CACHE_DIR']}")
 
         # Keep local Windows builds responsive. PlatformIO otherwise uses every
         # logical CPU, which can make this source-heavy project slower through
         # compiler and filesystem contention.
-        result = self.run_command(
-            platformio_cmd + ["run", "-e", environment, "-j", str(jobs)],
-            env=build_env,
-        )
+        try:
+            result = self.run_command(
+                platformio_cmd + ["run", "-e", environment, "-j", str(jobs)],
+                env=build_env,
+            )
+        finally:
+            self._release_build_lock()
         
         if result.returncode == 0:
             self.print_success("Firmware build completed")
@@ -437,6 +557,112 @@ class GrinderTool:
 
         return await self.run_async_command(cmd)
 
+    def cmd_flash_usb(self, args: argparse.Namespace) -> int:
+        """Flash a previously successful firmware image without rebuilding it."""
+        self.print_header("Flashing Firmware over USB")
+        variant_dir = "waveshare-164-v2" if args.hardware == "v2" else "waveshare-164-v1"
+        firmware_path = Path(args.firmware).resolve() if args.firmware else None
+        if firmware_path is None:
+            cache_dir = self.project_dir / "firmware_cache" / variant_dir
+            candidates = sorted(cache_dir.glob("build_*.bin"), key=lambda path: path.stat().st_mtime)
+            if not candidates and args.hardware == "v1":
+                # Compatibility with archives made before hardware-specific directories.
+                candidates = sorted(
+                    (self.project_dir / "firmware_cache").glob("build_*.bin"),
+                    key=lambda path: path.stat().st_mtime,
+                )
+            if not candidates:
+                self.print_error(f"No archived {args.hardware.upper()} firmware was found")
+                self.print_info(f"Build it first: tools/grinder.py build --hardware {args.hardware}")
+                return 1
+            firmware_path = candidates[-1]
+
+        if not firmware_path.is_file():
+            self.print_error(f"Firmware file not found: {firmware_path}")
+            return 1
+        with firmware_path.open("rb") as firmware:
+            if firmware.read(1) != b"\xe9":
+                self.print_error("Firmware is not an ESP32 application image")
+                return 1
+        if firmware_path.stat().st_size > 3 * 1024 * 1024:
+            self.print_error("Firmware is larger than the 3 MB application partition")
+            return 1
+        environment = f"usb-{args.hardware}-{args.port}"
+        if not self._acquire_build_lock(environment):
+            return 2
+        try:
+            esptool_python = self._platformio_python()
+            if not esptool_python:
+                self.print_error("Could not find an esptool installation")
+                return 1
+            flash_env = os.environ.copy()
+            flash_env["PYTHONUTF8"] = "1"
+            flash_env["PYTHONIOENCODING"] = "utf-8"
+            ota_file = tempfile.NamedTemporaryFile(suffix="-otadata.bin", delete=False)
+            ota_path = Path(ota_file.name)
+            ota_file.close()
+            try:
+                read_result = self.run_command(
+                    [str(esptool_python), "-m", "esptool", "--chip", "esp32s3",
+                     "--port", args.port, "--baud", str(args.baud),
+                     "--before", "default-reset", "--after", "hard-reset",
+                     "read-flash", "0x0000e000", "0x2000", str(ota_path)],
+                    env=flash_env,
+                )
+                if read_result.returncode != 0:
+                    self.print_error("Could not read the board's active firmware slot")
+                    return read_result.returncode
+                app_offset, app_label = self._active_app_partition(ota_path.read_bytes())
+            finally:
+                ota_path.unlink(missing_ok=True)
+
+            self.print_info(f"Image: {firmware_path.name} ({firmware_path.stat().st_size:,} bytes)")
+            self.print_info(
+                f"Port: {args.port}; writing active {app_label} at 0x{app_offset:08x} "
+                "(NVS and LittleFS are preserved)"
+            )
+            result = self.run_command(
+                [str(esptool_python), "-m", "esptool", "--chip", "esp32s3",
+                 "--port", args.port, "--baud", str(args.baud),
+                 "--before", "default-reset", "--after", "hard-reset",
+                 "write-flash", f"0x{app_offset:08x}", str(firmware_path)],
+                env=flash_env,
+            )
+            if result.returncode == 0:
+                self.print_success("USB firmware flash completed and verified")
+            else:
+                self.print_error("USB firmware flash failed")
+            return result.returncode
+        finally:
+            self._release_build_lock()
+
+    @staticmethod
+    def _active_app_partition(otadata: bytes) -> Tuple[int, str]:
+        """Return the boot-selected app offset without modifying OTA metadata."""
+        if len(otadata) != 0x2000:
+            raise ValueError("OTA data must be exactly 8 KB")
+
+        entries = []
+        for sector_offset in (0, 0x1000):
+            ota_seq, ota_state, stored_crc = struct.unpack_from("<I20xII", otadata, sector_offset)
+            expected_crc = binascii.crc32(struct.pack("<I", ota_seq), 0xFFFFFFFF) & 0xFFFFFFFF
+            is_valid = (
+                ota_seq != 0xFFFFFFFF
+                and ota_state not in (3, 4)  # ESP_OTA_IMG_INVALID / ABORTED
+                and stored_crc == expected_crc
+            )
+            if is_valid:
+                entries.append(ota_seq)
+
+        if not entries:
+            # Erased/invalid otadata makes the ESP-IDF bootloader select factory.
+            return 0x00020000, "factory"
+
+        slot = (max(entries) - 1) % 2
+        if slot == 0:
+            return 0x00320000, "ota_0"
+        return 0x00620000, "ota_1"
+
     async def cmd_preflight(self, args: argparse.Namespace) -> int:
         """Verify the BLE OTA path without writing firmware."""
         self.print_header("BLE OTA Preflight")
@@ -545,6 +771,13 @@ def create_parser() -> argparse.ArgumentParser:
     upload_parser.add_argument('firmware', nargs='?', help='Path to firmware .bin file (finds latest if not specified)')
     upload_parser.add_argument('--force-full', action='store_true', help='Force full firmware update (skip delta patching)')
     upload_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
+
+    usb_parser = subparsers.add_parser(
+        'flash-usb', help='Flash an archived firmware image over USB without rebuilding')
+    usb_parser.add_argument('firmware', nargs='?', help='Archived firmware .bin (latest matching hardware by default)')
+    usb_parser.add_argument('--hardware', choices=['v1', 'v2'], default='v1', help='Hardware generation to flash')
+    usb_parser.add_argument('--port', required=True, help='USB serial port, for example COM15')
+    usb_parser.add_argument('--baud', type=int, default=921600, help='USB flashing baud rate')
     
     build_upload_parser = subparsers.add_parser('build-upload', help='Build firmware and upload via BLE')
     build_upload_parser.add_argument('--hardware', choices=['v1', 'v2'], default='v1', help='Hardware generation to build and upload')
@@ -608,6 +841,8 @@ async def main():
             return tool.cmd_build(args)
         elif args.command == 'upload':
             return await tool.cmd_upload(args)
+        elif args.command == 'flash-usb':
+            return tool.cmd_flash_usb(args)
         elif args.command == 'build-upload':
             return await tool.cmd_build_upload(args)
         elif args.command == 'export':

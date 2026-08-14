@@ -48,6 +48,7 @@ public:
 private:
     UIManager* ui_manager_;
     lv_timer_t* motor_timer_{};
+    uint32_t last_status_update_ms_ = 0;
 
     void perform_factory_reset();
     void execute_purge_operation();

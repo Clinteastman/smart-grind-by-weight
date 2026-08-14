@@ -47,7 +47,7 @@ jobs:
       - name: Restore compiled-object cache
         uses: actions/cache@v4
         with:
-          path: .pio/build-cache
+          path: .pio/build-cache/${{ matrix.environment }}
           key: ${{ runner.os }}-pio-objects-${{ matrix.environment }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-pio-objects-${{ matrix.environment }}-
@@ -57,4 +57,6 @@ jobs:
         run: pip install platformio==6.1.19
 
       - name: Build firmware
+        env:
+          PLATFORMIO_BUILD_CACHE_DIR: .pio/build-cache/${{ matrix.environment }}
         run: pio run -e ${{ matrix.environment }}

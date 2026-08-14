@@ -4,10 +4,14 @@
 class BluetoothManager;
 extern BluetoothManager g_bluetooth_manager;
 
-// Temporary fallback logging - use Serial instead of BLE to avoid circular dependencies
 #include <Arduino.h>
+#ifndef SMART_GRIND_SIM
+#include "../logging/diagnostic_log.h"
 
+#define LOG_BLE(format, ...) diagnostic_log_printf(format, ##__VA_ARGS__)
+#else
 #define LOG_BLE(format, ...) Serial.printf(format, ##__VA_ARGS__)
+#endif
 
 // Replace DEBUG macros to use Serial logging
 #if DEBUG_SERIAL_OUTPUT
@@ -52,9 +56,17 @@ extern BluetoothManager g_bluetooth_manager;
 #endif
 
 #ifdef ENABLE_BLE_DEBUG_VERBOSE
+#ifndef SMART_GRIND_SIM
+#define LOG_BLE_DEBUG(format, ...) diagnostic_log_printf(format, ##__VA_ARGS__)
+#else
 #define LOG_BLE_DEBUG(format, ...) Serial.printf(format, ##__VA_ARGS__)
+#endif
 #else
 #define LOG_BLE_DEBUG(format, ...)
 #endif
 
+#ifndef SMART_GRIND_SIM
+#define LOG_OTA_DEBUG(format, ...) diagnostic_log_printf("[OTA_DEBUG] " format, ##__VA_ARGS__)
+#else
 #define LOG_OTA_DEBUG(format, ...) Serial.printf("[OTA_DEBUG] " format, ##__VA_ARGS__)
+#endif

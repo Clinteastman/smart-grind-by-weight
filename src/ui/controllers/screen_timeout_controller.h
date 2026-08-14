@@ -16,6 +16,11 @@ public:
     void register_events();
     void update();
 
+    // Apply web/menu preference changes immediately and begin a fresh idle
+    // interval so activity recorded before the save cannot postpone the new
+    // timeout.
+    void apply_runtime_settings();
+
     void set_screensaver_controller(ScreensaverController* controller) {
         screensaver_controller_ = controller;
     }
@@ -29,5 +34,6 @@ private:
     ScreensaverController* screensaver_controller_ = nullptr;
     ScreensaverTimingSettings timing_settings_;
     uint32_t last_settings_refresh_ms_ = 0;
+    uint32_t settings_applied_at_ms_ = 0;
     bool screen_dimmed_;
 };

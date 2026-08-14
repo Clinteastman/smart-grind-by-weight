@@ -122,7 +122,7 @@ void setup() {
     // Wi-Fi and HTTP services start asynchronously so they never block the
     // real-time scale, motor, touch, or rendering tasks.
     network_manager.init(hardware_manager.get_preferences());
-    device_web_server.init(&hardware_manager, &grind_controller, &bluetooth_manager);
+    device_web_server.init(&hardware_manager, &grind_controller, &bluetooth_manager, &profile_controller);
     provisioning_service.init(hardware_manager.get_preferences(), &device_web_server.server());
     
     bluetooth_manager.init(hardware_manager.get_preferences());

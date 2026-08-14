@@ -468,13 +468,20 @@ Both automation settings rely on the same smoothed weight deltas used for flow d
 
 ## 🔵 Bluetooth Connectivity
 
-Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is configurable in **Menu → Data → Logging** (disabled by default to prevent flash wear) and must be enabled before grinding to save session data for later analysis.
+Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, legacy grind-data export and device management. Grind session logging is configurable in **Menu → Data → Logging** and is enabled by default so the local web History page works immediately; disable it if you do not want sessions written to flash.
 
 ---
 
 ## 🔍 Diagnostic Report
 
 Generate a comprehensive diagnostic report from your device for troubleshooting or attaching to GitHub issues. The report includes firmware version, system health metrics, load cell diagnostics, and all compile-time parameters.
+
+For routine checks without opening the grinder, visit `http://smartgrind.local`,
+open **Settings → System & updates**, and refresh or download the recent
+diagnostic log. The latest 4 KiB of boot/runtime messages are retained in RAM,
+so this adds no ongoing flash wear. USB serial is only needed when the firmware
+cannot boot far enough to reconnect to Wi-Fi; the full compile-time diagnostic
+report below remains available through the legacy Bluetooth tooling.
 
 ### Report Contents
 
@@ -515,10 +522,13 @@ python3 tools/grinder.py diagnostics --save diagnostic-report.txt
 
 ## Screensaver
 
-The screensaver uses a custom 280 × 456 RGB565 image uploaded from the Web Flasher.
+Open `http://smartgrind.local` and choose **Settings → Display & screensaver**.
+Select the built-in Minimal, Orbit or Black AMOLED design, or upload a normal
+photo; the browser crops and converts it to the display's 280 × 456 RGB565
+format before sending it to the grinder.
 
-- **Timing settings**: Configure idle timeout and startup image timeout in the Web Flasher **Screensaver** tab.
-- **Device settings**: Configure brightness and startup/sleep enable toggles under **Menu → Display**.
+- **Timing settings**: Configure idle timeout and startup duration in the local web app.
+- **Device settings**: Brightness and startup/sleep toggles remain available under **Menu → Display** and are synchronized with the web settings.
 - **Startup behavior**: On normal Ready boots, the image is drawn early while the full UI initializes, then the regular timed screensaver overlay takes over.
 - **OTA behavior**: During BLE OTA updates and OTA failure warnings, the screensaver is disabled so progress and recovery prompts stay visible.
 
@@ -526,12 +536,13 @@ The screensaver uses a custom 280 × 456 RGB565 image uploaded from the Web Flas
 
 ## 📊 Analytics & Data Export
 
-⚠️ **Important**: Grind session logging is **disabled by default** to prevent unnecessary flash wear. To analyze grind data:
+Grind session logging is enabled by default. Open `http://smartgrind.local` and
+choose **History** to inspect the latest 10 sessions, including accuracy,
+consistency, weight and flow graphs. Download any session as CSV, JSON or its
+original raw record directly in the browser.
 
-1. **Enable logging** in **Menu → Data → Logging** before grinding
-2. Perform your grind sessions (data will be saved to flash storage)
-3. **Export and analyze** the data using the tools below
-4. **Disable logging** again when analysis is complete (recommended for daily use)
+The Python dashboard remains a legacy archive/recovery option when you want to
+collect sessions beyond the device's bounded history:
 
 ### Launch Interactive Dashboard
 ```bash

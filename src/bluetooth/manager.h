@@ -212,6 +212,13 @@ public:
     }
     bool is_debug_stream_active() const { return debug_stream_active; }
     bool has_screensaver_image() const { return image_handler.has_image(); }
+    bool begin_screensaver_image_upload(uint32_t size) { return image_handler.start_upload(size); }
+    bool write_screensaver_image_chunk(const uint8_t* data, size_t size) {
+        return image_handler.process_chunk(data, size);
+    }
+    bool finish_screensaver_image_upload() { return image_handler.complete_upload(); }
+    void abort_screensaver_image_upload() { image_handler.abort_upload(); }
+    bool delete_screensaver_image() { return image_handler.delete_image(); }
     
     /**
      * OTA progress information

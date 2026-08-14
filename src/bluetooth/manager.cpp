@@ -424,7 +424,7 @@ unsigned long BluetoothManager::get_bluetooth_timeout_remaining_ms() const {
 
 
 void BluetoothManager::start_data_export() {
-    if (device_web_server.is_ota_armed() || device_web_server.is_ota_active()) {
+    if (device_web_server.is_ota_active()) {
         log("Bluetooth Data: Export rejected while web OTA is armed or active\n");
         set_data_status(BLE_DATA_ERROR);
         return;
@@ -662,8 +662,7 @@ void BluetoothManager::log(const char* format, ...) {
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    // Note: This is the log method itself, so we print to Serial directly
-    Serial.print(buffer);
+    diagnostic_log_write(buffer);
 
     // is_debug_stream_active() is the same as debug_stream_active
     if (debug_stream_active) {
@@ -696,7 +695,7 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
     
     switch (command) {
         case BLE_OTA_CMD_START:
-            if (device_web_server.is_ota_armed() || device_web_server.is_ota_active() ||
+            if (device_web_server.is_ota_active() ||
                 image_handler.is_upload_active() || data_export_in_progress) {
                 log("Bluetooth OTA: Rejected while data channel is busy\n");
                 set_ota_status(BLE_OTA_ERROR);
@@ -826,7 +825,7 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
 
     const bool is_transfer_stop = command == BLE_DATA_CMD_STOP_EXPORT ||
                                   command == BLE_IMG_CMD_ABORT;
-    if ((device_web_server.is_ota_armed() || device_web_server.is_ota_active()) &&
+    if (device_web_server.is_ota_active() &&
         !is_transfer_stop) {
         log("Bluetooth Data: Rejected command 0x%02X while web OTA is armed or active\n", command);
         set_data_status(BLE_DATA_ERROR);
@@ -969,7 +968,7 @@ void BluetoothManager::onRead(BLECharacteristic* characteristic) {
 void BluetoothManager::handle_image_control_command(uint8_t command, const String& value) {
     switch (command) {
         case BLE_IMG_CMD_START: {
-            if (device_web_server.is_ota_armed() || device_web_server.is_ota_active() ||
+            if (device_web_server.is_ota_active() ||
                 data_export_in_progress) {
                 LOG_BLE("Image: START rejected while another transfer is active\n");
                 set_image_status(BLE_IMG_STATUS_ERROR);

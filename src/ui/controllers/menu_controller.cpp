@@ -76,13 +76,19 @@ void MenuUIController::update() {
     }
 
     WeightSensor* sensor = ui_manager_->hardware_manager->get_weight_sensor();
-    unsigned long uptime_ms = millis();
-    size_t free_heap = ESP.getFreeHeap();
+    const uint32_t now = millis();
 
-    ui_manager_->menu_screen.update_info(sensor, uptime_ms, free_heap);
-    ui_manager_->menu_screen.update_diagnostics(sensor);
-    ui_manager_->menu_screen.update_ble_status();
-    ui_manager_->menu_screen.update_network_status();
+    // These labels used to be rewritten at the 62 Hz render rate, invalidating
+    // large parts of the LVGL menu while the user was dragging it. Status data
+    // does not need frame-rate polling; a 4 Hz refresh keeps it current and
+    // leaves the render loop free to scroll smoothly.
+    if (now - last_status_update_ms_ >= 250) {
+        last_status_update_ms_ = now;
+        ui_manager_->menu_screen.update_info(sensor, now, ESP.getFreeHeap());
+        ui_manager_->menu_screen.update_diagnostics(sensor);
+        ui_manager_->menu_screen.update_ble_status();
+        ui_manager_->menu_screen.update_network_status();
+    }
 
     if (ui_manager_->menu_screen.is_scale_page_active()) {
         float display_weight = sensor ? sensor->get_display_weight() : 0.0f;
@@ -207,7 +213,7 @@ void MenuUIController::handle_autotune() {
 
 void MenuUIController::handle_back() {
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(3);
+    ui_manager_->set_current_tab(ReadyScreen::MENU_TAB_INDEX);
     ui_manager_->switch_to_state(UIState::READY);
 }
 
@@ -701,7 +707,7 @@ void MenuUIController::run_motor_test() {
 
 void MenuUIController::return_to_menu() {
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(3);
+    ui_manager_->set_current_tab(ReadyScreen::MENU_TAB_INDEX);
     ui_manager_->switch_to_state(UIState::MENU);
 }
 

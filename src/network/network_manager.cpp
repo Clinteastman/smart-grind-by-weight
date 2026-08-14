@@ -2,6 +2,7 @@
 
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <time.h>
 
 #include "../config/build_info.h"
 #include "../config/constants.h"
@@ -196,7 +197,15 @@ bool SmartGrindNetworkManager::start_setup_access_point(const String& ssid, cons
         mdns_started_ = false;
     }
     WiFi.disconnect(true, false);
-    WiFi.mode(WIFI_AP);
+    // AP+STA keeps the setup network available while the STA radio scans for
+    // nearby routers for the provisioning dropdown.
+    WiFi.mode(WIFI_AP_STA);
+    // Some Android/Samsung captive-portal detectors do not launch their sign-in
+    // UI when the AP gateway is in private address space. Use the same
+    // public-looking, non-routed setup subnet as GaggiMate.
+    const IPAddress setup_ip(4, 4, 4, 1);
+    const IPAddress setup_mask(255, 255, 255, 0);
+    if (!WiFi.softAPConfig(setup_ip, setup_ip, setup_mask)) return false;
     if (!WiFi.softAP(ssid.c_str(), password.isEmpty() ? nullptr : password.c_str())) return false;
     set_state(NetworkState::WIFI_SETUP_AP);
     LOG_BLE("[WIFI] Setup access point started: %s (%s)\n", ssid.c_str(), WiFi.softAPIP().toString().c_str());
@@ -216,6 +225,9 @@ void SmartGrindNetworkManager::handle_connected() {
         MDNS.addServiceTxt("smartgrind", "tcp", "version", BUILD_FIRMWARE_VERSION);
         MDNS.addServiceTxt("smartgrind", "tcp", "id", current_device_id.c_str());
     }
+    // UTC is rendered in the browser's local timezone. Synchronisation is
+    // asynchronous and does not delay the control or UI tasks.
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
     LOG_BLE("[WIFI] Connected: %s (%s.local, mDNS=%s)\n",
             WiFi.localIP().toString().c_str(), current_hostname.c_str(), mdns_started_ ? "OK" : "FAILED");
 }
@@ -236,10 +248,7 @@ void SmartGrindNetworkManager::set_state(NetworkState state) {
 }
 
 String SmartGrindNetworkManager::default_hostname() {
-    const uint32_t suffix = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFULL);
-    char hostname[32];
-    snprintf(hostname, sizeof(hostname), "smart-grind-%06lx", static_cast<unsigned long>(suffix));
-    return String(hostname);
+    return String("smartgrind");
 }
 
 String SmartGrindNetworkManager::sanitize_hostname(const String& hostname) {

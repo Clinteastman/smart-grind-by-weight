@@ -19,4 +19,5 @@ public:
 
 private:
     UIManager* ui_manager_;
+    uint32_t last_network_update_ms_ = 0;
 };

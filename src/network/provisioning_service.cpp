@@ -1,10 +1,13 @@
 #include "provisioning_service.h"
 
 #include <cstring>
+#include <algorithm>
+#include <vector>
 #include <WiFi.h>
 
 #include "../config/build_info.h"
 #include "../config/constants.h"
+#include "device_page.h"
 #include "network_manager.h"
 
 namespace {
@@ -13,48 +16,56 @@ constexpr char SETUP_PAGE[] PROGMEM = R"HTML(
 <title>Smart Grind Wi-Fi</title><style>
 body{font-family:system-ui,sans-serif;background:#161914;color:#f4f4ed;max-width:34rem;margin:3rem auto;padding:0 1.2rem}
 form{background:#242920;padding:1.4rem;border-radius:1rem}label{display:block;margin:.8rem 0 .25rem}
-input,button{box-sizing:border-box;width:100%;padding:.8rem;border-radius:.55rem;border:1px solid #68735e;font-size:1rem}
-button{margin-top:1.2rem;background:#86a869;color:#10140d;font-weight:700;border:0}small{color:#b8c1b0}
+input,select,button{box-sizing:border-box;width:100%;padding:.8rem;border-radius:.55rem;border:1px solid #68735e;font-size:1rem}
+button{margin-top:1.2rem;background:#86a869;color:#10140d;font-weight:700;border:0}.secondary{margin-top:.5rem;background:#3d4638;color:#f4f4ed}small,summary{color:#b8c1b0}details{margin-top:1rem}
 </style></head><body><h1>Connect Smart Grind</h1>
 <p>Enter the 2.4 GHz Wi-Fi network used by your phone and Home Assistant.</p>
-<form method="post" action="/api/v1/setup/wifi"><label for="ssid">Network name</label>
-<input id="ssid" name="ssid" maxlength="32" required autocomplete="off">
+<form id="wifiForm" method="post" action="/api/v1/setup/wifi"><label for="networks">Wi-Fi network</label>
+<select id="networks"><option value="">Scanning for networks...</option></select>
+<button class="secondary" id="refresh" type="button">Refresh network list</button>
+<details><summary>Hidden network or manual entry</summary><label for="manualSsid">Network name</label>
+<input id="manualSsid" maxlength="32" autocomplete="off"></details>
+<input id="ssid" name="ssid" type="hidden">
 <label for="password">Password</label><input id="password" name="password" type="password" maxlength="63">
-<small>Leave blank only for an open network.</small><button type="submit">Save and restart</button></form></body></html>
-)HTML";
-
-constexpr char DEVICE_PAGE[] PROGMEM = R"HTML(
-<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Smart Grind</title><style>
-*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#161914;color:#f4f4ed;max-width:54rem;margin:1.5rem auto;padding:0 1rem}
-main,section{background:#242920;padding:1.25rem;border-radius:1rem;margin-bottom:1rem}.top{display:flex;justify-content:space-between;align-items:center;gap:1rem}
-.live{color:#8fc971}.offline{color:#e5a45d}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin:1rem 0}.metric{background:#191d17;padding:.85rem;border-radius:.7rem}
-.metric span{display:block;color:#b8c1b0;font-size:.82rem}.metric strong{font-size:1.6rem}canvas{display:block;width:100%;height:220px;background:#11140f;border-radius:.7rem}
-input,button{width:100%;padding:.8rem;border-radius:.55rem;border:1px solid #68735e;font-size:1rem;margin-top:.7rem}button{background:#86a869;color:#10140d;font-weight:700;border:0}
-button.danger{background:#c65f54;color:#fff}button:disabled{background:#596052;color:#bec4b8}progress{width:100%;margin-top:.8rem}.actions{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}.muted{color:#b8c1b0}
-@media(max-width:520px){.metrics{grid-template-columns:1fr 1fr}.actions{grid-template-columns:1fr}}
-</style></head><body><main><div class="top"><div><h1>Smart Grind</h1><div id="connection" class="offline">Connecting…</div></div><div id="phase">—</div></div>
-<div class="metrics"><div class="metric"><span>Weight</span><strong id="weight">—</strong></div><div class="metric"><span>Flow</span><strong id="flow">—</strong></div><div class="metric"><span>Progress</span><strong id="progressText">—</strong></div></div>
-<canvas id="chart"></canvas><progress id="grindProgress" max="100" value="0"></progress><p id="target" class="muted">Waiting for grinder state…</p>
-<div class="actions"><button id="stopButton" class="danger" disabled>Stop grind</button><button id="dismissButton" disabled>Dismiss result</button></div><p id="commandMessage" class="muted"></p></main>
-<section><h2>Device</h2><p><span id="firmware">Loading…</span><br><span id="network">Loading…</span><br><span id="address"></span></p></section>
-<section><h2>Firmware update</h2><p id="otaMessage">Arm firmware update from the grinder's Wi-Fi screen first.</p>
-<form id="otaForm"><input id="firmwareFile" name="firmware" type="file" accept=".bin,application/octet-stream" required>
-<button id="otaButton" type="submit" disabled>Upload firmware</button></form><progress id="otaProgress" max="100" value="0"></progress></section><script>
-const $=id=>document.getElementById(id),samples=[];let ws,retry=500;
-function draw(){const c=$('chart'),d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==w*d||c.height!==h*d){c.width=w*d;c.height=h*d}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,w,h);x.strokeStyle='#30372c';x.beginPath();for(let i=1;i<4;i++){x.moveTo(0,h*i/4);x.lineTo(w,h*i/4)}x.stroke();if(samples.length<2)return;let lo=Math.min(...samples),hi=Math.max(...samples);if(hi-lo<2){lo-=1;hi+=1}x.strokeStyle='#8fc971';x.lineWidth=2;x.beginPath();samples.forEach((v,i)=>{const px=i*w/239,py=h-(v-lo)*h/(hi-lo);i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()}
-function render(s){const g=s.grind;$('weight').textContent=`${s.scale.weight.toFixed(2)} g`;$('flow').textContent=`${s.scale.flow.toFixed(2)} g/s`;$('phase').textContent=g.phase;$('progressText').textContent=`${g.progress}%`;$('grindProgress').value=g.progress;
-$('target').textContent=g.mode==='time'?`Time target ${(g.target_time_ms/1000).toFixed(1)} s`:`Weight target ${g.target_weight.toFixed(1)} g`;$('stopButton').disabled=!g.active;$('dismissButton').disabled=!['COMPLETED','TIMEOUT'].includes(g.phase);samples.push(s.scale.weight);if(samples.length>240)samples.shift();draw()}
-function connect(){ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>{$('connection').textContent='Live';$('connection').className='live';retry=500};ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='state')render(m);if(m.type==='ack')$('commandMessage').textContent=m.reason};ws.onclose=()=>{$('connection').textContent='Reconnecting…';$('connection').className='offline';setTimeout(connect,retry);retry=Math.min(retry*2,10000)}}
-function command(action){if(ws?.readyState===1)ws.send(JSON.stringify({type:'command',action}))}$('stopButton').onclick=()=>command('stop');$('dismissButton').onclick=()=>command('dismiss');window.onresize=draw;
-async function refresh(){try{const s=await fetch('/api/v1/status',{cache:'no-store'}).then(r=>r.json());$('firmware').textContent=`${s.firmware.version} (build ${s.firmware.build})`;$('network').textContent=s.network.ssid||s.network.state;$('address').textContent=s.network.ip||'Not connected';
-$('otaProgress').value=s.ota.progress||0;$('otaButton').disabled=!s.ota.armed||s.ota.active;$('otaMessage').textContent=s.ota.active?`Uploading: ${s.ota.progress||0}% — do not remove power.`:s.ota.armed?`Upload armed for ${s.ota.arm_seconds} seconds.`:"Arm firmware update from the grinder's Wi-Fi screen first.";}catch(e){$('network').textContent='Unavailable';}}
-$('otaForm').addEventListener('submit',async e=>{e.preventDefault();$('otaButton').disabled=true;$('otaMessage').textContent='Uploading — do not remove power.';
-try{const s=await fetch('/api/v1/status',{cache:'no-store'}).then(r=>r.json());if(!s.ota.armed||!s.ota.token)throw new Error('Firmware update is not armed.');
-const body=new FormData();body.append('firmware',$('firmwareFile').files[0]);const r=await fetch('/api/v1/ota',{method:'POST',headers:{'X-Smart-Grind-OTA-Token':s.ota.token},body});const t=await r.text();if(!r.ok)throw new Error(t);$('otaMessage').textContent=t;}catch(e){$('otaMessage').textContent=e.message;await refresh();}});
-connect();refresh();setInterval(refresh,1000);
+<small>Leave blank only for an open network.</small><button type="submit">Save and connect</button></form>
+<script>
+const list=document.getElementById('networks'),manual=document.getElementById('manualSsid');
+async function loadNetworks(refresh=false){
+ try{const data=await fetch('/api/v1/setup/networks'+(refresh?'?refresh=1':''),{cache:'no-store'}).then(r=>r.json());
+  if(data.scanning){list.innerHTML='<option value="">Scanning for networks...</option>';setTimeout(()=>loadNetworks(),800);return;}
+  const previous=list.value;list.innerHTML='<option value="">Select a network</option>';
+  data.networks.forEach(n=>{const o=document.createElement('option');o.value=n.ssid;o.textContent=`${n.ssid} (${n.rssi} dBm)${n.secure?' 🔒':''}`;list.appendChild(o)});
+  if([...list.options].some(o=>o.value===previous))list.value=previous;
+ }catch(e){list.innerHTML='<option value="">Could not scan — enter it manually</option>';}
+}
+document.getElementById('refresh').onclick=()=>loadNetworks(true);
+document.getElementById('wifiForm').onsubmit=e=>{const ssid=(manual.value.trim()||list.value);if(!ssid){e.preventDefault();alert('Select or enter a Wi-Fi network.');return;}document.getElementById('ssid').value=ssid;};
+loadNetworks();
 </script></body></html>
 )HTML";
+
+void redirect_to_setup_page(AsyncWebServerRequest* request) {
+    const String location = "http://" + WiFi.softAPIP().toString() + "/";
+    LOG_BLE("[WIFI] Captive portal probe: %s -> %s\n",
+            request->url().c_str(), location.c_str());
+    AsyncWebServerResponse* response = request->beginResponse(302, "text/plain", "Open Smart Grind setup");
+    response->addHeader("Location", location);
+    response->addHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    response->addHeader("Pragma", "no-cache");
+    response->addHeader("Connection", "close");
+    request->send(response);
+}
+
+String json_escape(const String& value) {
+    String escaped;
+    escaped.reserve(value.length() + 8);
+    for (size_t i = 0; i < value.length(); ++i) {
+        const char ch = value[i];
+        if (ch == '"' || ch == '\\') escaped += '\\';
+        if (static_cast<uint8_t>(ch) >= 0x20) escaped += ch;
+    }
+    return escaped;
+}
 }
 
 ProvisioningService provisioning_service;
@@ -90,10 +101,65 @@ void ProvisioningService::update() {
 
 void ProvisioningService::configure_routes() {
     server_->on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-        const char* page = network_manager.state() == NetworkState::WIFI_SETUP_AP ? SETUP_PAGE : DEVICE_PAGE;
+        const char* page = network_manager.state() == NetworkState::WIFI_SETUP_AP
+                               ? SETUP_PAGE
+                               : SMART_GRIND_DEVICE_PAGE;
         request->send(200, "text/html", page);
     });
-    server_->on("/api/v1/setup/wifi", HTTP_POST, [this](AsyncWebServerRequest* request) {
+    server_->on(AsyncURIMatcher::exact("/api/v1/setup/networks"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
+            request->send(403, "application/json", "{\"error\":\"Wi-Fi setup is not active\"}");
+            return;
+        }
+
+        if (request->hasParam("refresh")) {
+            WiFi.scanDelete();
+            WiFi.scanNetworks(true, true);
+        }
+        int count = WiFi.scanComplete();
+        if (count == WIFI_SCAN_FAILED) {
+            WiFi.scanNetworks(true, true);
+            count = WIFI_SCAN_RUNNING;
+        }
+        if (count == WIFI_SCAN_RUNNING) {
+            request->send(200, "application/json", "{\"scanning\":true,\"networks\":[]}");
+            return;
+        }
+
+        struct NetworkResult { String ssid; int32_t rssi; bool secure; };
+        std::vector<NetworkResult> networks;
+        networks.reserve(std::min(count, 20));
+        for (int i = 0; i < count; ++i) {
+            const String ssid = WiFi.SSID(i);
+            if (ssid.isEmpty()) continue;
+            auto existing = std::find_if(networks.begin(), networks.end(),
+                                         [&ssid](const NetworkResult& item) { return item.ssid == ssid; });
+            if (existing != networks.end()) {
+                if (WiFi.RSSI(i) > existing->rssi) existing->rssi = WiFi.RSSI(i);
+                continue;
+            }
+            if (networks.size() >= 20) continue;
+            networks.push_back({ssid, WiFi.RSSI(i), WiFi.encryptionType(i) != WIFI_AUTH_OPEN});
+        }
+        std::sort(networks.begin(), networks.end(),
+                  [](const NetworkResult& left, const NetworkResult& right) {
+                      return left.rssi > right.rssi;
+                  });
+
+        AsyncResponseStream* response = request->beginResponseStream("application/json");
+        response->print("{\"scanning\":false,\"networks\":[");
+        for (size_t i = 0; i < networks.size(); ++i) {
+            if (i) response->print(',');
+            response->printf("{\"ssid\":\"%s\",\"rssi\":%ld,\"secure\":%s}",
+                             json_escape(networks[i].ssid).c_str(),
+                             static_cast<long>(networks[i].rssi),
+                             networks[i].secure ? "true" : "false");
+        }
+        response->print("]}");
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+    server_->on(AsyncURIMatcher::exact("/api/v1/setup/wifi"), HTTP_POST, [this](AsyncWebServerRequest* request) {
         if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
             request->send(403, "text/plain", "Wi-Fi setup is not active");
             return;
@@ -113,16 +179,30 @@ void ProvisioningService::configure_routes() {
     });
 
     const char* captive_paths[] = {
-        "/generate_204", "/redirect", "/hotspot-detect.html", "/canonical.html", "/ncsi.txt"
+        // Android / ChromeOS
+        "/generate_204", "/gen_204", "/redirect", "/canonical.html",
+        // Apple
+        "/hotspot-detect.html", "/library/test/success.html",
+        // Windows
+        "/ncsi.txt", "/redirect.msft",
+        // Firefox / Kindle
+        "/kindle-wifi/wifistub.html", "/fwlink"
     };
     for (const char* path : captive_paths) {
-        server_->on(path, HTTP_ANY, [](AsyncWebServerRequest* request) { request->redirect("/"); });
+        server_->on(path, HTTP_ANY, redirect_to_setup_page);
     }
-    server_->on("/connecttest.txt", HTTP_ANY, [](AsyncWebServerRequest* request) { request->redirect("/"); });
-    server_->on("/success.txt", HTTP_ANY, [](AsyncWebServerRequest* request) { request->send(200, "text/plain", "success"); });
+    // These exact responses match the clients' captive-network expectations.
+    server_->on("/connecttest.txt", HTTP_ANY, [](AsyncWebServerRequest* request) {
+        LOG_BLE("[WIFI] Captive portal probe: %s -> logout.net\n", request->url().c_str());
+        request->redirect("http://logout.net");
+    });
+    server_->on("/success.txt", HTTP_ANY, [](AsyncWebServerRequest* request) {
+        LOG_BLE("[WIFI] Captive portal probe: %s -> 200\n", request->url().c_str());
+        request->send(200);
+    });
     server_->on("/wpad.dat", HTTP_ANY, [](AsyncWebServerRequest* request) { request->send(404); });
     server_->onNotFound([](AsyncWebServerRequest* request) {
-        if (network_manager.state() == NetworkState::WIFI_SETUP_AP) request->redirect("/");
+        if (network_manager.state() == NetworkState::WIFI_SETUP_AP) redirect_to_setup_page(request);
         else request->send(404, "text/plain", "Not found");
     });
 }
@@ -132,8 +212,10 @@ void ProvisioningService::start() {
         LOG_BLE("[WIFI] Failed to start setup access point\n");
         return;
     }
-    dns_server_.setTTL(60);
+    dns_server_.setTTL(3600);
     dns_server_.start(53, "*", WiFi.softAPIP());
+    WiFi.scanDelete();
+    WiFi.scanNetworks(true, true);
     active_ = true;
     LOG_BLE("[WIFI] Setup page: http://%s/\n", WiFi.softAPIP().toString().c_str());
 }

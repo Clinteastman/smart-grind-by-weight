@@ -56,7 +56,8 @@ private:
     mutable bool flow_stability_initialized;
     
     // Helper methods - using dynamic arrays based on window size
-    int get_samples_in_window(uint32_t window_ms, int32_t* samples_out) const;
+    int get_samples_in_window(uint32_t window_ms, int32_t* samples_out,
+                              int samples_capacity) const;
     int32_t apply_outlier_rejection(const int32_t* samples, int count) const;
     float calculate_standard_deviation(const int32_t* samples, int count) const;
     int32_t get_latest_sample() const;

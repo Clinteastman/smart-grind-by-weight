@@ -123,10 +123,11 @@ python3 tools/grinder.py build
 ```
 
 The grinder tool keeps PlatformIO's compiled-object cache in the operating
-system's user cache directory, so compatible objects are reused across Git
-worktrees and branches. Set `SMART_GRIND_BUILD_CACHE_DIR` to choose a different
-shared location, or `PLATFORMIO_BUILD_CACHE_DIR` when invoking PlatformIO
-directly.
+system's user cache directory, with separate subdirectories for the V1 and V2
+targets. Compatible objects can therefore be reused across Git worktrees and
+branches without mixing board-specific LVGL objects. Set
+`SMART_GRIND_BUILD_CACHE_DIR` to choose a different cache root, or
+`PLATFORMIO_BUILD_CACHE_DIR` when invoking PlatformIO directly.
 
 **Build V2 production firmware:**
 ```bash
@@ -135,6 +136,11 @@ python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amole
 
 Archived local V1 builds are stored in `firmware_cache/`; incompatible V2
 builds are stored separately in `firmware_cache/waveshare-164-v2/`.
+
+Build and flash operations use a project lock, so a second compiler or uploader
+cannot silently start against the same working tree. If a process terminates
+unexpectedly, the next command checks whether the recorded process is still
+alive before treating the lock as stale.
 
 **Build debug firmware:**
 ```bash
@@ -169,6 +175,19 @@ python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp
 # Or for mock target
 python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-mock
 ```
+
+To reinstall an already archived application image without rebuilding or
+erasing Wi-Fi credentials, settings, grind history or screensavers, use:
+
+```bash
+python3 tools/grinder.py flash-usb --hardware v1 --port COM15
+python3 tools/grinder.py flash-usb --hardware v2 --port COM15
+```
+
+The tool reads the board's OTA selection metadata and writes the application
+partition that the bootloader is currently using. It never clears OTA metadata
+to force a slot; doing that can make an otherwise healthy board fall back to an
+old factory application.
 
 ### BLE OTA Updates (After Initial Setup)
 

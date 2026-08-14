@@ -14,17 +14,17 @@ See the [community roadmap](docs/COMMUNITY_ROADMAP.md) for the Wi-Fi OTA, live w
 | --- | --- | --- |
 | V1/V2 maintained baseline | Complete | Tested firmware, V2 wiring, simulator, and faster/reliable display gestures |
 | Public web flasher and releases | Complete | Explicit controller-generation selection and downloadable, reproducible V1/V2 firmware packages |
-| Wi-Fi provisioning and safe OTA | Implemented; hardware validation pending | Reliable network setup, discovery, and physically armed browser-based full-image updates |
-| Shared live device API | Implemented; hardware validation pending | Bounded 10 Hz WebSocket state feed with safe stop/dismiss requests |
+| Wi-Fi provisioning and safe OTA | V2 station/captive setup and full OTA validated | Reliable network setup, `smartgrind.local` discovery, and confirmed browser-based full-image updates |
+| Shared live device API | Complete on V2 hardware | Bounded 10 Hz WebSocket state feed, safe stop/dismiss requests, settings and history APIs |
 | Native Home Assistant integration | Package validation complete; hardware validation pending | Separate integration with Zeroconf/local-push entities, automated tests, Ruff, hassfest and HACS CI |
-| Live grinder web UI | Implemented; hardware validation pending | Real-time weight, grind state, controls, and rolling graph using the same device API |
+| Live grinder web UI | Complete on V2 hardware | Light/dark dashboard, live graph, grinder settings, grind history/analytics, downloads, OTA and screensavers |
 
 Each substantial pull request updates this status, its relevant user/developer documentation, and its release notes. The [detailed roadmap](docs/COMMUNITY_ROADMAP.md) records the architecture and contribution plan.
 
 The network work follows the independently implemented design in
 [Wi-Fi, Web and Home Assistant Architecture](docs/WIFI_ARCHITECTURE.md). It uses
 lessons from GaggiMate's mature ESP32 appliance behaviour—secured captive setup,
-careful reconnect/mDNS lifecycle, guarded OTA and bounded WebSocket clients—
+careful reconnect/mDNS lifecycle, safe OTA writes and bounded WebSocket clients—
 without copying its source code. The secured setup access point and official
 Improv USB serial protocol provide two independent provisioning paths.
 
@@ -68,8 +68,33 @@ The Smart Grind-by-Weight is a user-friendly, touch interface-driven, highly acc
 - **Zero-shot learning**: Algorithm adapts instantly to any grind size, bean setting, humidity etc. without manual tuning
 - **Original timed run preserved** – there is a setting to enable the original Grind-By-Time mode
 - **BLE OTA updates** for firmware
-- **Advanced analytics** using BLE data transfer and Python Streamlit reports
+- **Built-in local web app** at `http://smartgrind.local` with a live dashboard,
+  grinder settings, grind history/analytics, light/dark themes, downloads,
+  firmware updates with confirmation, screensaver management and recent
+  boot/runtime diagnostics
+- **Legacy archive tooling** using BLE export and Python Streamlit reports
 - **For Eureka**: No permanent modifications needed - just swap the screen and add 3D printed parts
+
+---
+
+## Web interface
+
+The responsive web interface is served directly by the grinder—no cloud account
+or separate application is required. Choose a saved dose, follow a grind live,
+review the full recorded trace, change grinder/display settings and install
+firmware from a browser on the same network.
+
+<table>
+<tr>
+<td width="50%"><strong>Live dashboard</strong><br><img src="media/web-ui-dashboard.png" alt="Smart Grind live web dashboard with Single, Double and Custom targets" width="100%"></td>
+<td width="50%"><strong>Grind history</strong><br><img src="media/web-ui-history.png" alt="Smart Grind grind history and recorded weight and flow graph" width="100%"></td>
+</tr>
+</table>
+
+<p align="center">
+<strong>Grinder settings</strong><br>
+<img src="media/web-ui-settings.png" alt="Smart Grind web settings for profiles and grind behaviour" width="75%">
+</p>
 
 ---
 
@@ -112,11 +137,17 @@ If you want to modify the code or contribute to development, see **[DEVELOPMENT.
 
 ---
 
-## 📊 Analytics Dashboard
+## 📊 Grind History and Analytics
 
 [<img src="media/analytics.png" alt="Analytics Dashboard" width="50%">](media/analytics.png)
 
-Export your grind data and analyze it with the included Streamlit dashboard:
+Open `http://smartgrind.local`, then choose **History**. The grinder retains the
+latest 10 logged sessions and shows accuracy, consistency, weight and flow
+graphs. Each session can be downloaded as CSV, JSON or the original raw binary
+record without installing Python.
+
+The BLE/Python tools remain available as a legacy archive and recovery path for
+collecting more than the device's bounded 10-session history:
 
 ```bash
 python3 tools/grinder.py analyze
@@ -151,4 +182,8 @@ In this project, that's most obvious when at state management - it's a bit clutt
 
 **Having issues?** → See **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** for common problems and solutions.
 
-**Changelog & Updates** → See **[Community Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases)** for tested builds from this fork. The [original releases](https://github.com/jaapp/smart-grind-by-weight/releases) remain available for reference.
+**Changelog & Updates** → Read the versioned [changelog](CHANGELOG.md) and see
+**[Community Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases)**
+for tested builds from this fork. The
+[original releases](https://github.com/jaapp/smart-grind-by-weight/releases)
+remain available for reference.

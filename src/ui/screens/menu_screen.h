@@ -52,8 +52,6 @@ private:
     lv_obj_t* network_status_label;
     lv_obj_t* network_detail_label;
     lv_obj_t* network_qr;
-    lv_obj_t* ota_arm_button;
-    lv_obj_t* ota_arm_button_label;
     String network_status_text;
     String network_detail_text;
     String network_qr_payload;
