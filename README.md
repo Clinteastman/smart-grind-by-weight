@@ -176,9 +176,9 @@ possible. Tested V1 hardware feedback is particularly useful.
 
 ## Credits
 
-- The original Smart Grind-by-Weight project was created by
-  [jaapp](https://github.com/jaapp). This fork retains the original history and
-  remains licensed under GPLv3. The
+- Smart Grind-by-Weight was originally created by
+  [Jaap Pieroen (@jaapp)](https://github.com/jaapp). This fork retains Jaap's
+  original commit history and remains licensed under GPLv3. The
   [upstream README](https://github.com/jaapp/smart-grind-by-weight#readme)
   preserves the original author's project introduction and personal note.
 - v1.5 incorporates reviewed contributions from
