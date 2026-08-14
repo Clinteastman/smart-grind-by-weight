@@ -32,6 +32,22 @@ can understand provenance, risk and rollback boundaries.
 Each pull request must state which commits came from an existing contributor and
 which are follow-up review fixes. Do not squash away original authorship.
 
+## Local verification snapshot
+
+Verified on 2026-08-14 before physical acceptance and publication:
+
+| Change | Verified commit | Local evidence |
+| --- | --- | --- |
+| Reviewed community grind fixes | `8e3d27e` | V1 and V2 firmware builds pass independently |
+| Screensaver support | `e9c7ad9` | V1 and V2 firmware builds pass independently |
+| Wi-Fi, live web UI and guarded OTA | `d1e5aac` | V1 and V2 firmware builds pass independently |
+| Release and build reliability | `e302239` | Consolidated V1/V2 builds and all three simulator tests pass; cached repeats are about 25 seconds per firmware target and 9 seconds for the simulator |
+| Native Home Assistant integration | `2f2c2c9` | Pytest, Ruff and hassfest pass; remote HACS validation awaits repository publication |
+
+These results prove that the focused branches compile without relying on later
+changes in the stack. They do not replace the physical and remote-CI gates
+below.
+
 ## Readiness gate
 
 - The consolidated V1 and V2 builds and simulator suite must pass first.
