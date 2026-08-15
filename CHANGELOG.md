@@ -27,6 +27,10 @@ line. Earlier release history remains available in the original project's
   checks; the web API never drives the relay directly.
 - Prevented repeated start/stop commands while the previous WebSocket command
   is awaiting acknowledgement.
+- Added automatic checks for the latest stable GitHub release and a one-button
+  installer that strictly selects the matching V1 or V2 application image.
+- Retained local firmware-file upload as an advanced recovery and development
+  option.
 
 ### Development
 

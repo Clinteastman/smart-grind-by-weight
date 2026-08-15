@@ -1,11 +1,14 @@
 #include "device_web_server.h"
 
 #include <Arduino.h>
+#include <HTTPClient.h>
 #include <LittleFS.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <algorithm>
 #include <functional>
+#include <new>
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <vector>
@@ -84,7 +87,28 @@ constexpr uint32_t OTA_REBOOT_DELAY_MS = 1500;
 constexpr uint32_t OTA_PREPARE_TIMEOUT_MS = 15000;
 constexpr uint32_t OTA_READY_WINDOW_MS = 30000;
 constexpr size_t OTA_MIN_INTERNAL_HEAP = 64U * 1024U;
+constexpr size_t OTA_DOWNLOAD_TASK_STACK = 12U * 1024U;
+constexpr char GITHUB_RELEASE_BASE[] =
+    "https://github.com/Clinteastman/smart-grind-by-weight/releases/download/";
+extern const uint8_t x509_crt_imported_bundle_bin_start[]
+    asm("_binary_x509_crt_bundle_start");
+extern const uint8_t x509_crt_imported_bundle_bin_end[]
+    asm("_binary_x509_crt_bundle_end");
 UpdateClass web_firmware_update;
+
+bool valid_release_tag(const String& tag) {
+    if (tag.length() < 6 || tag.length() > 24 || tag[0] != 'v') return false;
+    uint8_t dots = 0;
+    for (size_t i = 1; i < tag.length(); ++i) {
+        if (tag[i] == '.') {
+            if (i == 1 || i + 1 == tag.length() || tag[i - 1] == '.') return false;
+            ++dots;
+        } else if (tag[i] < '0' || tag[i] > '9') {
+            return false;
+        }
+    }
+    return dots == 2;
+}
 }
 
 DeviceWebServer device_web_server;
@@ -455,6 +479,27 @@ void DeviceWebServer::configure_routes() {
         request->send(202, "application/json", "{\"preparing\":true}");
     });
 
+    server_.on(AsyncURIMatcher::exact("/api/v1/ota/github"), HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!request_origin_allowed(request)) {
+            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+            return;
+        }
+        if (!request->hasParam("tag", true)) {
+            request->send(400, "application/json", "{\"error\":\"Release tag is required\"}");
+            return;
+        }
+        const String tag = request->getParam("tag", true)->value();
+        if (!valid_release_tag(tag)) {
+            request->send(400, "application/json", "{\"error\":\"Release tag is invalid\"}");
+            return;
+        }
+        if (!start_github_ota(tag)) {
+            request->send(409, "application/json", "{\"error\":\"Prepare the update before installing\"}");
+            return;
+        }
+        request->send(202, "application/json", "{\"accepted\":true}");
+    });
+
     server_.on(
         AsyncURIMatcher::exact("/api/v1/ota"), HTTP_POST,
         [](AsyncWebServerRequest* request) {
@@ -474,6 +519,128 @@ void DeviceWebServer::configure_routes() {
                uint8_t* data, size_t len, bool final) {
             handle_ota_upload(request, filename, index, data, len, final);
         });
+}
+
+bool DeviceWebServer::start_github_ota(const String& tag) {
+    if (!is_ota_ready()) return false;
+    bool expected_inactive = false;
+    if (!ota_active_.compare_exchange_strong(expected_inactive, true)) return false;
+    ota_preparation_state_.store(OtaPreparationState::IDLE);
+    ota_received_.store(0);
+    ota_total_.store(0);
+    String* task_tag = new (std::nothrow) String(tag);
+    if (!task_tag || xTaskCreate(github_ota_task, "github_ota", OTA_DOWNLOAD_TASK_STACK,
+                                 task_tag, 1, nullptr) != pdPASS) {
+        delete task_tag;
+        finish_ota(false);
+        return false;
+    }
+    return true;
+}
+
+void DeviceWebServer::github_ota_task(void* parameter) {
+    String* task_tag = static_cast<String*>(parameter);
+    const String tag = task_tag ? *task_tag : String();
+    delete task_tag;
+    device_web_server.perform_github_ota(tag);
+    vTaskDelete(nullptr);
+}
+
+void DeviceWebServer::perform_github_ota(const String& tag) {
+#ifdef HW_DISPLAY_VARIANT_V2
+    const String filename = "smart-grind-by-weight-" + tag + "-waveshare-164-v2.bin";
+#else
+    const String filename = "smart-grind-by-weight-" + tag + ".bin";
+#endif
+    const String url = String(GITHUB_RELEASE_BASE) + tag + "/" + filename;
+    LOG_BLE("[WEB OTA] Downloading %s\n", filename.c_str());
+    if (hardware_manager_ && hardware_manager_->get_grinder()) {
+        hardware_manager_->get_grinder()->stop();
+    }
+
+    WiFiClientSecure secure_client;
+    secure_client.setCACertBundle(
+        x509_crt_imported_bundle_bin_start,
+        static_cast<size_t>(x509_crt_imported_bundle_bin_end -
+                            x509_crt_imported_bundle_bin_start));
+    secure_client.setTimeout(15000);
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+    http.setTimeout(15000);
+    if (!http.begin(secure_client, url)) {
+        LOG_BLE("[WEB OTA] Could not open GitHub connection\n");
+        finish_ota(false);
+        return;
+    }
+    const int status = http.GET();
+    if (status != HTTP_CODE_OK) {
+        LOG_BLE("[WEB OTA] GitHub download failed: HTTP %d\n", status);
+        http.end();
+        finish_ota(false);
+        return;
+    }
+    const int content_length = http.getSize();
+    const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
+    if (!target || content_length <= 0 || static_cast<size_t>(content_length) > target->size) {
+        LOG_BLE("[WEB OTA] Invalid image size: %d\n", content_length);
+        http.end();
+        finish_ota(false);
+        return;
+    }
+    WiFiClient* stream = http.getStreamPtr();
+    uint8_t first_byte = 0;
+    if (!stream || stream->readBytes(&first_byte, 1) != 1 || first_byte != 0xE9) {
+        LOG_BLE("[WEB OTA] Download is not an ESP32 application image\n");
+        http.end();
+        finish_ota(false);
+        return;
+    }
+    if (!web_firmware_update.begin(static_cast<size_t>(content_length), U_FLASH) ||
+        web_firmware_update.write(&first_byte, 1) != 1) {
+        LOG_BLE("[WEB OTA] Could not open or write inactive partition: %s\n",
+                web_firmware_update.errorString());
+        http.end();
+        finish_ota(false);
+        return;
+    }
+    ota_total_.store(static_cast<size_t>(content_length));
+    ota_received_.store(1);
+    uint8_t buffer[4096];
+    uint32_t idle_deadline = millis() + 15000;
+    while (http.connected() && ota_received_.load() < ota_total_.load()) {
+        const size_t available = stream->available();
+        if (available == 0) {
+            if (static_cast<int32_t>(millis() - idle_deadline) >= 0) break;
+            delay(2);
+            continue;
+        }
+        const size_t wanted = std::min(available, sizeof(buffer));
+        const int read = stream->readBytes(buffer, wanted);
+        if (read <= 0) break;
+        if (web_firmware_update.write(buffer, static_cast<size_t>(read)) != static_cast<size_t>(read)) {
+            LOG_BLE("[WEB OTA] Flash write failed: %s\n", web_firmware_update.errorString());
+            web_firmware_update.abort();
+            http.end();
+            finish_ota(false);
+            return;
+        }
+        ota_received_.fetch_add(static_cast<size_t>(read));
+        idle_deadline = millis() + 15000;
+    }
+    http.end();
+    const bool complete = ota_received_.load() == ota_total_.load();
+    const bool valid = complete && web_firmware_update.end(true);
+    if (!valid) {
+        if (!complete) web_firmware_update.abort();
+        LOG_BLE("[WEB OTA] Download incomplete or invalid (%lu/%lu): %s\n",
+                static_cast<unsigned long>(ota_received_.load()),
+                static_cast<unsigned long>(ota_total_.load()), web_firmware_update.errorString());
+        finish_ota(false);
+        return;
+    }
+    LOG_BLE("[WEB OTA] GitHub firmware validated (%lu bytes)\n",
+            static_cast<unsigned long>(ota_received_.load()));
+    finish_ota(true);
 }
 
 void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const String& filename,

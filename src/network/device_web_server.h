@@ -47,6 +47,9 @@ private:
     void configure_routes();
     void handle_ota_upload(AsyncWebServerRequest* request, const String& filename,
                            size_t index, uint8_t* data, size_t len, bool final);
+    bool start_github_ota(const String& tag);
+    static void github_ota_task(void* parameter);
+    void perform_github_ota(const String& tag);
     void request_ota_preparation();
     void recover_from_ota_failure();
     void finish_ota(bool success);
