@@ -15,7 +15,7 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build guide](docs/DOC.md)** ·
-**[What's new in v1.5](CHANGELOG.md#150---2026-08-14)** ·
+**[What's new in v1.5.1](CHANGELOG.md#151---2026-08-15)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 <table>
@@ -40,6 +40,9 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   ±0.03 g.
 - **Three editable profiles** for Single, Double and Custom doses, synchronized
   between the touchscreen and browser.
+- **Target-free Manual mode** with one-tap start/stop, large optional live
+  weight and TARE controls, elapsed time, motor-only lifetime accounting and an
+  independent 30-second safety cutoff.
 - **Grind-by-time mode** for the original timed workflow, including pause and
   resume and operation without a load cell.
 - **Responsive AMOLED interface** with chart and arc views, faster partial
@@ -49,27 +52,33 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
 - **Built-in screensavers** plus custom RGB565 image upload, configurable
   brightness, startup display and idle timeout.
 - **Local Wi-Fi web app** with light/dark themes, live weight and flow, saved
-  dose selection, settings, grind history, analytics and data downloads.
+  dose selection, round start/stop control, settings, grind history, analytics
+  and data downloads.
 - **Wi-Fi setup on the device** with network scanning, a secured captive portal,
   QR access, Improv Serial provisioning and `smartgrind.local` discovery.
-- **Firmware updates over Wi-Fi or Bluetooth**, with V1/V2 image selection,
-  transfer guards, image validation and USB recovery.
+- **One-click firmware updates from GitHub**, with automatic stable-release
+  checks and strict V1/V2 image selection, plus manual Wi-Fi/Bluetooth upload
+  and USB recovery.
 - **On-device diagnostics** with downloadable retained startup/runtime logs.
 - **V1 and V2 Waveshare support**, reproducible CI builds, a public web flasher
   and a deterministic Windows desktop simulator for development.
 
-The web API deliberately does not expose remote motor start. Network clients
-can select profiles, follow a grind, stop an active grind and manage settings;
-the firmware control loop remains responsible for relay safety.
+Network clients request a selected-profile start or stop through the same grind
+controller used by the touchscreen; they never drive the relay directly. The
+firmware remains responsible for load-cell checks, state transitions and motor
+safety.
 
 ## Web interface
 
 The responsive web interface is served directly by the grinder at
 `http://smartgrind.local`; no cloud account or separate application is needed.
-Choose a saved dose, follow the current grind, review its full recorded trace,
-change grinder/display settings and install firmware from a browser on the same
-network. If mDNS is unavailable, use the IP address shown on the grinder's
-Wi-Fi screen.
+Choose a saved dose, start or stop it with the round grind control, follow the
+current grind, review its full recorded trace, change grinder/display settings
+and install the latest stable firmware from a browser on the same network. The
+System & updates page checks this project's GitHub releases and selects the
+matching V1 or V2 application image automatically; manual upload remains
+available as an advanced fallback. If mDNS is unavailable, use the IP address
+shown on the grinder's Wi-Fi screen.
 
 <table>
 <tr>
@@ -120,6 +129,12 @@ for longer-term archives and recovery workflows.
 The original timed mode remains available, and the documented Eureka
 installation can be reversed without permanently modifying the grinder body.
 
+For an uncomplicated target-free run, swipe to **Manual**, the first main-screen
+page. If a scale is fitted, place the empty cup on it and tap **TARE**, then tap
+**START**. Tap **STOP** when enough coffee has been ground. The large live weight
+remains available before and after grinding. Manual mode never requires or
+automatically tares the load cell and stops automatically after 30 seconds.
+
 ## How grinding works
 
 ```mermaid
@@ -149,7 +164,7 @@ incompatibilities, and a community V1 hardware acceptance run is welcome.
 | --- | --- | --- |
 | V1/V2 maintained baseline | Complete | Tested firmware targets, V2 wiring, simulator and faster/reliable display gestures |
 | Public web flasher and releases | Complete | Explicit controller-generation selection and downloadable, reproducible V1/V2 packages |
-| Wi-Fi provisioning and safe OTA | Complete | Reliable setup, `smartgrind.local` discovery and confirmed full-image browser updates |
+| Wi-Fi provisioning and safe OTA | Complete | Reliable setup, `smartgrind.local` discovery, one-click stable-release updates and manual full-image upload |
 | Shared live device API | Complete | Bounded 10 Hz WebSocket feed, safe stop/dismiss requests, settings and history APIs |
 | Live grinder web UI | Complete | Dashboard, live/completed graphs, settings, history/analytics, downloads, OTA and screensavers |
 | Native Home Assistant integration | Validation in progress | Separate Zeroconf/local-push integration; live Home Assistant acceptance remains |

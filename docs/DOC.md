@@ -23,6 +23,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
     - [Auto-Tune Motor Response](#auto-tune-motor-response)
     - [Diagnostics System](#diagnostics-system)
   - [📱 Usage Guide](#-usage-guide)
+    - [Manual Grinding](#manual-grinding)
     - [Grinding Profiles](#grinding-profiles)
     - [Navigation](#navigation)
     - [Grind Settings](#grind-settings)
@@ -236,17 +237,23 @@ Before flashing, verify that the selected image matches the display generation. 
    - Click "Flash via USB" - opens ESP Web Tools
    - After installation, device is ready for wireless updates
 
-2. **Future Updates (BLE - After Installation)**
-   - Power on the grinder and enable Bluetooth in device settings
-   - Select firmware version from OTA dropdown
-   - Click "Connect to Device" → "Flash Firmware"
-   - Update happens wirelessly - **no USB cable needed**
+2. **Future Updates (Wi-Fi Recommended)**
+   - Download the matching V1 or V2 `.bin` from the
+     [Community releases page](https://github.com/Clinteastman/smart-grind-by-weight/releases)
+   - Open `http://smartgrind.local` (or the IP shown on the Wi-Fi page)
+   - Choose **Settings → System & updates**, select the image and confirm upload
+   - The grinder validates the image, installs it and restarts; keep it powered
+     until the web page reports that the firmware was accepted
+
+   BLE updating remains available as a fallback when the grinder cannot join
+   the local Wi-Fi network.
 
 **Key Benefits:**
 - ✅ **No downloads needed** - firmware hosted automatically
 - ✅ **No command line** - simple web interface
 - ✅ **Automatic version listing** - all releases available in dropdown
-- ✅ **Wireless updates** - once installed, never need USB again
+- ✅ **Wireless Wi-Fi and BLE updates** - once installed, USB is retained mainly
+  for recovery
 
 **Screensaver tools:**
 - Upload a custom 280 × 456 image from the **Screensaver** tab
@@ -315,6 +322,23 @@ Access via **Menu → Diagnostics → Noise Floor**.
 
 ## 📱 Usage Guide
 
+### Manual Grinding
+
+**Manual** is the first page in the main-screen carousel. Tap **START** to run
+the grinder without a weight or time target, then tap **STOP** when the desired
+amount has been ground. When a healthy load cell is fitted, the page shows a
+large live weight and a large **TARE** button. Put the empty cup in place and
+tap **TARE** if you want to weigh the result; taring is never automatic in
+Manual mode. During grinding, the screen shows live weight and elapsed motor
+time.
+
+Manual start/stop works without a load cell; the scale readout and TARE button
+simply report that the scale is unavailable. Manual mode deliberately skips
+automatic taring, purging, predictive stopping, finishing pulses and
+grind-history recording. It still adds the real motor run time to lifetime
+statistics and stops automatically after 30 seconds. Use Single, Double or
+Custom when you want a repeatable target and a recorded result.
+
 ### Grinding Profiles
 All profiles are fully customizable. Default grind-by-weight targets (fallback time values shown in parenthesis):
 - **Single**: 9 g (5 s)
@@ -360,6 +384,11 @@ Need the stock timed run? Enable swipe gestures in **Menu → Grind Settings**, 
 
 > **Time mode pulse button:** In time mode completion, a "+" button appears next to OK for 100ms additional grinding pulses.
 
+From the local web dashboard, choose Single, Double or Custom and use the round
+play/stop button to request the same target grind remotely. The request passes
+through the firmware's normal checks and state machine; Manual mode remains an
+on-device control.
+
 ### Quick Scale View
 Need a simple live readout? Open **Menu → Scale** to jump into a full-screen weight display. Entering the page automatically tares the scale (using the same blocking overlay as the main workflow), and a large `TARE` button at the bottom lets you re-zero manually whenever you need.
 
@@ -375,6 +404,10 @@ Need a simple live readout? Open **Menu → Scale** to jump into a full-screen w
 
 ```
 Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode if enabled)
+|
++-- Manual
+|   |-- Live elapsed motor time
+|   \-- START / STOP button (30s safety limit)
 |
 +-- Single Profile 
 |   |-- Weight display (long press to edit)
@@ -443,7 +476,7 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
             \-- Pulse counts
 
 During Grinding:
-|-- Weight display & progress
+|-- Weight/elapsed display & progress
 |-- Tap anywhere: Arc ↔ Nerdy display modes
 |-- STOP button
 \-- Purge Confirmation (appears in Purge mode after grinder saturation)

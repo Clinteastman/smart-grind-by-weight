@@ -23,7 +23,8 @@ struct GrindEventData;
 struct FlashOpRequest {
     enum Type {
         START_GRIND_SESSION,
-        END_GRIND_SESSION
+        END_GRIND_SESSION,
+        UPDATE_MANUAL_RUNTIME
     };
     
     Type operation_type;
@@ -32,6 +33,7 @@ struct FlashOpRequest {
     float start_weight;      // For START_GRIND_SESSION (pre-tare snapshot)
     float final_weight;      // For END_GRIND_SESSION
     uint8_t pulse_count;     // For END_GRIND_SESSION
+    uint32_t motor_runtime_ms; // For UPDATE_MANUAL_RUNTIME
 };
 
 // Log message structure for Core 0 → Core 1 communication
@@ -64,6 +66,7 @@ enum class GrindPhase {
     PULSE_SETTLING,     // Waiting for weight to settle after pulse
     FINAL_SETTLING,     // Waiting for weight to settle
     TIME_GRINDING,      // Time-based grinding phase
+    MANUAL_GRINDING,    // User-controlled grinding with no target
     TIME_ADDITIONAL_PULSE, // Additional pulse in time mode after completion
     COMPLETED,          // Grind completed (success, overshoot, or max pulses)
     TIMEOUT,            // Grind timed out
@@ -243,6 +246,7 @@ public:
     int get_current_progress_percent() const { return get_progress_percent(); }
     float get_target_weight() const { return target_weight; }
     uint32_t get_target_time_ms() const { return target_time_ms; }
+    uint32_t get_elapsed_grind_ms() const;
     static constexpr const char* PREF_KEY_PRIME_ENABLED = "prime_enabled";
     static constexpr const char* PREF_KEY_GRINDER_MODE = "grinder_mode";
     static constexpr const char* PREF_KEY_GRINDER_AMOUNT_G = "grinder_amount_g";

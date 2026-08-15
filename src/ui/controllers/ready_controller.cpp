@@ -12,9 +12,46 @@ ReadyUIController::ReadyUIController(UIManager* manager)
 
 void ReadyUIController::update() {
     const uint32_t now = millis();
-    if (now - last_network_update_ms_ < 500) return;
-    last_network_update_ms_ = now;
-    if (ui_manager_) ui_manager_->ready_screen.update_network_status();
+    if (!ui_manager_) return;
+
+    if (ui_manager_->state_machine &&
+        ui_manager_->state_machine->is_state(UIState::READY) &&
+        ui_manager_->current_tab == ReadyScreen::MANUAL_TAB_INDEX &&
+        now - last_manual_scale_update_ms_ >= 100) {
+        last_manual_scale_update_ms_ = now;
+        auto* hardware = ui_manager_->get_hardware_manager();
+        auto* sensor = hardware ? hardware->get_weight_sensor() : nullptr;
+        const bool available = sensor && !sensor->has_hardware_fault() &&
+                               sensor->get_sample_count() > 0;
+        ui_manager_->ready_screen.update_manual_scale(
+            available ? sensor->get_display_weight() : 0.0f,
+            available,
+            available && sensor->is_tare_in_progress());
+    }
+
+    if (now - last_network_update_ms_ >= 500) {
+        last_network_update_ms_ = now;
+        ui_manager_->ready_screen.update_network_status();
+    }
+}
+
+void ReadyUIController::handle_manual_tare() {
+    if (!ui_manager_ || !ui_manager_->state_machine ||
+        !ui_manager_->state_machine->is_state(UIState::READY) ||
+        ui_manager_->current_tab != ReadyScreen::MANUAL_TAB_INDEX) {
+        return;
+    }
+
+    auto* hardware = ui_manager_->get_hardware_manager();
+    auto* sensor = hardware ? hardware->get_weight_sensor() : nullptr;
+    if (!sensor || sensor->has_hardware_fault() || sensor->get_sample_count() <= 0 ||
+        sensor->is_tare_in_progress()) {
+        return;
+    }
+
+    sensor->start_nonblocking_tare();
+    ui_manager_->ready_screen.update_manual_scale(0.0f, true, true);
+    LOG_BLE("Manual page tare requested\n");
 }
 
 void ReadyUIController::refresh_profiles() {
@@ -35,8 +72,13 @@ void ReadyUIController::handle_tab_change(int tab) {
     }
 
     ui_manager_->current_tab = tab;
-    if (ui_manager_->profile_controller && tab < ReadyScreen::PROFILE_TAB_COUNT) {
-        ui_manager_->profile_controller->set_current_profile(tab);
+    if (tab == ReadyScreen::MANUAL_TAB_INDEX) {
+        ui_manager_->current_mode = GrindMode::MANUAL;
+        ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
+    } else if (ui_manager_->profile_controller && ReadyScreen::is_profile_tab(tab)) {
+        ui_manager_->profile_controller->set_current_profile(ReadyScreen::profile_index_for_tab(tab));
+        ui_manager_->current_mode = ui_manager_->profile_controller->get_grind_mode();
+        ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
         refresh_profiles();
     }
 
@@ -51,7 +93,7 @@ void ReadyUIController::handle_profile_long_press() {
     }
 
     if (!ui_manager_->state_machine->is_state(UIState::READY) ||
-        ui_manager_->current_tab >= ReadyScreen::PROFILE_TAB_COUNT) {
+        !ReadyScreen::is_profile_tab(ui_manager_->current_tab)) {
         return;
     }
 
@@ -65,7 +107,7 @@ void ReadyUIController::handle_profile_long_press() {
 }
 
 void ReadyUIController::toggle_mode() {
-    if (!ui_manager_ || ui_manager_->current_tab >= ReadyScreen::PROFILE_TAB_COUNT) {
+    if (!ui_manager_ || !ReadyScreen::is_profile_tab(ui_manager_->current_tab)) {
         return;
     }
 
@@ -168,6 +210,10 @@ void ReadyUIController::register_events() {
     EventBridgeLVGL::register_handler(EventBridgeLVGL::EventType::PROFILE_LONG_PRESS,
                                       [this](lv_event_t*) { handle_profile_long_press(); });
 
+    EventBridgeLVGL::register_handler(EventBridgeLVGL::EventType::MANUAL_TARE,
+                                      [this](lv_event_t*) { handle_manual_tare(); });
+
     ui_manager_->ready_screen.set_profile_long_press_handler(EventBridgeLVGL::profile_long_press_handler);
+    ui_manager_->ready_screen.set_manual_tare_handler(EventBridgeLVGL::dispatch_event);
 
 }

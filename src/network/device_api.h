@@ -44,7 +44,7 @@ public:
     void mark_settings_dirty() { settings_cache_dirty_.store(true); }
 
 private:
-    enum class CommandAction : uint8_t { STOP, DISMISS, SELECT_PROFILE, APPLY_SETTINGS };
+    enum class CommandAction : uint8_t { START, STOP, DISMISS, SELECT_PROFILE, APPLY_SETTINGS };
     struct Command {
         uint32_t client_id;
         CommandAction action;

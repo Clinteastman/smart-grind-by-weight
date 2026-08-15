@@ -107,7 +107,7 @@ void StatusIndicatorController::update_warning_icon() {
     if (ui_manager_->diagnostics_controller_) {
         // All load-cell diagnostics are irrelevant in sensor-free TIME mode,
         // but non-sensor warnings (for example mechanical instability) remain.
-        const bool include_load_cell = ui_manager_->current_mode != GrindMode::TIME;
+        const bool include_load_cell = ui_manager_->current_mode == GrindMode::WEIGHT;
         DiagnosticCode diagnostic =
             ui_manager_->diagnostics_controller_->get_highest_priority_warning(include_load_cell);
 

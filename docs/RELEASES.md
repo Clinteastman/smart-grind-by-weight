@@ -38,6 +38,17 @@ Once you push a tag (like `v1.0.0`):
    - Uploads each artifact to the GitHub Release
    - The hosted web flasher queries GitHub releases directly, so no binary files are committed back to `main`
 
+   The grinder's own web interface also queries the latest published stable
+   release. It selects application images by their exact names, so these two
+   filenames are a compatibility contract and must not be changed without
+   updating `src/network/device_page.h`:
+
+   - V1: `smart-grind-by-weight-vX.Y.Z.bin`
+   - V2: `smart-grind-by-weight-vX.Y.Z-waveshare-164-v2.bin`
+
+   Bootloader, partition-table, web-flasher and delta-patch assets are never
+   eligible for the one-click in-device update.
+
 3. **Creates GitHub Release (as draft)**
    - Includes automatic changelog from commits since last tag
    - Uploads firmware binaries for download

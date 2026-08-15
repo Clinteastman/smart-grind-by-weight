@@ -11,6 +11,7 @@
 #include "../hardware/grinder.h"
 #include "../hardware/hardware_manager.h"
 #include "../system/screensaver_settings.h"
+#include "device_web_server.h"
 
 DeviceApi device_api;
 
@@ -47,6 +48,8 @@ const char* api_phase_name(const GrindController& controller) {
             return "GRINDING";
         case GrindPhase::TIME_GRINDING:
             return controller.is_grind_paused() ? "PAUSED" : "GRINDING";
+        case GrindPhase::MANUAL_GRINDING:
+            return "GRINDING";
         case GrindPhase::PULSE_DECISION:
         case GrindPhase::PULSE_SETTLING:
             return "COASTING";
@@ -121,6 +124,30 @@ bool DeviceApi::process_commands() {
     Command command{};
     while (xQueueReceive(command_queue_, &command, 0) == pdTRUE) {
         switch (command.action) {
+            case CommandAction::START: {
+                if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
+                    send_ack(command.client_id, "start", false, "firmware update is active");
+                    break;
+                }
+                if (grind_controller_->get_phase() != GrindPhase::IDLE) {
+                    send_ack(command.client_id, "start", false, "grinder is not idle");
+                    break;
+                }
+                const GrindMode mode = profile_controller_->get_grind_mode();
+                WeightSensor* sensor = hardware_->get_weight_sensor();
+                if (mode == GrindMode::WEIGHT &&
+                    (!sensor || sensor->has_hardware_fault())) {
+                    send_ack(command.client_id, "start", false, "load cell is not ready");
+                    break;
+                }
+                grind_controller_->set_grind_profile_id(profile_controller_->get_current_profile());
+                const float target_weight = profile_controller_->get_current_weight();
+                const uint32_t target_time_ms = static_cast<uint32_t>(
+                    profile_controller_->get_current_time() * 1000.0f + 0.5f);
+                grind_controller_->start_grind(target_weight, target_time_ms, mode);
+                send_ack(command.client_id, "start", true, "grind started");
+                break;
+            }
             case CommandAction::STOP:
                 if (!grind_controller_->is_active()) {
                     send_ack(command.client_id, "stop", false, "grinder is not active");
@@ -210,7 +237,10 @@ void DeviceApi::queue_command(uint32_t client_id, const uint8_t* data, size_t le
     command.client_id = client_id;
     command.action = CommandAction::STOP;
     const char* action = nullptr;
-    if (contains_json_string(json, "action", "stop")) {
+    if (contains_json_string(json, "action", "start")) {
+        action = "start";
+        command.action = CommandAction::START;
+    } else if (contains_json_string(json, "action", "stop")) {
         action = "stop";
         command.action = CommandAction::STOP;
     } else if (contains_json_string(json, "action", "dismiss")) {
@@ -525,7 +555,7 @@ String DeviceApi::build_state_message() {
              static_cast<unsigned long>(sequence_.fetch_add(1) + 1), static_cast<unsigned long>(millis()),
              grind_controller_->is_active() ? "true" : "false",
              api_phase_name(*grind_controller_),
-             mode == GrindMode::TIME ? "time" : "weight",
+             mode == GrindMode::TIME ? "time" : mode == GrindMode::MANUAL ? "manual" : "weight",
              profile_controller_->get_current_profile(),
              grind_controller_->get_current_progress_percent(),
              target_weight,
