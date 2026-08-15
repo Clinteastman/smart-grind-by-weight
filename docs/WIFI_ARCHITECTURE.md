@@ -128,7 +128,8 @@ so clients remain compatible if the firmware state machine is refined.
 Commands may include a numeric `rid`. Firmware echoes it in the acknowledgement,
 allowing a client to correlate concurrent requests without confusing a delayed
 reply for a newer command. Omitting `rid` remains compatible with the browser
-and older API v1 clients.
+and older API v1 clients. Command objects accept ordinary JSON whitespace while
+remaining limited to one bounded text frame.
 
 The controller-backed command set is:
 

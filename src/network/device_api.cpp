@@ -18,8 +18,16 @@ DeviceApi device_api;
 namespace {
 bool contains_json_string(const char* json, const char* key, const char* value) {
     if (!json || !key || !value) return false;
-    String needle = "\"" + String(key) + "\":\"" + String(value) + "\"";
-    return strstr(json, needle.c_str()) != nullptr;
+    const String needle = "\"" + String(key) + "\"";
+    const char* cursor = strstr(json, needle.c_str());
+    if (!cursor) return false;
+    cursor += needle.length();
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (*cursor++ != ':') return false;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (*cursor++ != '\"') return false;
+    const size_t value_length = strlen(value);
+    return strncmp(cursor, value, value_length) == 0 && cursor[value_length] == '\"';
 }
 
 bool extract_json_uint(const char* json, const char* key, uint32_t& value) {
@@ -39,6 +47,8 @@ bool extract_json_uint(const char* json, const char* key, uint32_t& value) {
         if (parsed > 0xFFFFFFFFULL) return false;
         ++cursor;
     }
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (*cursor != ',' && *cursor != '}') return false;
     value = static_cast<uint32_t>(parsed);
     return true;
 }
