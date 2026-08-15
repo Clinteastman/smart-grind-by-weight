@@ -14,7 +14,7 @@ body:
       label: Diagnostic Report
       description: Please generate and attach a diagnostic report from your device. This is **required** for most hardware/firmware issues.
       options:
-        - label: I have attached a diagnostic report from my device (see instructions below)
+        - label: I have attached the diagnostic log, or explained below why it is unavailable
           required: true
 
   - type: markdown
@@ -23,7 +23,7 @@ body:
         ### How to Get a Diagnostic Report
 
         **For grind-related issues (accuracy, timeout, pulse corrections, etc.):**
-        1. **Enable logging:** Menu → Data → Enable Logging
+        1. **Enable history:** Web UI → Settings → Grinding → Save grind history
         2. **Capture the issue:** Perform at least one grind where the issue occurs
         3. **Generate diagnostics:** Follow one of the methods below
 
@@ -31,15 +31,13 @@ body:
 
         ---
 
-        **Option 1: Web Flasher (Recommended)**
-        1. Visit the [Community Web Flasher Diagnostics Tool](https://clinteastman.github.io/smart-grind-by-weight/)
-        2. Click the **"Diagnostics"** tab
-        3. Click **"Connect & Get Diagnostics"**
-        4. Select your device from the Bluetooth pairing dialog
-        5. Wait for the report to complete (~5-10 seconds)
-        6. Click **"Copy to Clipboard"** and paste it in the "Diagnostic Report" section below
+        **Option 1: Grinder web UI (Recommended)**
+        1. Open `http://smartgrind.local` or the IP shown on the grinder
+        2. Open **Settings → System & updates**
+        3. Select **Refresh** under Recent diagnostic log
+        4. Copy the log, or select **Download** and attach the file
 
-        **Option 2: Command Line**
+        **Option 2: Bluetooth / command line fallback**
         ```bash
         python3 tools/grinder.py diagnostics --save diagnostics.txt
         ```
@@ -76,6 +74,27 @@ body:
         3. See error
 
         Include any error messages, unexpected behavior, or accuracy issues.
+    validations:
+      required: true
+
+  - type: input
+    id: firmware-version
+    attributes:
+      label: Firmware Version
+      description: Shown in Web UI → Settings → System & updates
+      placeholder: "For example: 1.5.1 Build 1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: controller-revision
+    attributes:
+      label: Controller Revision
+      description: Select the firmware/hardware target installed on the Waveshare controller
+      options:
+        - V1
+        - V2
+        - Unknown
     validations:
       required: true
 
