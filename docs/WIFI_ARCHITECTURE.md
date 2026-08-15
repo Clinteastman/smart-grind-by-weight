@@ -125,17 +125,33 @@ state names. API v1 publishes one of `IDLE`, `PREPARING`, `PRIMING`,
 `GRINDING`, `PAUSED`, `COASTING`, `FINAL_SETTLING`, `COMPLETED`, or `TIMEOUT`,
 so clients remain compatible if the firmware state machine is refined.
 
-Clients may request only actions that reduce risk or clear a finished result:
+Commands may include a numeric `rid`. Firmware echoes it in the acknowledgement,
+allowing a client to correlate concurrent requests without confusing a delayed
+reply for a newer command. Omitting `rid` remains compatible with the browser
+and older API v1 clients.
+
+The controller-backed command set is:
 
 ```json
-{"type":"command","action":"stop"}
-{"type":"command","action":"dismiss"}
+{"type":"command","action":"start","rid":1}
+{"type":"command","action":"start_manual","rid":2}
+{"type":"command","action":"stop","rid":3}
+{"type":"command","action":"dismiss","rid":4}
+{"type":"command","action":"tare","rid":5}
+{"type":"command","action":"select_profile","profile":1,"rid":6}
+{"type":"command","action":"set_mode","mode":"weight","rid":7}
 ```
 
 Each request receives a v1 acknowledgement containing `action`, `accepted` and
-`reason`. There is deliberately no network command that starts the motor. The
-network callback only queues requests; the normal UI/control task decides
-whether to execute them.
+`reason`, plus the same `rid` when one was supplied. The network callback only
+validates and queues requests; the normal control task applies the same idle,
+load-cell, OTA, phase, safety-timeout and motor guards used by the touchscreen.
+No network action drives the relay or a GPIO directly.
+
+`start` runs the selected Single, Double or Custom profile in its configured
+weight/time mode. `start_manual` uses the firmware's target-free manual mode and
+its independent 30-second cutoff. Tare, profile and mode changes are refused
+while the grinder is not idle.
 
 The browser applies a display-only exponential filter and near-zero deadband to
 the 10 Hz flow value. Grinder control and saved session samples retain their
@@ -143,7 +159,8 @@ original precision; completed graphs are replaced with the full recorded trace.
 
 ## HTTP API v1
 
-- `GET /api/v1/status`: device, build, network, memory and OTA progress state.
+- `GET /api/v1/status`: device, build, network, memory and OTA progress state,
+  plus the WebSocket path, protocol level and advertised command capabilities.
 - `GET /api/v1/settings`: the three grinder profiles and the matching on-device
   automation, purge, display, screensaver, logging, swipe and Bluetooth values.
 - `POST /api/v1/settings`: validates a complete form and queues its application
@@ -158,14 +175,31 @@ original precision; completed graphs are replaced with the full recorded trace.
 - `GET`, `POST` and `DELETE /api/v1/screensaver/image`: read, transactionally
   replace or remove the fixed-size RGB565 custom image while idle.
 
-Settings and screensaver mutations enforce same-origin checks. Web OTA is
+Settings and screensaver mutations enforce same-origin checks. Local API and
+motor commands are currently unauthenticated, so the grinder should be kept on
+a trusted home network. Web OTA is
 deliberately unauthenticated at this stage; browser confirmation plus the
 motor, transfer, image and partition guards protect the update operation while
 authentication and signed images remain roadmap work. History and image access
 are refused while grind logging, OTA or another transfer could contend for the
-filesystem. No HTTP endpoint starts the motor.
+filesystem. HTTP endpoints do not start the motor; starts use the bounded
+WebSocket command queue and controller path described above.
 
 `GET /api/v1/status` also exposes a stable 12-character device identifier,
 model and hardware revision. The same identifier is advertised as the `id` TXT
 property on `_smartgrind._tcp`; integrations use it as the config-entry and
 entity identity so DHCP address changes do not create duplicate devices.
+
+## Native Home Assistant integration
+
+The separately versioned
+[Smart Grind Home Assistant integration](https://github.com/Clinteastman/smart-grind-home-assistant)
+uses `_smartgrind._tcp.local.` discovery, verifies the stable hardware ID over
+HTTP, and then keeps a reconnecting local-push WebSocket connection. It exposes
+standard sensors, binary sensors, selects and buttons rather than requiring an
+MQTT broker or YAML configuration.
+
+The firmware continues to publish internally at 10 Hz for the web dashboard.
+The Home Assistant coordinator publishes semantic transitions immediately but
+rate-limits changing scale values before they reach Home Assistant's recorder,
+preventing idle sensor jitter from creating unnecessary database growth.

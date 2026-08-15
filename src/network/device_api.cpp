@@ -22,6 +22,27 @@ bool contains_json_string(const char* json, const char* key, const char* value) 
     return strstr(json, needle.c_str()) != nullptr;
 }
 
+bool extract_json_uint(const char* json, const char* key, uint32_t& value) {
+    if (!json || !key) return false;
+    const String needle = "\"" + String(key) + "\"";
+    const char* cursor = strstr(json, needle.c_str());
+    if (!cursor) return false;
+    cursor += needle.length();
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (*cursor++ != ':') return false;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (*cursor < '0' || *cursor > '9') return false;
+
+    uint64_t parsed = 0;
+    while (*cursor >= '0' && *cursor <= '9') {
+        parsed = parsed * 10U + static_cast<uint8_t>(*cursor - '0');
+        if (parsed > 0xFFFFFFFFULL) return false;
+        ++cursor;
+    }
+    value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
 bool websocket_origin_allowed(AsyncWebServerRequest* request) {
     if (!request || !request->hasHeader("Origin")) return true;
     const AsyncWebHeader* origin_header = request->getHeader("Origin");
@@ -126,18 +147,18 @@ bool DeviceApi::process_commands() {
         switch (command.action) {
             case CommandAction::START: {
                 if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
-                    send_ack(command.client_id, "start", false, "firmware update is active");
+                    send_ack(command, "start", false, "firmware update is active");
                     break;
                 }
                 if (grind_controller_->get_phase() != GrindPhase::IDLE) {
-                    send_ack(command.client_id, "start", false, "grinder is not idle");
+                    send_ack(command, "start", false, "grinder is not idle");
                     break;
                 }
                 const GrindMode mode = profile_controller_->get_grind_mode();
                 WeightSensor* sensor = hardware_->get_weight_sensor();
                 if (mode == GrindMode::WEIGHT &&
                     (!sensor || sensor->has_hardware_fault())) {
-                    send_ack(command.client_id, "start", false, "load cell is not ready");
+                    send_ack(command, "start", false, "load cell is not ready");
                     break;
                 }
                 grind_controller_->set_grind_profile_id(profile_controller_->get_current_profile());
@@ -145,34 +166,70 @@ bool DeviceApi::process_commands() {
                 const uint32_t target_time_ms = static_cast<uint32_t>(
                     profile_controller_->get_current_time() * 1000.0f + 0.5f);
                 grind_controller_->start_grind(target_weight, target_time_ms, mode);
-                send_ack(command.client_id, "start", true, "grind started");
+                send_ack(command, "start", true, "grind started");
                 break;
             }
+            case CommandAction::START_MANUAL:
+                if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
+                    send_ack(command, "start_manual", false, "firmware update is active");
+                } else if (grind_controller_->get_phase() != GrindPhase::IDLE) {
+                    send_ack(command, "start_manual", false, "grinder is not idle");
+                } else {
+                    grind_controller_->start_grind(0.0f, 0, GrindMode::MANUAL);
+                    send_ack(command, "start_manual", true, "manual grind started");
+                }
+                break;
             case CommandAction::STOP:
                 if (!grind_controller_->is_active()) {
-                    send_ack(command.client_id, "stop", false, "grinder is not active");
+                    send_ack(command, "stop", false, "grinder is not active");
                 } else {
                     grind_controller_->stop_grind();
-                    send_ack(command.client_id, "stop", true, "grind stopped");
+                    send_ack(command, "stop", true, "grind stopped");
                 }
                 break;
             case CommandAction::DISMISS:
                 if (grind_controller_->get_phase() != GrindPhase::COMPLETED &&
                     grind_controller_->get_phase() != GrindPhase::TIMEOUT) {
-                    send_ack(command.client_id, "dismiss", false, "nothing to dismiss");
+                    send_ack(command, "dismiss", false, "nothing to dismiss");
                 } else {
                     grind_controller_->return_to_idle();
-                    send_ack(command.client_id, "dismiss", true, "result dismissed");
+                    send_ack(command, "dismiss", true, "result dismissed");
                 }
                 break;
+            case CommandAction::TARE: {
+                WeightSensor* sensor = hardware_->get_weight_sensor();
+                if (grind_controller_->get_phase() != GrindPhase::IDLE) {
+                    send_ack(command, "tare", false, "grinder is not idle");
+                } else if (!sensor || sensor->has_hardware_fault() || sensor->get_sample_count() <= 0) {
+                    send_ack(command, "tare", false, "load cell is not ready");
+                } else if (sensor->is_tare_in_progress()) {
+                    send_ack(command, "tare", false, "tare is already in progress");
+                } else {
+                    sensor->tareNoDelay();
+                    send_ack(command, "tare", true, "tare started");
+                }
+                break;
+            }
             case CommandAction::SELECT_PROFILE:
                 if (grind_controller_->get_phase() != GrindPhase::IDLE) {
+                    send_ack(command, "select_profile", false, "grinder is not idle");
                     break;
                 }
                 profile_controller_->set_current_profile(command.profile_index);
                 settings_changed = true;
                 LOG_BLE("[WEB] Active profile changed to %s\n",
                         profile_controller_->get_current_name());
+                send_ack(command, "select_profile", true, "profile selected");
+                break;
+            case CommandAction::SET_MODE:
+                if (grind_controller_->get_phase() != GrindPhase::IDLE) {
+                    send_ack(command, "set_mode", false, "grinder is not idle");
+                    break;
+                }
+                profile_controller_->set_grind_mode(
+                    command.grind_mode == 1 ? GrindMode::TIME : GrindMode::WEIGHT);
+                settings_changed = true;
+                send_ack(command, "set_mode", true, "grind mode selected");
                 break;
             case CommandAction::APPLY_SETTINGS:
                 if (apply_settings(command.settings)) {
@@ -228,31 +285,61 @@ void DeviceApi::queue_command(uint32_t client_id, const uint8_t* data, size_t le
     char json[256];
     memcpy(json, data, len);
     json[len] = '\0';
+    uint32_t request_id = 0;
+    const bool has_request_id = extract_json_uint(json, "rid", request_id);
     if (!contains_json_string(json, "type", "command")) {
-        send_ack(client_id, "unknown", false, "invalid message type");
+        send_ack(client_id, request_id, has_request_id, "unknown", false, "invalid message type");
         return;
     }
 
     Command command{};
     command.client_id = client_id;
+    command.request_id = request_id;
+    command.has_request_id = has_request_id;
     command.action = CommandAction::STOP;
     const char* action = nullptr;
     if (contains_json_string(json, "action", "start")) {
         action = "start";
         command.action = CommandAction::START;
+    } else if (contains_json_string(json, "action", "start_manual")) {
+        action = "start_manual";
+        command.action = CommandAction::START_MANUAL;
     } else if (contains_json_string(json, "action", "stop")) {
         action = "stop";
         command.action = CommandAction::STOP;
     } else if (contains_json_string(json, "action", "dismiss")) {
         action = "dismiss";
         command.action = CommandAction::DISMISS;
+    } else if (contains_json_string(json, "action", "tare")) {
+        action = "tare";
+        command.action = CommandAction::TARE;
+    } else if (contains_json_string(json, "action", "select_profile")) {
+        action = "select_profile";
+        command.action = CommandAction::SELECT_PROFILE;
+        uint32_t profile = 0;
+        if (!extract_json_uint(json, "profile", profile) || profile >= USER_PROFILE_COUNT) {
+            send_ack(command, action, false, "invalid profile");
+            return;
+        }
+        command.profile_index = static_cast<int>(profile);
+    } else if (contains_json_string(json, "action", "set_mode")) {
+        action = "set_mode";
+        command.action = CommandAction::SET_MODE;
+        if (contains_json_string(json, "mode", "weight")) {
+            command.grind_mode = 0;
+        } else if (contains_json_string(json, "mode", "time")) {
+            command.grind_mode = 1;
+        } else {
+            send_ack(command, action, false, "invalid grind mode");
+            return;
+        }
     } else {
-        send_ack(client_id, "unknown", false, "unsupported action");
+        send_ack(client_id, request_id, has_request_id, "unknown", false, "unsupported action");
         return;
     }
 
     if (xQueueSend(command_queue_, &command, 0) != pdTRUE) {
-        send_ack(client_id, action, false, "command queue busy");
+        send_ack(command, action, false, "command queue busy");
     }
 }
 
@@ -518,14 +605,27 @@ void DeviceApi::refresh_settings_cache() {
     xSemaphoreGive(settings_mutex_);
 }
 
-void DeviceApi::send_ack(uint32_t client_id, const char* action, bool accepted,
-                         const char* reason) {
+void DeviceApi::send_ack(uint32_t client_id, uint32_t request_id, bool has_request_id,
+                         const char* action, bool accepted, const char* reason) {
     if (!websocket_.hasClient(client_id) || !websocket_.availableForWrite(client_id)) return;
     char message[192];
-    snprintf(message, sizeof(message),
-             "{\"api\":\"v1\",\"type\":\"ack\",\"action\":\"%s\",\"accepted\":%s,\"reason\":\"%s\"}",
-             action, accepted ? "true" : "false", reason);
+    if (has_request_id) {
+        snprintf(message, sizeof(message),
+                 "{\"api\":\"v1\",\"type\":\"ack\",\"rid\":%lu,\"action\":\"%s\",\"accepted\":%s,\"reason\":\"%s\"}",
+                 static_cast<unsigned long>(request_id), action,
+                 accepted ? "true" : "false", reason);
+    } else {
+        snprintf(message, sizeof(message),
+                 "{\"api\":\"v1\",\"type\":\"ack\",\"action\":\"%s\",\"accepted\":%s,\"reason\":\"%s\"}",
+                 action, accepted ? "true" : "false", reason);
+    }
     websocket_.text(client_id, message);
+}
+
+void DeviceApi::send_ack(const Command& command, const char* action, bool accepted,
+                         const char* reason) {
+    send_ack(command.client_id, command.request_id, command.has_request_id,
+             action, accepted, reason);
 }
 
 String DeviceApi::build_state_message() {

@@ -44,11 +44,23 @@ public:
     void mark_settings_dirty() { settings_cache_dirty_.store(true); }
 
 private:
-    enum class CommandAction : uint8_t { START, STOP, DISMISS, SELECT_PROFILE, APPLY_SETTINGS };
+    enum class CommandAction : uint8_t {
+        START,
+        START_MANUAL,
+        STOP,
+        DISMISS,
+        TARE,
+        SELECT_PROFILE,
+        SET_MODE,
+        APPLY_SETTINGS
+    };
     struct Command {
         uint32_t client_id;
         CommandAction action;
+        uint32_t request_id = 0;
+        bool has_request_id = false;
         int profile_index = 0;
+        int grind_mode = 0;
         DeviceSettingsUpdate settings;
     };
 
@@ -73,7 +85,9 @@ private:
     void add_client(AsyncWebSocketClient* client);
     void remove_client(uint32_t client_id);
     void queue_command(uint32_t client_id, const uint8_t* data, size_t len);
-    void send_ack(uint32_t client_id, const char* action, bool accepted,
+    void send_ack(uint32_t client_id, uint32_t request_id, bool has_request_id,
+                  const char* action, bool accepted, const char* reason);
+    void send_ack(const Command& command, const char* action, bool accepted,
                   const char* reason);
     void configure_settings_routes(AsyncWebServer* server);
     bool queue_profile_selection(AsyncWebServerRequest* request);

@@ -222,6 +222,7 @@ void SmartGrindNetworkManager::handle_connected() {
         MDNS.addService("http", "tcp", 80);
         MDNS.addService("smartgrind", "tcp", 80);
         MDNS.addServiceTxt("smartgrind", "tcp", "api", "v1");
+        MDNS.addServiceTxt("smartgrind", "tcp", "protocol", "1");
         MDNS.addServiceTxt("smartgrind", "tcp", "version", BUILD_FIRMWARE_VERSION);
         MDNS.addServiceTxt("smartgrind", "tcp", "id", current_device_id.c_str());
     }

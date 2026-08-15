@@ -224,6 +224,8 @@ void DeviceWebServer::configure_routes() {
 #else
             "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"v1\"},"
 #endif
+            "\"capabilities\":{\"protocol\":1,\"transport\":\"websocket\",\"path\":\"/ws\",\"state_interval_ms\":100,"
+            "\"commands\":[\"start\",\"start_manual\",\"stop\",\"dismiss\",\"tare\",\"select_profile\",\"set_mode\"]},"
             "\"firmware\":{\"version\":\"%s\",\"build\":%d,\"commit\":\"%s\"},"
             "\"network\":{\"state\":\"%s\",\"hostname\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\"},"
             "\"system\":{\"uptime_ms\":%lu,\"free_heap\":%u,\"free_internal_heap\":%u,"

@@ -172,9 +172,9 @@ incompatibilities, and a community V1 hardware acceptance run is welcome.
 | V1/V2 maintained baseline | Complete | Tested firmware targets, V2 wiring, simulator and faster/reliable display gestures |
 | Public web flasher and releases | Complete | Explicit controller-generation selection and downloadable, reproducible V1/V2 packages |
 | Wi-Fi provisioning and safe OTA | Complete | Reliable setup, `smartgrind.local` discovery, one-click stable-release updates and manual full-image upload |
-| Shared live device API | Complete | Bounded 10 Hz WebSocket feed, safe stop/dismiss requests, settings and history APIs |
+| Shared live device API | Complete | Bounded 10 Hz WebSocket feed, correlated controller-backed grind/profile/tare requests, settings and history APIs |
 | Live grinder web UI | Complete | Dashboard, live/completed graphs, settings, history/analytics, downloads, OTA and screensavers |
-| Native Home Assistant integration | Validation in progress | Separate Zeroconf/local-push integration; live Home Assistant acceptance remains |
+| Native Home Assistant integration | Validation in progress | [Separate Zeroconf/local-push integration](https://github.com/Clinteastman/smart-grind-home-assistant); live Home Assistant acceptance remains |
 
 The [community roadmap](docs/COMMUNITY_ROADMAP.md) records the detailed delivery
 status, reviewed upstream work and contribution plan. The independently
