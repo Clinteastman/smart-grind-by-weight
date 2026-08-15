@@ -4,6 +4,30 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [1.5.3] - 2026-08-15
+
+### Home Assistant integration
+
+- Added the versioned local-push protocol used by the separately maintained
+  [Smart Grind Home Assistant integration](https://github.com/Clinteastman/smart-grind-home-assistant),
+  with `_smartgrind._tcp` discovery, stable device identity and advertised
+  command capabilities.
+- Added controller-backed selected-profile start, manual start, stop, tare,
+  dismiss-result, profile selection and weight/time mode selection. Network
+  commands use the existing grinder controller and never drive the relay GPIO
+  directly.
+- Added optional numeric request IDs and correlated acknowledgements so clients
+  cannot mistake a delayed command result for a newer request.
+- Kept older API v1/browser clients compatible when they omit request IDs, and
+  accepted ordinary JSON whitespace within the existing bounded text frame.
+
+### Validation
+
+- Built both V1 and V2 firmware targets locally and in GitHub Actions.
+- Flashed the release candidate over Wi-Fi and validated discovery, status,
+  live state, all 16 Home Assistant entities and correlated safe-command
+  handling against physical V2 hardware running Home Assistant 2026.8.
+
 ## [1.5.2] - 2026-08-15
 
 ### Firmware updates
@@ -145,3 +169,4 @@ fixes described above.
 [1.5.0]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.0
 [1.5.1]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.1
 [1.5.2]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.2
+[1.5.3]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.3

@@ -174,7 +174,7 @@ incompatibilities, and a community V1 hardware acceptance run is welcome.
 | Wi-Fi provisioning and safe OTA | Complete | Reliable setup, `smartgrind.local` discovery, one-click stable-release updates and manual full-image upload |
 | Shared live device API | Complete | Bounded 10 Hz WebSocket feed, correlated controller-backed grind/profile/tare requests, settings and history APIs |
 | Live grinder web UI | Complete | Dashboard, live/completed graphs, settings, history/analytics, downloads, OTA and screensavers |
-| Native Home Assistant integration | Complete | [Separate Zeroconf/local-push integration](https://github.com/Clinteastman/smart-grind-home-assistant), validated in Home Assistant 2026.8 against a physical V2 grinder with correlated command acknowledgements |
+| Native Home Assistant integration | Release validation | [Separate Zeroconf/local-push integration](https://github.com/Clinteastman/smart-grind-home-assistant), validated in Home Assistant 2026.8 against physical V2 hardware through the safe correlated-command gate; deliberate user-present motor acceptance remains |
 
 The [community roadmap](docs/COMMUNITY_ROADMAP.md) records the detailed delivery
 status, reviewed upstream work and contribution plan. The independently
