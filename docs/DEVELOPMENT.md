@@ -8,6 +8,32 @@ This guide is for developers who want to build the Smart Grind-by-Weight firmwar
 
 ## 🛠️ Development Setup
 
+### Canonical WSL2 environment
+
+The maintained development checkout is
+`/home/cmossom/src/smart-grind-by-weight` in the `Ubuntu-24.04` WSL2
+distribution. Keep the repository, PlatformIO working files and compiler object
+caches on WSL2's native ext4 filesystem. Do not build from OneDrive, `/mnt/c`,
+or a Windows checkout: Linux tools accessing Windows-mounted files pay a large
+per-file overhead, which is particularly costly for PlatformIO and LVGL.
+
+The measured clean dual-board build comparison on this project was about 26
+minutes 37 seconds from the Windows filesystem versus 75-80 seconds from native
+WSL2 storage. This is why the WSL2 path is the source of truth, not merely an
+optional optimization. This follows Microsoft's guidance to keep files in the
+WSL filesystem when Linux command-line tools do the work:
+[Working across file systems](https://learn.microsoft.com/en-us/windows/wsl/filesystems#file-storage-and-performance-across-file-systems).
+
+From PowerShell, open a WSL shell in the canonical checkout with:
+
+```powershell
+wsl.exe -d Ubuntu-24.04 --cd /home/cmossom/src/smart-grind-by-weight
+```
+
+Run firmware work inside that shell. The native Windows desktop simulator is
+the only build-tool exception; it still uses the same WSL checkout as its source
+of truth.
+
 ### Firmware prerequisites
 
 - **Python 3.8+** with pip
@@ -118,7 +144,7 @@ The platform dependency is automatically handled by PlatformIO via the `platform
 
 **Build production firmware:**
 ```bash
-python3 tools/grinder.py build
+tools/venv/bin/python3 tools/grinder.py build --hardware v1 --jobs 8
 # Equivalent: platformio run -e waveshare-esp32s3-touch-amoled-164
 ```
 
@@ -131,7 +157,7 @@ branches without mixing board-specific LVGL objects. Set
 
 **Build V2 production firmware:**
 ```bash
-python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-v2
+tools/venv/bin/python3 tools/grinder.py build --hardware v2 --jobs 8
 ```
 
 Archived local V1 builds are stored in `firmware_cache/`; incompatible V2

@@ -38,6 +38,7 @@ public:
     void update_grind_session(float final_weight, float error_grams, uint8_t pulse_count,
                               bool is_weight_mode, uint32_t motor_time_ms);
     void update_motor_test(uint32_t duration_ms);
+    void update_manual_grind(uint32_t duration_ms);
     void update_time_pulse();
     void update_uptime(uint32_t minutes_to_add);
 

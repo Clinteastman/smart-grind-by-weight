@@ -31,6 +31,7 @@ lv_obj_t* pulse_button = nullptr;
 bool chart_layout = false;
 bool grinding = false;
 bool settling = false;
+bool manual_grinding = false;
 float weight_g = 0.0f;
 float flow_gps = 0.0f;
 uint32_t grind_started_ms = 0;
@@ -114,6 +115,7 @@ void set_grind_button(const char* symbol, uint32_t color) {
 void show_ready() {
     grinding = false;
     settling = false;
+    manual_grinding = false;
     arc_screen.hide();
     chart_screen.hide();
     ready_screen.show();
@@ -133,10 +135,17 @@ void show_active_grind_screen() {
 }
 
 void reset_grind_views() {
-    arc_screen.update_profile_name("SINGLE");
-    chart_screen.update_profile_name("SINGLE");
-    arc_screen.update_target_weight(kTargetWeight);
-    chart_screen.update_target_weight(kTargetWeight);
+    const bool manual = lv_tabview_get_tab_act(ready_screen.get_tabview()) ==
+                        ReadyScreen::MANUAL_TAB_INDEX;
+    arc_screen.update_profile_name(manual ? "MANUAL" : "SINGLE");
+    chart_screen.update_profile_name(manual ? "MANUAL" : "SINGLE");
+    if (manual) {
+        arc_screen.update_target_weight_text("Elapsed: 0.0s");
+        chart_screen.update_target_weight_text("Elapsed: 0.0s");
+    } else {
+        arc_screen.update_target_weight(kTargetWeight);
+        chart_screen.update_target_weight(kTargetWeight);
+    }
     arc_screen.update_current_weight(0.0f);
     chart_screen.update_current_weight(0.0f);
     arc_screen.update_progress(0);
@@ -148,6 +157,8 @@ void start_grind() {
     flow_gps = 0.0f;
     grinding = true;
     settling = false;
+    manual_grinding = lv_tabview_get_tab_act(ready_screen.get_tabview()) ==
+                      ReadyScreen::MANUAL_TAB_INDEX;
     grind_started_ms = now_ms();
     last_update_ms = grind_started_ms;
     reset_grind_views();
@@ -177,6 +188,7 @@ void grind_button_event(lv_event_t*) {
     } else if (grinding || settling) {
         grinding = false;
         settling = false;
+        manual_grinding = false;
         set_grind_button(LV_SYMBOL_OK, THEME_COLOR_SUCCESS);
         set_status("STOPPED");
     } else {
@@ -227,7 +239,12 @@ void update_mock_grind() {
     if (grinding) {
         flow_gps = std::min(1.75f, 0.25f + elapsed_s * 0.55f);
         weight_g += flow_gps * dt_s;
-        if (weight_g >= kTargetWeight - 0.45f) {
+        if (manual_grinding) {
+            char elapsed_text[32];
+            std::snprintf(elapsed_text, sizeof(elapsed_text), "Elapsed: %.1fs", elapsed_s);
+            arc_screen.update_target_weight_text(elapsed_text);
+            chart_screen.update_target_weight_text(elapsed_text);
+        } else if (weight_g >= kTargetWeight - 0.45f) {
             grinding = false;
             settling = true;
             set_status("SETTLING");
@@ -243,7 +260,9 @@ void update_mock_grind() {
         }
     }
 
-    const int progress = std::clamp(static_cast<int>((weight_g / kTargetWeight) * 100.0f), 0, 100);
+    const int progress = manual_grinding
+                             ? 0
+                             : std::clamp(static_cast<int>((weight_g / kTargetWeight) * 100.0f), 0, 100);
     arc_screen.update_current_weight(weight_g);
     chart_screen.update_current_weight(weight_g);
     arc_screen.update_progress(progress);
@@ -265,6 +284,7 @@ int main(int argc, char** argv) {
     const bool smoke_test = has_arg(argc, argv, "--smoke");
     const bool benchmark = has_arg(argc, argv, "--benchmark");
     const bool swipe_benchmark = has_arg(argc, argv, "--swipe-benchmark");
+    const bool manual_smoke = has_arg(argc, argv, "--manual-smoke");
 
     if (smoke_test) {
         std::puts("[smoke] starting simulator");
@@ -287,7 +307,7 @@ int main(int argc, char** argv) {
     }
 
     simulator_window = lv_windows_get_display_window_handle(display);
-    if (smoke_test || benchmark || swipe_benchmark) {
+    if (smoke_test || benchmark || swipe_benchmark || manual_smoke) {
         ShowWindow(simulator_window, SW_HIDE);
     }
     lv_display_add_event_cb(display, display_metrics_event, LV_EVENT_ALL, nullptr);
@@ -322,6 +342,7 @@ int main(int argc, char** argv) {
     uint32_t swipe_started_ms = 0;
     bool view_key_down = false;
     bool tare_key_down = false;
+    bool manual_stop_sent = false;
 
     while (IsWindow(window)) {
         if (swipe_benchmark && !swipe_started && now_ms() - smoke_started_ms > 100) {
@@ -332,9 +353,19 @@ int main(int argc, char** argv) {
         }
 
         if ((smoke_test || benchmark) && !smoke_scenario_started && now_ms() - smoke_started_ms > 100) {
+            lv_tabview_set_act(ready_screen.get_tabview(), ReadyScreen::PROFILE_TAB_START_INDEX, LV_ANIM_OFF);
             start_grind();
             smoke_scenario_started = true;
             reset_render_metrics();
+        }
+
+        if (manual_smoke && !smoke_scenario_started && now_ms() - smoke_started_ms > 100) {
+            if (lv_tabview_get_tab_act(ready_screen.get_tabview()) != ReadyScreen::MANUAL_TAB_INDEX) {
+                std::fprintf(stderr, "Manual page is not the first ready tab.\n");
+                ExitProcess(5);
+            }
+            start_grind();
+            smoke_scenario_started = true;
         }
 
         update_mock_grind();
@@ -375,6 +406,26 @@ int main(int argc, char** argv) {
             }
             std::printf("[smoke] scenario advanced to %.2fg\n", weight_g);
             std::fflush(stdout);
+            ExitProcess(0);
+        }
+
+
+        if (manual_smoke && smoke_scenario_started && !manual_stop_sent &&
+            now_ms() - smoke_started_ms > 650) {
+            if (!manual_grinding || !arc_screen.is_visible() || weight_g <= 0.0f) {
+                std::fprintf(stderr, "Manual grind did not advance.\n");
+                ExitProcess(6);
+            }
+            grind_button_event(nullptr);
+            manual_stop_sent = true;
+        }
+
+        if (manual_smoke && manual_stop_sent && now_ms() - smoke_started_ms > 750) {
+            if (grinding || settling || manual_grinding) {
+                std::fprintf(stderr, "Manual grind did not stop.\n");
+                ExitProcess(7);
+            }
+            std::printf("[manual-smoke] start/stop completed at %.2fg\n", weight_g);
             ExitProcess(0);
         }
 

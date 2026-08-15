@@ -24,6 +24,7 @@ struct GrindEventData {
     const char* phase_display_text;
     bool show_taring_text;
     float flow_rate;              // For PROGRESS_UPDATED event
+    uint32_t elapsed_ms;           // Active motor time for manual display
     
     // Additional data for specific events
     float final_weight;           // For COMPLETED event

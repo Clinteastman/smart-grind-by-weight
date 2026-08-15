@@ -116,10 +116,12 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
 }
 
 void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
+    const char* mode_name = grind_mode == GrindMode::TIME ? "TIME" :
+                            grind_mode == GrindMode::MANUAL ? "MANUAL" : "WEIGHT";
     LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s\n",
-            millis(), target, (unsigned long)time_ms, grind_mode == GrindMode::TIME ? "TIME" : "WEIGHT");
+            millis(), target, (unsigned long)time_ms, mode_name);
 #ifndef SMART_GRIND_SIM
-    if (device_web_server.is_ota_active()) {
+    if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
         LOG_BLE("[CONTROLLER] Grind blocked while firmware update is active\n");
         return;
     }
@@ -257,7 +259,17 @@ void GrindController::return_to_idle() {
 void GrindController::stop_grind() {
     if (!grinder) return;
     
+    const uint32_t manual_runtime_ms =
+        (mode == GrindMode::MANUAL && time_grind_start_ms > 0)
+            ? millis() - time_grind_start_ms
+            : 0;
     grinder->stop();
+    if (manual_runtime_ms > 0) {
+        FlashOpRequest request = {};
+        request.operation_type = FlashOpRequest::UPDATE_MANUAL_RUNTIME;
+        request.motor_runtime_ms = manual_runtime_ms;
+        queue_flash_operation(request);
+    }
     
     // Cancelled grinds just discard PSRAM data and go to IDLE
     grind_logger.discard_current_session();
@@ -373,14 +385,20 @@ void GrindController::update() {
             // A boot-time tare normally finishes long before user input. If a
             // grind is requested unusually early, wait rather than starting a
             // time-mode session against an undefined zero reference.
-            if (weight_sensor && weight_sensor->is_tare_in_progress()) break;
+            if (mode != GrindMode::MANUAL && weight_sensor && weight_sensor->is_tare_in_progress()) break;
             float pre_tare_weight = weight_sensor ? weight_sensor->get_weight_low_latency() : 0.0f;
-            grind_logger.start_grind_session(session_descriptor, pre_tare_weight);
+            if (mode == GrindMode::MANUAL) {
+                if (!grinder->is_grinding()) grinder->start();
+                time_grind_start_ms = loop_data.now;
+                switch_phase(GrindPhase::MANUAL_GRINDING, loop_data);
+            } else {
+                grind_logger.start_grind_session(session_descriptor, pre_tare_weight);
+            }
             if (mode == GrindMode::TIME) {
                 if (!grinder->is_grinding()) grinder->start();
                 time_grind_start_ms = loop_data.now;
                 switch_phase(GrindPhase::TIME_GRINDING, loop_data);
-            } else {
+            } else if (mode == GrindMode::WEIGHT) {
                 switch_phase(GrindPhase::TARING, loop_data);
             }
             break;
@@ -484,6 +502,11 @@ void GrindController::update() {
             if (mode == GrindMode::TIME && active_strategy) {
                 active_strategy->update(session_descriptor, strategy_context, loop_data);
             }
+            break;
+
+        case GrindPhase::MANUAL_GRINDING:
+            // The user stops this phase explicitly; the safety timeout below
+            // remains active in case the UI is left unattended.
             break;
 
         case GrindPhase::PREDICTIVE:
@@ -618,13 +641,25 @@ void GrindController::update() {
     // Only check timeout during active grinding phases, not during completion states or user confirmation
     else if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT && phase != GrindPhase::PURGE_CONFIRM && check_timeout()) {
         timeout_phase = phase;
+        const uint32_t manual_runtime_ms =
+            (mode == GrindMode::MANUAL && time_grind_start_ms > 0)
+                ? loop_data.now - time_grind_start_ms
+                : 0;
         grinder->stop();
+        if (manual_runtime_ms > 0) {
+            FlashOpRequest request = {};
+            request.operation_type = FlashOpRequest::UPDATE_MANUAL_RUNTIME;
+            request.motor_runtime_ms = manual_runtime_ms;
+            queue_flash_operation(request);
+        }
         last_session_result_ = GrindSessionResult::TIMEOUT;
         
         queue_log_message("--- GRIND TIMEOUT in phase %s ---\n", get_phase_name(timeout_phase));
         char timeout_msg[32];
         const char* phase_name = get_phase_name(timeout_phase);
-        if (phase_name && phase_name[0]) {
+        if (mode == GrindMode::MANUAL) {
+            snprintf(timeout_msg, sizeof(timeout_msg), "30s safety limit");
+        } else if (phase_name && phase_name[0]) {
             char phase_short[5];
             strncpy(phase_short, phase_name, sizeof(phase_short) - 1);
             phase_short[sizeof(phase_short) - 1] = '\0';
@@ -762,6 +797,7 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
             case GrindPhase::PRIME:
             case GrindPhase::PREDICTIVE:
             case GrindPhase::TIME_GRINDING:
+            case GrindPhase::MANUAL_GRINDING:
                 event_in_progress.event_flags |= GRIND_EVENT_FLAG_MOTOR_ACTIVE;
                 break;
             case GrindPhase::PULSE_EXECUTE:
@@ -851,7 +887,10 @@ bool GrindController::check_timeout() const {
     unsigned long current_pause_ms = (grind_paused_ && pause_start_ms_ > 0)
                                    ? (millis() - pause_start_ms_) : 0;
     unsigned long active_time_ms = elapsed_ms - timeout_offset_ms - current_pause_ms;
-    return active_time_ms >= (GRIND_TIMEOUT_SEC * 1000);
+    const uint32_t timeout_sec = mode == GrindMode::MANUAL
+                                     ? MANUAL_GRIND_TIMEOUT_SEC
+                                     : GRIND_TIMEOUT_SEC;
+    return active_time_ms >= (timeout_sec * 1000);
 }
 
 bool GrindController::is_active() const {
@@ -859,6 +898,7 @@ bool GrindController::is_active() const {
 }
 
 int GrindController::get_progress_percent() const {
+    if (session_descriptor.mode == GrindMode::MANUAL) return 0;
     if (active_strategy && session_descriptor.mode == GrindMode::TIME) {
         return active_strategy->progress_percent(session_descriptor, *this);
     }
@@ -876,6 +916,11 @@ int GrindController::get_progress_percent() const {
 float GrindController::get_grind_time() const {
     if (phase == GrindPhase::IDLE || start_time == 0) return 0.0f;
     return (millis() - start_time) / (float)SYS_MS_PER_SECOND;
+}
+
+uint32_t GrindController::get_elapsed_grind_ms() const {
+    if (time_grind_start_ms == 0 || phase == GrindPhase::IDLE) return 0;
+    return millis() - time_grind_start_ms;
 }
 
 const char* GrindController::get_phase_name(GrindPhase p) const {
@@ -897,6 +942,7 @@ const char* GrindController::get_phase_name(GrindPhase p) const {
         case GrindPhase::PULSE_SETTLING: return "PULSE_SETTLING";
         case GrindPhase::FINAL_SETTLING: return "FINAL_SETTLING";
         case GrindPhase::TIME_GRINDING: return "TIME";
+        case GrindPhase::MANUAL_GRINDING: return "MANUAL";
         case GrindPhase::TIME_ADDITIONAL_PULSE: return "PULSE";
         case GrindPhase::COMPLETED: return "COMPLETED";
         case GrindPhase::TIMEOUT: return "TIMEOUT";
@@ -975,6 +1021,7 @@ void GrindController::emit_progress_update(const GrindLoopData& loop_data) {
     progress_event.phase_display_text = get_phase_name();
     progress_event.show_taring_text = show_taring_text();
     progress_event.flow_rate = loop_data.flow_rate;
+    progress_event.elapsed_ms = get_elapsed_grind_ms();
     emit_ui_event(progress_event);
 }
 
@@ -984,7 +1031,8 @@ void GrindController::emit_progress_update(const GrindLoopData& loop_data) {
 
 
 bool GrindController::should_log_measurements() const {
-    return SYS_CONTINUOUS_LOGGING_ENABLED
+    return session_descriptor.mode != GrindMode::MANUAL
+        && SYS_CONTINUOUS_LOGGING_ENABLED
         && phase != GrindPhase::INITIALIZING
         && phase != GrindPhase::SETUP
         && phase != GrindPhase::COMPLETED
@@ -1012,8 +1060,11 @@ void GrindController::queue_flash_operation(const FlashOpRequest& request) {
             // Queue full - this shouldn't happen with reasonable queue size
             LOG_BLE("WARNING: Flash operation queue full, dropping request type %d\n", (int)request.operation_type);
         } else {
-            const char* op_name = (request.operation_type == FlashOpRequest::END_GRIND_SESSION)
-                                   ? "END_GRIND_SESSION" : "START_GRIND_SESSION";
+            const char* op_name = request.operation_type == FlashOpRequest::END_GRIND_SESSION
+                                      ? "END_GRIND_SESSION"
+                                      : request.operation_type == FlashOpRequest::UPDATE_MANUAL_RUNTIME
+                                            ? "UPDATE_MANUAL_RUNTIME"
+                                            : "START_GRIND_SESSION";
             LOG_BLE("[%lums FLASH_OP] QUEUED %s operation for Core 1 processing\n", millis(), op_name);
         }
     }
@@ -1039,6 +1090,12 @@ void GrindController::process_queued_flash_operations() {
                 LOG_BLE("[%lums FLASH_OP] Processing END_GRIND_SESSION on Core 1: %s, %.2fg, %d pulses\n", 
                         millis(), request.result_string, request.final_weight, request.pulse_count);
                 grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count);
+                break;
+
+            case FlashOpRequest::UPDATE_MANUAL_RUNTIME:
+                statistics_manager.update_manual_grind(request.motor_runtime_ms);
+                LOG_BLE("[%lums FLASH_OP] Recorded manual motor runtime: %lums\n",
+                        millis(), static_cast<unsigned long>(request.motor_runtime_ms));
                 break;
                 
             default:

@@ -35,8 +35,13 @@ void ReadyUIController::handle_tab_change(int tab) {
     }
 
     ui_manager_->current_tab = tab;
-    if (ui_manager_->profile_controller && tab < ReadyScreen::PROFILE_TAB_COUNT) {
-        ui_manager_->profile_controller->set_current_profile(tab);
+    if (tab == ReadyScreen::MANUAL_TAB_INDEX) {
+        ui_manager_->current_mode = GrindMode::MANUAL;
+        ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
+    } else if (ui_manager_->profile_controller && ReadyScreen::is_profile_tab(tab)) {
+        ui_manager_->profile_controller->set_current_profile(ReadyScreen::profile_index_for_tab(tab));
+        ui_manager_->current_mode = ui_manager_->profile_controller->get_grind_mode();
+        ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
         refresh_profiles();
     }
 
@@ -51,7 +56,7 @@ void ReadyUIController::handle_profile_long_press() {
     }
 
     if (!ui_manager_->state_machine->is_state(UIState::READY) ||
-        ui_manager_->current_tab >= ReadyScreen::PROFILE_TAB_COUNT) {
+        !ReadyScreen::is_profile_tab(ui_manager_->current_tab)) {
         return;
     }
 
@@ -65,7 +70,7 @@ void ReadyUIController::handle_profile_long_press() {
 }
 
 void ReadyUIController::toggle_mode() {
-    if (!ui_manager_ || ui_manager_->current_tab >= ReadyScreen::PROFILE_TAB_COUNT) {
+    if (!ui_manager_ || !ReadyScreen::is_profile_tab(ui_manager_->current_tab)) {
         return;
     }
 

@@ -119,6 +119,15 @@ void StatisticsManager::update_motor_test(uint32_t duration_ms) {
     persist_locked(true);
 }
 
+void StatisticsManager::update_manual_grind(uint32_t duration_ms) {
+    if (!initialized_ || duration_ms == 0) return;
+
+    StatsLockGuard lock(g_stats_mutex);
+    add_motor_runtime_ms_locked(duration_ms);
+    mark_dirty_locked();
+    persist_locked(true);
+}
+
 void StatisticsManager::update_time_pulse() {
     if (!initialized_) return;
 

@@ -4,6 +4,15 @@ ESP32-S3 intelligent coffee scale with grind-by-weight functionality. Features p
 
 ## Essential Commands
 
+The canonical checkout is `/home/cmossom/src/smart-grind-by-weight` on the
+native WSL2 ext4 filesystem in `Ubuntu-24.04`. Do not build this project from a
+Windows checkout, OneDrive, `/mnt/c`, or another Windows-mounted path. From
+PowerShell, enter the canonical checkout with:
+
+```powershell
+wsl.exe -d Ubuntu-24.04 --cd /home/cmossom/src/smart-grind-by-weight
+```
+
 All development tasks use the unified cross-platform Python tool:
 
 ```bash
@@ -15,7 +24,8 @@ python3 tools/grinder.py analyze
 ```
 
 **Common Commands:**
-- `python3 tools/grinder.py build` - Build firmware only
+- `tools/venv/bin/python3 tools/grinder.py build --hardware v1 --jobs 8` - Build V1 firmware
+- `tools/venv/bin/python3 tools/grinder.py build --hardware v2 --jobs 8` - Build V2 firmware
 - `python3 tools/grinder.py upload` - Upload latest firmware via BLE
 - `python3 tools/grinder.py export` - Export grind data to database
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data
@@ -33,7 +43,7 @@ python3 tools/grinder.py analyze
 
 **Key Components:**
 - **HardwareManager**: Central hardware coordinator
-- **GrindController**: 9-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, and time mode additional pulses
+- **GrindController**: Multi-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, time mode additional pulses, and target-free manual grinding
 - **LoadCell (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
 - **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability), state persistence, hysteresis, priority-based warnings
 - **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses
@@ -42,10 +52,10 @@ python3 tools/grinder.py analyze
 **Update Intervals:** 20ms grind control, 25ms load cell (active), 50ms UI/hardware
 
 **Grind Phases:**
-- Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
+- Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, MANUAL_GRINDING, COMPLETED, TIMEOUT
 - `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
 - `PURGE_CONFIRM` - Pauses after chute operation (in Purge mode) to allow user to discard grinds before continuing to main grind
-- **Timeout**: 30-second maximum from grind start (includes taring), auto-stops and requires user acknowledgment
+- **Timeouts**: Targeted grinds stop after 60 seconds; target-free Manual mode has its own 30-second safety cutoff
 
 **Grinder Purge/Prime:**
 - **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection

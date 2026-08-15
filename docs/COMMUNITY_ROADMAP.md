@@ -11,9 +11,10 @@ the original project or its authorship.
 - Correct V2 display driver and external GPIO documentation
 - Desktop simulator with deterministic grind and UI performance tests
 - Faster display updates and more reliable short swipe gestures
+- Target-free on-device Manual grinding with a 30-second safety cutoff
 - Web flasher release artifacts for both board revisions
 - Local light/dark web app with live status, grinder settings, history and
-  screensaver management
+  screensaver management, plus selected-profile start/stop controls
 
 ## Priorities
 
@@ -34,7 +35,7 @@ the original project or its authorship.
      target, flow, grind phase and completed-session data.
    - Use the same protocol for the browser UI, simulator and integrations.
    - Keep all safety decisions in the firmware control loop; network clients
-     request actions but never drive the relay directly.
+     request selected-profile actions but never drive the relay directly.
    - Keep history bounded on-device and provide browser CSV/JSON/raw downloads;
      retain BLE/Python export as the longer-term archive until web parity has
      been proven across releases.

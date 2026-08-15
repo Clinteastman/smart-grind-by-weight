@@ -4,6 +4,33 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [1.5.1] - 2026-08-15
+
+### Manual grinding
+
+- Added a target-free Manual page before Single, Double and Custom for simple
+  one-tap start/stop operation.
+- Made Manual mode independent of the load cell: it does not tare, purge,
+  predict, pulse or create a weight-history session.
+- Added live elapsed time, motor-runtime accounting and an independent
+  30-second safety cutoff.
+
+### Web controls
+
+- Added a polished round play/stop control to the live web dashboard.
+- Replaced the placeholder SG badge with a coffee-bean SVG and matching browser
+  favicon.
+- Added remote start for the selected Single, Double or Custom profile through
+  the normal firmware grind controller, including idle-state and load-cell
+  checks; the web API never drives the relay directly.
+- Prevented repeated start/stop commands while the previous WebSocket command
+  is awaiting acknowledgement.
+
+### Development
+
+- Added deterministic simulator coverage for entering, running and stopping
+  Manual mode while retaining the existing grind and UI performance tests.
+
 ## [1.5.0] - 2026-08-14
 
 ### Hardware and installation
@@ -95,3 +122,4 @@ also includes separately authored review, hardware-support and integration
 fixes described above.
 
 [1.5.0]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.0
+[1.5.1]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.1

@@ -1,0 +1,31 @@
+# Agent working environment
+
+The canonical development checkout for this repository is:
+
+`/home/cmossom/src/smart-grind-by-weight`
+
+It lives on the native WSL2 ext4 filesystem in the `Ubuntu-24.04` distribution.
+Do not develop or build this project from a Windows checkout, OneDrive, `/mnt/c`,
+or another Windows-mounted path. If a task starts from Windows, run repository
+commands through WSL2 and change to the canonical path first.
+
+From PowerShell, use:
+
+```powershell
+wsl.exe -d Ubuntu-24.04 --cd /home/cmossom/src/smart-grind-by-weight
+```
+
+Firmware commands must use the project virtual environment:
+
+```bash
+tools/venv/bin/python3 tools/grinder.py build --hardware v1 --jobs 8
+tools/venv/bin/python3 tools/grinder.py build --hardware v2 --jobs 8
+```
+
+The V1 and V2 PlatformIO caches are deliberately separate. Do not override them
+with one shared cache. The Windows desktop simulator is the exception: it uses
+Windows build tools, but its source of truth remains this WSL checkout.
+
+Before changing code, read `CLAUDE.md` and the relevant complete source files.
+After changes, run the appropriate simulator tests, both firmware builds when
+shared code changed, `git diff --check`, and update user-facing documentation.

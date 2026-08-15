@@ -29,7 +29,7 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     edit_target = 0.0f;
     original_target = 0.0f;
     calibration_weight = USER_CALIBRATION_REFERENCE_WEIGHT_G;
-    current_tab = profile_controller->get_current_profile();
+    current_tab = ReadyScreen::tab_for_profile_index(profile_controller->get_current_profile());
     current_mode = profile_controller->get_grind_mode();
     jog_timer = nullptr;
     // Initialize the unified overlay system
@@ -140,7 +140,7 @@ void UIManager::update() {
     // Execute network commands on the UI/application task, never in the
     // asynchronous TCP callback that parsed them.
     if (device_api.process_commands()) {
-        current_tab = profile_controller->get_current_profile();
+        current_tab = ReadyScreen::tab_for_profile_index(profile_controller->get_current_profile());
         current_mode = profile_controller->get_grind_mode();
         edit_target = get_current_profile_target(*profile_controller, current_mode);
         refresh_auto_action_settings();
@@ -438,7 +438,7 @@ void UIManager::update_auto_actions() {
     const uint32_t now = millis();
     const bool grinder_active = (grind_controller && grind_controller->is_active());
     const bool on_ready_tab = state_machine->is_state(UIState::READY) &&
-                              current_tab < ReadyScreen::PROFILE_TAB_COUNT;
+                              ReadyScreen::is_profile_tab(current_tab);
 
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_) {
         auto* filter = sensor->get_raw_filter();

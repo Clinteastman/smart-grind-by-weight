@@ -201,7 +201,8 @@ void GrindingUIController::handle_grind_button() {
         }
         if (ui_manager_->current_tab == ReadyScreen::WIFI_TAB_INDEX) return;
 
-        if (ui_manager_->grind_controller && ui_manager_->profile_controller) {
+        const bool manual = ui_manager_->current_tab == ReadyScreen::MANUAL_TAB_INDEX;
+        if (!manual && ui_manager_->grind_controller && ui_manager_->profile_controller) {
             ui_manager_->grind_controller->set_grind_profile_id(ui_manager_->profile_controller->get_current_profile());
         }
 
@@ -210,7 +211,9 @@ void GrindingUIController::handle_grind_button() {
         error_grind_weight_ = 0.0f;
         error_grind_progress_ = 0;
 
-        if (ui_manager_->profile_controller && ui_manager_->grind_controller) {
+        if (manual && ui_manager_->grind_controller) {
+            ui_manager_->grind_controller->start_grind(0.0f, 0, GrindMode::MANUAL);
+        } else if (ui_manager_->profile_controller && ui_manager_->grind_controller) {
             float target_weight = ui_manager_->profile_controller->get_current_weight();
             float target_time_seconds = ui_manager_->profile_controller->get_current_time();
             uint32_t target_time_ms = static_cast<uint32_t>((target_time_seconds * 1000.0f) + 0.5f);
@@ -409,6 +412,10 @@ void GrindingUIController::update_grinding_targets() {
     }
 
     const auto& session = ui_manager_->grind_controller->get_session_descriptor();
+    if (session.mode == GrindMode::MANUAL) {
+        ui_manager_->grinding_screen.update_target_weight_text("Elapsed: 0.0s");
+        return;
+    }
     ui_manager_->grinding_screen.set_chart_time_prediction(session.target_time_ms);
     ui_manager_->grinding_screen.update_target_weight(session.target_weight);
     if (session.mode == GrindMode::TIME && session.target_time_ms > 0) {
@@ -449,7 +456,10 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 LOG_UI_DEBUG("[%lums UI_TRANSITION] Switching to GRINDING state due to phase: %s\n",
                              millis(), event_data.phase_display_text);
                 WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
-                ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
+                ui_manager_->grinding_screen.update_profile_name(
+                    event_data.mode == GrindMode::MANUAL
+                        ? "MANUAL"
+                        : ui_manager_->profile_controller->get_current_name());
                 ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
                 chart_updates_enabled_ = true;
                 update_grinding_targets();
@@ -502,6 +512,12 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
                 ui_manager_->grinding_screen.update_current_weight(event_data.current_weight);
                 ui_manager_->grinding_screen.update_progress(event_data.progress_percent);
+                if (event_data.mode == GrindMode::MANUAL) {
+                    char elapsed_text[32];
+                    std::snprintf(elapsed_text, sizeof(elapsed_text), "Elapsed: %.1fs",
+                                  static_cast<double>(event_data.elapsed_ms) / 1000.0);
+                    ui_manager_->grinding_screen.update_target_weight_text(elapsed_text);
+                }
 
                 if (chart_updates_enabled_ &&
                     event_data.phase != GrindPhase::IDLE && event_data.phase != GrindPhase::TARING &&
@@ -631,7 +647,10 @@ void GrindingUIController::enter_edit_state() {
 void GrindingUIController::enter_grinding_state() {
     WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
     ui_manager_->grinding_screen.reset_chart_data();
-    ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
+    ui_manager_->grinding_screen.update_profile_name(
+        ui_manager_->current_mode == GrindMode::MANUAL
+            ? "MANUAL"
+            : ui_manager_->profile_controller->get_current_name());
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     chart_updates_enabled_ = true;
     update_grinding_targets();

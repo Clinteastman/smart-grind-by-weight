@@ -122,6 +122,20 @@ live trace with the full-resolution recorded weight and flow history. The
 resulting history graph matched the retained session data and required no page
 reload or manual dismissal before review.
 
+The v1.5.1 Manual-grind candidate then passed all four deterministic simulator
+tests, including its dedicated Manual start/advance/stop scenario. Clean native
+WSL2 builds produced the following reviewed application images:
+
+| Target | Full image | Build verification |
+| --- | --- | --- |
+| V1 | 2,494,832 bytes; SHA-256 `91ee6b07a72bb6e9620e37f77d8e88fd6c1a71a83bcb93c60609487ad4e0496e` | 79.3% application flash and 23.3% RAM; 25.05-second cached build after final web artwork |
+| V2 | 2,468,592 bytes; SHA-256 `c13cdb005ecfdb37cc5c292dc93c821d82ae010877eafda6f600616c67f180fa` | 78.5% application flash and 23.3% RAM; 21.98-second cached build after final web artwork |
+
+These pre-publication images verify both hardware configurations compile from
+the same source. Release automation must still build and publish fresh assets
+from the reviewed commit, and the exact V2 candidate must pass installed-grinder
+acceptance before the stable release is announced.
+
 ## Readiness gate
 
 - The consolidated V1 and V2 builds and simulator suite must pass first.

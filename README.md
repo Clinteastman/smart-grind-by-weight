@@ -15,7 +15,7 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build guide](docs/DOC.md)** ·
-**[What's new in v1.5](CHANGELOG.md#150---2026-08-14)** ·
+**[What's new in v1.5.1](CHANGELOG.md#151---2026-08-15)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 <table>
@@ -40,6 +40,8 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   ±0.03 g.
 - **Three editable profiles** for Single, Double and Custom doses, synchronized
   between the touchscreen and browser.
+- **Target-free Manual mode** with one-tap start/stop, elapsed time, motor-only
+  lifetime accounting and an independent 30-second safety cutoff.
 - **Grind-by-time mode** for the original timed workflow, including pause and
   resume and operation without a load cell.
 - **Responsive AMOLED interface** with chart and arc views, faster partial
@@ -49,7 +51,8 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
 - **Built-in screensavers** plus custom RGB565 image upload, configurable
   brightness, startup display and idle timeout.
 - **Local Wi-Fi web app** with light/dark themes, live weight and flow, saved
-  dose selection, settings, grind history, analytics and data downloads.
+  dose selection, round start/stop control, settings, grind history, analytics
+  and data downloads.
 - **Wi-Fi setup on the device** with network scanning, a secured captive portal,
   QR access, Improv Serial provisioning and `smartgrind.local` discovery.
 - **Firmware updates over Wi-Fi or Bluetooth**, with V1/V2 image selection,
@@ -58,18 +61,19 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
 - **V1 and V2 Waveshare support**, reproducible CI builds, a public web flasher
   and a deterministic Windows desktop simulator for development.
 
-The web API deliberately does not expose remote motor start. Network clients
-can select profiles, follow a grind, stop an active grind and manage settings;
-the firmware control loop remains responsible for relay safety.
+Network clients request a selected-profile start or stop through the same grind
+controller used by the touchscreen; they never drive the relay directly. The
+firmware remains responsible for load-cell checks, state transitions and motor
+safety.
 
 ## Web interface
 
 The responsive web interface is served directly by the grinder at
 `http://smartgrind.local`; no cloud account or separate application is needed.
-Choose a saved dose, follow the current grind, review its full recorded trace,
-change grinder/display settings and install firmware from a browser on the same
-network. If mDNS is unavailable, use the IP address shown on the grinder's
-Wi-Fi screen.
+Choose a saved dose, start or stop it with the round grind control, follow the
+current grind, review its full recorded trace, change grinder/display settings
+and install firmware from a browser on the same network. If mDNS is unavailable,
+use the IP address shown on the grinder's Wi-Fi screen.
 
 <table>
 <tr>
@@ -119,6 +123,11 @@ for longer-term archives and recovery workflows.
 
 The original timed mode remains available, and the documented Eureka
 installation can be reversed without permanently modifying the grinder body.
+
+For an uncomplicated target-free run, swipe to **Manual**, the first main-screen
+page, and tap **START**. Tap **STOP** when enough coffee has been ground. Manual
+mode does not require or tare the load cell and stops automatically after 30
+seconds.
 
 ## How grinding works
 

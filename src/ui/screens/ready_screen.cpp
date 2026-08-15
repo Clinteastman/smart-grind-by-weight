@@ -72,12 +72,15 @@ void ReadyScreen::create() {
     // Transparent background
     lv_obj_set_style_bg_opa(tabview, LV_OPA_TRANSP, 0);
 
-    // Add profile tabs
+    // Add manual and profile tabs
+    manual_tab = lv_tabview_add_tab(tabview, "Manual");
     profile_tabs[0] = lv_tabview_add_tab(tabview, "Single");
     profile_tabs[1] = lv_tabview_add_tab(tabview, "Double");
     profile_tabs[2] = lv_tabview_add_tab(tabview, "Custom");
     wifi_tab = lv_tabview_add_tab(tabview, "WI-FI");
     menu_tab = lv_tabview_add_tab(tabview, "MENU");
+
+    create_manual_page(manual_tab);
 
     // Default weights
     float default_weights[3] = {USER_SINGLE_ESPRESSO_WEIGHT_G, USER_DOUBLE_ESPRESSO_WEIGHT_G, USER_CUSTOM_PROFILE_WEIGHT_G};
@@ -95,6 +98,24 @@ void ReadyScreen::create() {
     update_profile_values(default_weights, GrindMode::WEIGHT);
 
     visible = false;
+}
+
+void ReadyScreen::create_manual_page(lv_obj_t* parent) {
+    lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(parent, 8, 0);
+
+    lv_obj_t* title = lv_label_create(parent);
+    lv_label_set_text(title, "MANUAL");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+
+    lv_obj_t* detail = lv_label_create(parent);
+    lv_label_set_text(detail, "START / STOP\n30s safety limit");
+    lv_obj_set_style_text_font(detail, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(detail, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 void ReadyScreen::create_wifi_page(lv_obj_t* parent) {
