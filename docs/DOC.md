@@ -326,13 +326,18 @@ Access via **Menu → Diagnostics → Noise Floor**.
 
 **Manual** is the first page in the main-screen carousel. Tap **START** to run
 the grinder without a weight or time target, then tap **STOP** when the desired
-amount has been ground. The screen shows live elapsed motor time.
+amount has been ground. When a healthy load cell is fitted, the page shows a
+large live weight and a large **TARE** button. Put the empty cup in place and
+tap **TARE** if you want to weigh the result; taring is never automatic in
+Manual mode. During grinding, the screen shows live weight and elapsed motor
+time.
 
-Manual mode works without a load cell and deliberately skips taring, purging,
-predictive stopping, finishing pulses and grind-history recording. It still
-adds the real motor run time to lifetime statistics and stops automatically
-after 30 seconds. Use Single, Double or Custom when you want a repeatable target
-and a recorded result.
+Manual start/stop works without a load cell; the scale readout and TARE button
+simply report that the scale is unavailable. Manual mode deliberately skips
+automatic taring, purging, predictive stopping, finishing pulses and
+grind-history recording. It still adds the real motor run time to lifetime
+statistics and stops automatically after 30 seconds. Use Single, Double or
+Custom when you want a repeatable target and a recorded result.
 
 ### Grinding Profiles
 All profiles are fully customizable. Default grind-by-weight targets (fallback time values shown in parenthesis):

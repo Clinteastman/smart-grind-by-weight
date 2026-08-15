@@ -10,10 +10,12 @@ line. Earlier release history remains available in the original project's
 
 - Added a target-free Manual page before Single, Double and Custom for simple
   one-tap start/stop operation.
-- Made Manual mode independent of the load cell: it does not tare, purge,
-  predict, pulse or create a weight-history session.
-- Added live elapsed time, motor-runtime accounting and an independent
-  30-second safety cutoff.
+- Made Manual mode independent of the load cell: it does not automatically
+  tare, purge, predict, pulse or create a weight-history session.
+- Added a large optional live-weight display and user-triggered TARE control;
+  both degrade clearly when no working scale is fitted.
+- Added larger Manual-page text, live elapsed time, motor-runtime accounting
+  and an independent 30-second safety cutoff.
 
 ### Web controls
 

@@ -12,6 +12,7 @@ public:
     enum class EventType {
         TAB_CHANGE,
         PROFILE_LONG_PRESS,
+        MANUAL_TARE,
         GRIND_BUTTON,
         PULSE_BUTTON,
         EDIT_SAVE,

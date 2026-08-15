@@ -40,8 +40,9 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   ±0.03 g.
 - **Three editable profiles** for Single, Double and Custom doses, synchronized
   between the touchscreen and browser.
-- **Target-free Manual mode** with one-tap start/stop, elapsed time, motor-only
-  lifetime accounting and an independent 30-second safety cutoff.
+- **Target-free Manual mode** with one-tap start/stop, large optional live
+  weight and TARE controls, elapsed time, motor-only lifetime accounting and an
+  independent 30-second safety cutoff.
 - **Grind-by-time mode** for the original timed workflow, including pause and
   resume and operation without a load cell.
 - **Responsive AMOLED interface** with chart and arc views, faster partial
@@ -125,9 +126,10 @@ The original timed mode remains available, and the documented Eureka
 installation can be reversed without permanently modifying the grinder body.
 
 For an uncomplicated target-free run, swipe to **Manual**, the first main-screen
-page, and tap **START**. Tap **STOP** when enough coffee has been ground. Manual
-mode does not require or tare the load cell and stops automatically after 30
-seconds.
+page. If a scale is fitted, place the empty cup on it and tap **TARE**, then tap
+**START**. Tap **STOP** when enough coffee has been ground. The large live weight
+remains available before and after grinding. Manual mode never requires or
+automatically tares the load cell and stops automatically after 30 seconds.
 
 ## How grinding works
 

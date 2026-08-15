@@ -15,9 +15,11 @@ public:
     void refresh_profiles();
     void handle_tab_change(int tab);
     void handle_profile_long_press();
+    void handle_manual_tare();
     void toggle_mode();
 
 private:
     UIManager* ui_manager_;
     uint32_t last_network_update_ms_ = 0;
+    uint32_t last_manual_scale_update_ms_ = 0;
 };

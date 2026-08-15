@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
+#include "../event_bridge_lvgl.h"
 #ifndef SMART_GRIND_SIM
 #include "../../network/network_manager.h"
 #include "../../network/provisioning_service.h"
@@ -104,18 +105,60 @@ void ReadyScreen::create_manual_page(lv_obj_t* parent) {
     lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(parent, 8, 0);
+    lv_obj_set_style_pad_all(parent, 4, 0);
+    lv_obj_set_style_pad_gap(parent, 7, 0);
+    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* title = lv_label_create(parent);
     lv_label_set_text(title, "MANUAL");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_36, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
 
-    lv_obj_t* detail = lv_label_create(parent);
-    lv_label_set_text(detail, "START / STOP\n30s safety limit");
-    lv_obj_set_style_text_font(detail, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(detail, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
-    lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, 0);
+    manual_weight_label = lv_label_create(parent);
+    lv_label_set_text(manual_weight_label, "0.0g");
+    lv_obj_set_width(manual_weight_label, LV_PCT(100));
+    lv_obj_set_style_text_font(manual_weight_label, &lv_font_montserrat_56, 0);
+    lv_obj_set_style_text_color(manual_weight_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_align(manual_weight_label, LV_TEXT_ALIGN_CENTER, 0);
+
+    manual_scale_status_label = lv_label_create(parent);
+    lv_label_set_text(manual_scale_status_label, "LIVE WEIGHT");
+    lv_obj_set_style_text_font(manual_scale_status_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(manual_scale_status_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_align(manual_scale_status_label, LV_TEXT_ALIGN_CENTER, 0);
+
+    manual_tare_button = create_button(parent, "TARE", lv_color_hex(THEME_COLOR_PRIMARY),
+                                       230, 68, &lv_font_montserrat_28);
+
+    lv_obj_t* safety_label = lv_label_create(parent);
+    lv_label_set_text(safety_label, "30 SECOND LIMIT");
+    lv_obj_set_style_text_font(safety_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(safety_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_align(safety_label, LV_TEXT_ALIGN_CENTER, 0);
+}
+
+void ReadyScreen::update_manual_scale(float weight, bool available, bool taring) {
+    if (!manual_weight_label || !manual_scale_status_label || !manual_tare_button) return;
+
+    if (!available) {
+        lv_label_set_text(manual_weight_label, "--");
+        lv_label_set_text(manual_scale_status_label, "SCALE UNAVAILABLE");
+        lv_obj_add_state(manual_tare_button, LV_STATE_DISABLED);
+        return;
+    }
+
+    if (taring) {
+        lv_label_set_text(manual_weight_label, "TARING");
+        lv_label_set_text(manual_scale_status_label, "KEEP SCALE CLEAR");
+        lv_obj_add_state(manual_tare_button, LV_STATE_DISABLED);
+        return;
+    }
+
+    char weight_text[16];
+    snprintf(weight_text, sizeof(weight_text), SYS_WEIGHT_DISPLAY_FORMAT, weight);
+    lv_label_set_text(manual_weight_label, weight_text);
+    lv_label_set_text(manual_scale_status_label, "LIVE WEIGHT");
+    lv_obj_clear_state(manual_tare_button, LV_STATE_DISABLED);
 }
 
 void ReadyScreen::create_wifi_page(lv_obj_t* parent) {
@@ -279,5 +322,13 @@ void ReadyScreen::set_profile_long_press_handler(lv_event_cb_t handler) {
         if (weight_labels[i]) {
             lv_obj_add_event_cb(weight_labels[i], handler, LV_EVENT_LONG_PRESSED, NULL);
         }
+    }
+}
+
+void ReadyScreen::set_manual_tare_handler(lv_event_cb_t handler) {
+    if (manual_tare_button && handler) {
+        lv_obj_add_event_cb(manual_tare_button, handler, LV_EVENT_CLICKED,
+                            reinterpret_cast<void*>(static_cast<intptr_t>(
+                                EventBridgeLVGL::EventType::MANUAL_TARE)));
     }
 }

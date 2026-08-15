@@ -46,6 +46,8 @@ the original project or its authorship.
    - Treat MQTT as optional compatibility support, not the primary Home
      Assistant architecture.
 5. **Additional reviewed features**
+   - Design and validate an explicit motor-only first-run path for installations
+     with no load cell, without weakening calibration checks for weight mode.
    - Revisit update security after the update workflow is stable: assess web
      authentication, BLE access control and signed firmware without making
      routine domestic updates cumbersome.
