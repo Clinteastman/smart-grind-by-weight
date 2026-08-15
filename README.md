@@ -15,14 +15,15 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build guide](docs/DOC.md)** ·
-**[What's new in v1.5.1](CHANGELOG.md#151---2026-08-15)** ·
+**[What's new in v1.5.2](CHANGELOG.md#152---2026-08-15)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
-> **v1.5.1** adds target-free Manual grinding with live weight and TARE,
-> polished browser start/stop controls, and one-click V1/V2 firmware updates
-> from GitHub. Read the [v1.5.1 changelog](CHANGELOG.md#151---2026-08-15) or
-> install it from the [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
+> **v1.5.2** includes the target-free Manual grinding and polished browser
+> controls introduced in v1.5.1, and fixes one-click V1/V2 firmware downloads
+> from GitHub on the grinder. Read the
+> [v1.5.2 changelog](CHANGELOG.md#152---2026-08-15) or install it from the
+> [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
 
 <table>
 <tr>

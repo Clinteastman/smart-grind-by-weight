@@ -11,7 +11,7 @@
 #endif
 
 // Build information - BUILD_FIRMWARE_VERSION is automatically updated by release scripts
-#define BUILD_FIRMWARE_VERSION "1.5.1"                                          // Firmware version string (updated by release automation)
+#define BUILD_FIRMWARE_VERSION "1.5.2"                                          // Firmware version string (updated by release automation)
 // BUILD_NUMBER is now defined in git_info.h as an auto-incrementing integer
 #define BUILD_DATE __DATE__                                                // Compiler-provided build date
 #define BUILD_TIME __TIME__                                                // Compiler-provided build time

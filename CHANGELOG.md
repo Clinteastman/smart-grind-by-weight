@@ -4,6 +4,21 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [1.5.2] - 2026-08-15
+
+### Firmware updates
+
+- Fixed one-click updates failing before the download began on
+  memory-constrained devices. The grinder now fetches the exact
+  hardware-specific release image from the project's GitHub Pages release
+  mirror instead of following GitHub's asset redirect.
+- Added explicit HTTPS connection, handshake and transfer settings, plus
+  detailed TLS, clock and free-memory diagnostics for failed update
+  connections.
+- Verified the complete update path on V2 hardware: the grinder downloaded the
+  published 2,664,000-byte V2 v1.5.1 image, validated it, flashed the inactive
+  OTA partition, rebooted and rejoined Wi-Fi with its settings intact.
+
 ## [1.5.1] - 2026-08-15
 
 ### Manual grinding
@@ -129,3 +144,4 @@ fixes described above.
 
 [1.5.0]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.0
 [1.5.1]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.1
+[1.5.2]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.2
