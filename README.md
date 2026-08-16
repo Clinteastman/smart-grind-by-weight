@@ -67,6 +67,9 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   display updates and reliable short-swipe gestures.
 - **Adjustable coast compensation** from 70% to 150%, stored on the grinder;
   the neutral 100% default preserves the original behaviour.
+- **Automatic or manual motor-latency tuning** with a guarded 30–300 ms manual
+  fallback on both the touchscreen and web interface when Pulse Tune cannot
+  complete reliably.
 - **Configurable automatic-start threshold** for cup or portafilter detection,
   editable from the touchscreen or web interface with the original 50 g
   behaviour retained by default.
@@ -176,7 +179,10 @@ The controller learns flow and motor latency during each grind, predicts when
 to stop before the requested weight, then evaluates the settled dose. Short,
 bounded pulses finish an under-target dose without requiring a pre-trained bean
 or grind-size profile. Coast compensation lets experienced users scale the
-latency estimate while leaving the neutral default unchanged.
+latency estimate while leaving the neutral default unchanged. **Menu → Tune
+Pulses** remains the recommended way to measure minimum pulse latency; the same
+stored value can be adjusted manually under **Grind Settings** when automatic
+tuning is unavailable.
 
 ## Community development status
 

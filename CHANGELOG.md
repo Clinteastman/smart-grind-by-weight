@@ -4,6 +4,15 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [Unreleased]
+
+### Grinding and settings
+
+- Added a validated 30–300 ms manual motor-latency control to the touchscreen
+  and web settings as a fallback when automatic Pulse Tune cannot complete.
+  Values are stored on the grinder in 5 ms steps; Pulse Tune remains the
+  recommended method and continues to update the same setting.
+
 ## [1.5.4] - 2026-08-16
 
 ### Grinding and settings

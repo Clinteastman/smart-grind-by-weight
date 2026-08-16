@@ -50,6 +50,9 @@ Access **Menu → Grind Settings** to configure:
 - **Time Mode**: Directly toggle between Weight and Time modes regardless of swipe setting
 - **Start on Cup**: Start the active profile automatically when the scale gains the configured cup threshold (50 g by default) after a short post-boot warmup
 - **Return on Removal**: Leave the completion screen as soon as that cup weight drops back off the scale
+- **Motor Latency** *(Advanced)*: View or manually adjust the minimum reliable
+  motor pulse from 30–300 ms in 5 ms steps. Use **Menu → Tune Pulses** first;
+  this manual control is a fallback when automatic tuning cannot complete.
 - **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding
   - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
   - **Purge mode** (default): Prompts you to discard stale grinds before continuing
@@ -137,7 +140,9 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |       |-- Start on Cup toggle and configurable cup threshold
     |       |-- Return on Removal toggle (drop back to Ready when that weight leaves)
     |       |-- Purging (Prime/Purge radio buttons)
-    |       \-- Amount slider (0.1g-5.0g for purge/prime operation)
+    |       |-- Amount slider (0.1g-5.0g for purge/prime operation)
+    |       |-- Motor latency slider (30-300ms manual Pulse Tune fallback)
+    |       \-- Coast compensation slider
     |
     \-- Info
         +-- Diagnostics

@@ -60,6 +60,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED, [this](lv_event_t*) { handle_grind_freshness_hours_slider_released(); });
     EventBridgeLVGL::register_handler(ET::COAST_RATIO_SLIDER, [this](lv_event_t*) { handle_coast_ratio_slider(); });
     EventBridgeLVGL::register_handler(ET::COAST_RATIO_SLIDER_RELEASED, [this](lv_event_t*) { handle_coast_ratio_slider_released(); });
+    EventBridgeLVGL::register_handler(ET::MOTOR_LATENCY_SLIDER, [this](lv_event_t*) { handle_motor_latency_slider(); });
+    EventBridgeLVGL::register_handler(ET::MOTOR_LATENCY_SLIDER_RELEASED, [this](lv_event_t*) { handle_motor_latency_slider_released(); });
 
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
@@ -581,6 +583,36 @@ void MenuUIController::handle_coast_ratio_slider_released() {
     LOG_DEBUG_PRINTLN(ratio);
 
     ui_manager_->menu_screen.update_coast_ratio_label(ratio);
+}
+
+void MenuUIController::handle_motor_latency_slider() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_motor_latency_slider();
+    if (!slider) return;
+    ui_manager_->menu_screen.update_motor_latency_label(
+        static_cast<float>(lv_slider_get_value(slider)));
+}
+
+void MenuUIController::handle_motor_latency_slider_released() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_motor_latency_slider();
+    if (!slider) return;
+
+    int latency_ms = lv_slider_get_value(slider);
+    latency_ms = ((latency_ms + MenuScreen::kMotorLatencySliderStepMs / 2) /
+                  MenuScreen::kMotorLatencySliderStepMs) *
+                 MenuScreen::kMotorLatencySliderStepMs;
+    latency_ms = std::clamp(latency_ms,
+                            static_cast<int>(GRIND_AUTOTUNE_LATENCY_MIN_MS),
+                            static_cast<int>(GRIND_AUTOTUNE_LATENCY_MAX_MS));
+    lv_slider_set_value(slider, latency_ms, LV_ANIM_OFF);
+
+    auto* grind_controller = ui_manager_->get_grind_controller();
+    if (grind_controller) {
+        grind_controller->save_motor_latency(static_cast<float>(latency_ms));
+    }
+    ui_manager_->menu_screen.update_motor_latency_label(static_cast<float>(latency_ms));
+    LOG_DEBUG_PRINTF("Motor response latency manually set to: %dms\n", latency_ms);
 }
 
 void MenuUIController::handle_brightness_normal_slider() {
