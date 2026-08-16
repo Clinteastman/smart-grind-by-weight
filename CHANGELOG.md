@@ -4,6 +4,38 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [1.5.4] - 2026-08-16
+
+### Grinding and settings
+
+- Added a configurable cup/portafilter threshold for automatic profile starts,
+  available on both the touchscreen and web settings page. The existing 50 g
+  behaviour remains the default.
+- Fixed purge amounts not surviving a restart because the former ESP32 NVS key
+  exceeded the platform's 15-character limit.
+- Fixed uninitialised touch state during startup and added clear HX711 ADC-rail
+  diagnostics for damaged, miswired or heavily preloaded load-cell inputs.
+- Refused Bluetooth firmware-update starts while the controller or motor is
+  active, matching the existing Wi-Fi update safety boundary.
+
+### Display and integrations
+
+- Added an optional GaggiMate screensaver that reads the existing local
+  GaggiMate WebSocket feed and shows readiness/profile while idle or elapsed
+  time, phase, pressure, flow and temperature during a shot. It is read-only,
+  uses HTTP only as a fallback and requires no GaggiMate firmware changes.
+- Made browser and Home Assistant live connections tolerate short periods of
+  backpressure or Wi-Fi interruption instead of briefly making every entity
+  unavailable. A sustained outage still becomes unavailable normally.
+
+### Validation
+
+- Built V1 and V2 firmware from the native WSL filesystem and passed all four
+  desktop simulator tests, including render, swipe and Manual-mode coverage.
+- Flashed the combined V2 release candidate over Wi-Fi, confirmed a clean
+  restart and diagnostic log, and exercised the new settings live without
+  operating the motor.
+
 ## [1.5.3] - 2026-08-16
 
 ### Firmware updates
