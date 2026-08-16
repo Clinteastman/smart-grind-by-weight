@@ -25,7 +25,7 @@ motor off before the target, then uses controlled pulses to finish the dose.
 > credited, and retained commits preserve their authorship.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
-**[Build guide](docs/DOC.md)** ·
+**[Build & installation guide](docs/DOC.md#start-here)** ·
 **[What's new in v1.5.3](CHANGELOG.md#153---2026-08-16)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
@@ -141,8 +141,8 @@ for longer-term archives and recovery workflows.
    in Chrome or Edge on desktop/Android and explicitly select V1 or V2. USB
    recovery instructions and command-line alternatives are in the
    [development guide](docs/DEVELOPMENT.md).
-5. **Wire, assemble and calibrate.** Follow the full
-   [assembly and usage guide](docs/DOC.md) and the
+5. **Wire, assemble and calibrate.** Follow the ordered
+   [build and installation checklist](docs/DOC.md#start-here) and the
    [Eureka build video](https://youtu.be/-kfKjiwJsGM). On the verified V2
    installation, HX711 SCK is GPIO1 and the motor relay is GPIO16; GPIO18 is
    reserved by the touch controller.

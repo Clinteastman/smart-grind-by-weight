@@ -8,6 +8,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
 
 - [Smart Grind-by-Weight Documentation](#smart-grind-by-weight-documentation)
   - [📋 Table of Contents](#-table-of-contents)
+  - [Start here](#start-here)
   - [🛠️ Parts List](#️-parts-list)
     - [3D Printed Parts](#3d-printed-parts)
     - [Fusion 360 Source Files](#fusion-360-source-files)
@@ -45,6 +46,56 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
     - [Grinding Algorithm](#grinding-algorithm)
   - [❓ Frequently Asked Questions](#-frequently-asked-questions)
   - [🔧 Troubleshooting](#-troubleshooting)
+
+---
+
+## Start here
+
+This page contains the complete reference, but a normal first installation is
+only seven stages. Work through these links in order instead of reading the
+whole document before starting.
+
+> [!CAUTION]
+> This modification involves a mains-powered appliance. Disconnect the grinder
+> from mains before opening it, preserve protective earth and insulation, and
+> ask a qualified person to handle mains wiring if you are not competent to do
+> so. The first controller and scale test should use USB power only, with the
+> grinder's motor-control lead disconnected and insulated.
+
+1. **Confirm compatibility.** Check the
+   [grinder compatibility matrix](GRINDER_COMPATIBILITY.md), then collect the
+   [parts](#️-parts-list) and appropriate
+   [3D-printed mounts](3D_PRINTS.md).
+2. **Identify the display generation.** Do this before wiring or flashing. The
+   PCB may say `Rev1.1` even when it needs V2 firmware. Use the
+   [V1/V2 identification guide](TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2)
+   rather than relying on the printed revision alone.
+3. **Flash and test the controller on the bench.** Use the
+   [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/)
+   in Chrome or Edge and explicitly choose **Original CO5300 (V1)** or
+   **Newer SH8601 (V2)**. Confirm that the display and touch work while the
+   board is still powered only by USB.
+4. **Wire the low-voltage components.** Follow the
+   [pin configuration](#pin-configuration). V1 and V2 use different HX711 SCK
+   and motor-control GPIOs; wire colours on the grinder harness are not a
+   reliable guide.
+5. **Test the scale before connecting the grinder.** With USB power only,
+   confirm that the HX711 is detected and produces changing readings. This
+   isolates controller, amplifier and load-cell problems from the appliance
+   wiring.
+6. **Install in the grinder.** Disconnect all power, follow the
+   [installation steps](#installation-steps) and the
+   [assembly video](#-assembly-video), then recheck every connection before
+   applying power.
+7. **Calibrate and verify.** Complete
+   [initial calibration](#️-initial-calibration), perform a safe manual test,
+   then configure Single, Double and Custom profiles. If anything behaves
+   unexpectedly, stop and use the [troubleshooting guide](TROUBLESHOOTING.md).
+
+Already assembled? Use the [firmware installation](#-firmware-installation),
+[usage guide](#-usage-guide) or [diagnostics](#-diagnostic-report) sections
+directly. Building or modifying the source is covered separately in the
+[development guide](DEVELOPMENT.md).
 
 ---
 ## 🛠️ Parts List
@@ -267,11 +318,17 @@ Before flashing, verify that the selected image matches the display generation. 
 *Initial USB flashing powered by [ESP Web Tools](https://esphome.github.io/esp-web-tools/)*
 
 ### Command Line (Fallback)
-```bash
-# First time (USB) - if web flasher unavailable
-python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 
-# Updates (BLE) - Enable device Bluetooth first  
+The `upload` command uses Bluetooth and therefore cannot install firmware on a
+new or unresponsive controller. For a first-time USB installation when the web
+flasher is unavailable, follow
+[Initial USB Flashing](DEVELOPMENT.md#initial-usb-flashing) to build and upload
+the matching V1 or V2 target with PlatformIO.
+
+For an existing Smart Grind installation, enable Bluetooth on the grinder and
+upload a matching release image with:
+
+```bash
 python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 ```
 
