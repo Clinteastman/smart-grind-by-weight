@@ -1,6 +1,12 @@
 # Smart Grind-by-Weight
 
-[![Latest release](https://img.shields.io/github/v/release/Clinteastman/smart-grind-by-weight?display_name=tag)](https://github.com/Clinteastman/smart-grind-by-weight/releases/latest) [![Firmware](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/firmware.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/firmware.yml) [![Desktop simulator](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/simulator.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/simulator.yml) [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/Clinteastman/smart-grind-by-weight?display_name=tag&logo=github)](https://github.com/Clinteastman/smart-grind-by-weight/releases/latest)
+[![Firmware](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/firmware.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/firmware.yml)
+[![Desktop simulator](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/simulator.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/simulator.yml)
+[![Web flasher](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/deploy-web-flasher.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/deploy-web-flasher.yml)
+[![Downloads](https://img.shields.io/github/downloads/Clinteastman/smart-grind-by-weight/total?logo=github&label=downloads)](https://github.com/Clinteastman/smart-grind-by-weight/releases)
+[![Hardware](https://img.shields.io/badge/hardware-Waveshare%20V1%20%7C%20V2-6f42c1)](docs/GRINDER_COMPATIBILITY.md)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 Turn a compatible coffee grinder into a precise, touch-controlled
 grind-by-weight system using a Waveshare ESP32-S3 AMOLED board and load cell.
@@ -15,14 +21,14 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build guide](docs/DOC.md)** ·
-**[What's new in v1.5.2](CHANGELOG.md#152---2026-08-15)** ·
+**[What's new in v1.5.3](CHANGELOG.md#153---2026-08-16)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
-> **v1.5.2** includes the target-free Manual grinding and polished browser
-> controls introduced in v1.5.1, and fixes one-click V1/V2 firmware downloads
-> from GitHub on the grinder. Read the
-> [v1.5.2 changelog](CHANGELOG.md#152---2026-08-15) or install it from the
+> **v1.5.3** adds native Home Assistant control and automatic on-device update
+> checks, while retaining the Manual grinding, polished browser controls and
+> reliable V1/V2 updates from v1.5.2. Read the
+> [v1.5.3 changelog](CHANGELOG.md#153---2026-08-16) or install it from the
 > [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
 
 <table>
