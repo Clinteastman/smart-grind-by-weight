@@ -83,6 +83,8 @@ private:
     lv_obj_t* grind_freshness_hours_label;
     lv_obj_t* coast_ratio_slider;
     lv_obj_t* coast_ratio_label;
+    lv_obj_t* motor_latency_slider;
+    lv_obj_t* motor_latency_label;
 
     // Tools entries / scale page elements
     lv_obj_t* scale_item;
@@ -116,6 +118,8 @@ public:
     static constexpr float kPurgeSliderScale = 10.0f; // Slider uses 0.1g increments
     static constexpr float kCoastRatioSliderScale = 20.0f; // Slider uses 0.05 increments
     static constexpr float kAutoStartThresholdSliderScale = 1.0f / USER_AUTO_GRIND_TRIGGER_STEP_G;
+    static constexpr int kMotorLatencySliderStepMs =
+        static_cast<int>(GRIND_MOTOR_LATENCY_MANUAL_STEP_MS);
 
     void create(BluetoothManager* bluetooth, GrindController* grind_ctrl, GrindingScreen* grind_screen, class HardwareManager* hw_mgr, DiagnosticsController* diag_ctrl);
     void show();
@@ -134,6 +138,7 @@ public:
     void update_grinder_purge_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
     void update_coast_ratio_label(float ratio);
+    void update_motor_latency_label(float latency_ms);
     void reset_scale_display();
     void update_scale_weight(float weight);
 
@@ -164,6 +169,7 @@ public:
     lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
     lv_obj_t* get_coast_ratio_slider() const { return coast_ratio_slider; }
+    lv_obj_t* get_motor_latency_slider() const { return motor_latency_slider; }
     lv_obj_t* get_screensaver_startup_toggle() const { return screensaver_startup_toggle; }
     lv_obj_t* get_screensaver_sleep_toggle() const { return screensaver_sleep_toggle; }
     void update_screensaver_toggles();

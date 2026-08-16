@@ -474,6 +474,9 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
     settings.purge_amount_g = value("purge_amount_g").toFloat();
     settings.freshness_hours = value("freshness_hours").toFloat();
     settings.coast_ratio = value("coast_ratio").toFloat();
+    settings.motor_latency_ms = request->hasParam("motor_latency_ms", true)
+                                    ? value("motor_latency_ms").toFloat()
+                                    : grind_controller_->get_motor_response_latency();
     settings.logging_enabled = form_bool(value("logging_enabled"));
     settings.swipe_enabled = form_bool(value("swipe_enabled"));
     settings.brightness_percent = value("brightness_percent").toInt();
@@ -505,6 +508,12 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
                  settings.freshness_hours <= 48.0f && std::isfinite(settings.coast_ratio) &&
                  settings.coast_ratio >= GRIND_LATENCY_TO_COAST_RATIO_MIN &&
                  settings.coast_ratio <= GRIND_LATENCY_TO_COAST_RATIO_MAX &&
+                 std::isfinite(settings.motor_latency_ms) &&
+                 settings.motor_latency_ms >= GRIND_AUTOTUNE_LATENCY_MIN_MS &&
+                 settings.motor_latency_ms <= GRIND_AUTOTUNE_LATENCY_MAX_MS &&
+                 std::fabs(settings.motor_latency_ms / GRIND_MOTOR_LATENCY_MANUAL_STEP_MS -
+                           std::round(settings.motor_latency_ms /
+                                      GRIND_MOTOR_LATENCY_MANUAL_STEP_MS)) < 0.001f &&
                  settings.brightness_percent >= HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT &&
                  settings.brightness_percent <= 100 &&
                  settings.screensaver_brightness_percent >= HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT &&
@@ -558,6 +567,7 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& settings) {
     grinder->putFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, settings.purge_amount_g);
     grinder->putFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, settings.freshness_hours);
     grind_controller_->save_coast_ratio(settings.coast_ratio);
+    grind_controller_->save_motor_latency(settings.motor_latency_ms);
 
     auto put_bool = [](const char* name_space, const char* key, bool value) {
         Preferences preferences;
@@ -656,7 +666,8 @@ void DeviceApi::refresh_settings_cache() {
              "{\"id\":2,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f}],"
              "\"automatic\":{\"start\":%s,\"threshold_g\":%.1f,\"return\":%s},"
              "\"purge\":{\"mode\":%d,\"amount_g\":%.2f,\"freshness_hours\":%.2f},"
-             "\"coast_ratio\":%.2f,\"logging_enabled\":%s,\"swipe_enabled\":%s,"
+             "\"coast_ratio\":%.2f,\"motor_latency_ms\":%.0f,"
+             "\"logging_enabled\":%s,\"swipe_enabled\":%s,"
              "\"display\":{\"brightness\":%d,\"screensaver_brightness\":%d,"
              "\"screensaver_startup\":%s,\"screensaver_sleep\":%s,"
              "\"screensaver_idle_timeout_s\":%u,\"screensaver_startup_timeout_s\":%u,"
@@ -673,6 +684,7 @@ void DeviceApi::refresh_settings_cache() {
                         USER_AUTO_GRIND_TRIGGER_MIN_G, USER_AUTO_GRIND_TRIGGER_MAX_G),
              read_bool("autogrind", "auto_return", false) ? "true" : "false",
              purge_mode, purge_amount, freshness, grind_controller_->get_coast_ratio(),
+             grind_controller_->get_motor_response_latency(),
              read_bool("logging", "enabled", true) ? "true" : "false",
              read_bool("swipe", "enabled", false) ? "true" : "false",
              static_cast<int>(read_brightness("normal", USER_SCREEN_BRIGHTNESS_NORMAL) * 100.0f + 0.5f),

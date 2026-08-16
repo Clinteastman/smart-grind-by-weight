@@ -104,6 +104,13 @@ After flashing firmware, calibrate the load cell for accurate measurements:
 
 The auto-tune feature models your grinder's motor response behavior by measuring the physical lag between relay activation and grounds production. This accounts for hardware variations like voltage differences (110V vs 220V), relay types (solid-state vs mechanical), and burr inertia across different grinder models. The default 50ms value works well for most setups, but if you experience unreliable pulse corrections or want to minimize coffee waste through hardware-specific optimization, run auto-tune via **Menu → Tune Pulses** (Tools section). The 1-2 minute calibration process finds the minimum reliable pulse duration for your specific hardware and saves it automatically.
 
+If Pulse Tune repeatedly cannot finish, open **Menu → Grind Settings → Motor
+Response** and set the latency manually between 30 ms and 300 ms. The web
+settings page exposes the same stored value. Changes use 5 ms steps and take
+effect immediately; rerunning Pulse Tune later replaces the manual value with
+the measured result. Start conservatively and change only one step at a time,
+because a value that is too short can make finishing pulses unreliable.
+
 ### Diagnostics System
 
 The system includes comprehensive load cell health monitoring accessible via **Menu → Diagnostics**. A warning icon (⚠) appears in the top-right corner when diagnostics are active - tap it to navigate directly to the diagnostics page.
@@ -114,7 +121,8 @@ The system includes comprehensive load cell health monitoring accessible via **M
 3. **Mechanical Instability** - Detects sudden weight drops during grinding (3+ events); auto-resets on next grind or via manual reset
 
 **Displayed Values:**
-- **Motor Latency** - Current motor response latency in milliseconds (default: 50ms, or calibrated value from auto-tune)
+- **Motor Latency** - Current motor response latency in milliseconds (default:
+  50ms, measured by Pulse Tune or set manually in Grind Settings)
 - **Calibration Factor** - Load cell calibration factor from Menu → Calibrate (Tools section)
 
 **Noise Floor Diagnostics:**

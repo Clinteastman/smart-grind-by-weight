@@ -66,6 +66,8 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     grind_freshness_hours_label = nullptr;
     coast_ratio_slider = nullptr;
     coast_ratio_label = nullptr;
+    motor_latency_slider = nullptr;
+    motor_latency_label = nullptr;
     auto_start_threshold_slider = nullptr;
     auto_start_threshold_label = nullptr;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
@@ -625,6 +627,16 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_slider_row(parent, "Freshness", &grind_freshness_hours_label, &grind_freshness_hours_slider,
                      lv_color_hex(THEME_COLOR_ACCENT), 0, 8);  // 9 positions (0-8)
 
+    // Motor response section
+    create_separator(parent, "Motor Response");
+    create_description_label(parent, "Minimum run time before grounds begin to flow. Pulse Tune updates this automatically.");
+
+    create_slider_row(parent, "Motor latency", &motor_latency_label, &motor_latency_slider,
+                      lv_color_hex(THEME_COLOR_ACCENT),
+                      static_cast<uint32_t>(GRIND_AUTOTUNE_LATENCY_MIN_MS),
+                      static_cast<uint32_t>(GRIND_AUTOTUNE_LATENCY_MAX_MS));
+    create_description_label(parent, "Adjust manually only when Pulse Tune cannot complete reliably.");
+
     // Coast Compensation section
     create_separator(parent, "Coast Compensation");
     create_description_label(parent, "How much coast the system expects after motor stop. Higher values reduce overshoot.");
@@ -672,6 +684,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::COAST_RATIO_SLIDER)));
         lv_obj_add_event_cb(coast_ratio_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::COAST_RATIO_SLIDER_RELEASED)));
+    }
+    if (motor_latency_slider) {
+        lv_obj_add_event_cb(motor_latency_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::MOTOR_LATENCY_SLIDER)));
+        lv_obj_add_event_cb(motor_latency_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::MOTOR_LATENCY_SLIDER_RELEASED)));
     }
 }
 
@@ -1158,6 +1176,16 @@ void MenuScreen::update_coast_ratio_label(float ratio) {
     }
 }
 
+void MenuScreen::update_motor_latency_label(float latency_ms) {
+    if (!motor_latency_label) return;
+    const float clamped = std::clamp(latency_ms,
+                                     GRIND_AUTOTUNE_LATENCY_MIN_MS,
+                                     GRIND_AUTOTUNE_LATENCY_MAX_MS);
+    char buffer[28];
+    snprintf(buffer, sizeof(buffer), "Motor latency: %.0fms", clamped);
+    lv_label_set_text(motor_latency_label, buffer);
+}
+
 void MenuScreen::update_auto_start_threshold_label(float threshold_g) {
     if (!auto_start_threshold_label) return;
     const float clamped = std::clamp(threshold_g,
@@ -1525,4 +1553,14 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     update_coast_ratio_label(coast_ratio);
+
+    float motor_latency_ms = GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS;
+    if (grind_controller) {
+        motor_latency_ms = grind_controller->get_motor_response_latency();
+    }
+    if (motor_latency_slider) {
+        const int slider_value = static_cast<int>(motor_latency_ms + 0.5f);
+        lv_slider_set_value(motor_latency_slider, slider_value, LV_ANIM_OFF);
+    }
+    update_motor_latency_label(motor_latency_ms);
 }
