@@ -48,7 +48,7 @@ All profiles are fully customizable. Default grind-by-weight targets (fallback t
 Access **Menu → Grind Settings** to configure:
 - **Swipe Gestures**: Enable/disable vertical swipe gestures for mode switching (default: disabled)
 - **Time Mode**: Directly toggle between Weight and Time modes regardless of swipe setting
-- **Start on Cup**: Start the active profile automatically when the scale gains ≈50 g within ~2 s (after a short post-boot warmup)
+- **Start on Cup**: Start the active profile automatically when the scale gains the configured cup threshold (50 g by default) after a short post-boot warmup
 - **Return on Removal**: Leave the completion screen as soon as that cup weight drops back off the scale
 - **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding
   - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
@@ -67,7 +67,7 @@ These steps describe the default grind-by-weight workflow:
 5. The system grinds to the precise target weight using the predictive algorithm
 6. GRIND COMPLETE shows the final settled weight in grams (with statistics)
 
-> Optional automation (Menu → Grind Settings): enable the new auto-start toggle to begin grinding as soon as the scale sees ~50 g arrive (no tare needed); the system waits for the load cell to gather enough quiet samples before arming itself, then auto-return jumps back to Ready whenever that cup is lifted off again.
+> Optional automation (Menu → Grind Settings): enable auto-start and set the cup threshold below the empty cup or portafilter weight. The system waits for the load cell to gather enough quiet samples before arming itself, then auto-return jumps back to Ready whenever that cup is lifted off again.
 
 Need the stock timed run? Enable swipe gestures in **Menu → Grind Settings**, then swipe up or down on the ready screen before you start; the GRIND button background turns blue to confirm time mode is active (red = weight). Alternatively, use the direct **Time Mode** toggle in the menu.
 
@@ -134,7 +134,7 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   \-- Grind Settings
     |       |-- Swipe Gestures toggle (enable/disable vertical swipes)
     |       |-- Time Mode toggle (direct weight/time mode selection)
-    |       |-- Start on Cup toggle (start when ≈50 g arrives within ~2 s)
+    |       |-- Start on Cup toggle and configurable cup threshold
     |       |-- Return on Removal toggle (drop back to Ready when that weight leaves)
     |       |-- Purging (Prime/Purge radio buttons)
     |       \-- Amount slider (0.1g-5.0g for purge/prime operation)
@@ -181,7 +181,7 @@ During Grinding:
 
 Want the scale to run itself? Enable the automation toggles in **Menu → Grind Settings**:
 
-- **Start on Cup**: As soon as a recognized cup or portafilter lands on the load cell (≈50 g delta inside a 2 s window), the active profile tars and begins grinding automatically. Ideal when dosing cups dock directly under the chute.
+- **Start on Cup**: As soon as a cup or portafilter adds at least the configured threshold, the active profile tares and begins grinding automatically. The default is 50 g; set it safely below the empty accessory weight but above incidental touches or vibration.
 - **Return on Removal**: When the cup weight drops away after completion, the grinder exits the results screen and returns to Ready. Useful for keeping the workflow hands-free between shots.
 
 Both automation settings rely on the same smoothed weight deltas used for flow detection, so no extra calibration is required. Leave them disabled if you prefer manual control or experience false triggers with lighter accessories.

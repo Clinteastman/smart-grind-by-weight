@@ -17,6 +17,7 @@ struct DeviceSettingsUpdate {
     float profile_weights[3]{};
     float profile_times[3]{};
     bool auto_start = false;
+    float auto_start_threshold_g = 50.0f;
     bool auto_return = false;
     int purge_mode = 1;
     float purge_amount_g = 1.0f;

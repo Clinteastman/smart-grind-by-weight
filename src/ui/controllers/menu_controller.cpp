@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <Preferences.h>
+#include <algorithm>
 #include <esp_err.h>
 #include <esp_system.h>
 #include <nvs_flash.h>
@@ -49,6 +50,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
     EventBridgeLVGL::register_handler(ET::AUTO_START_TOGGLE, [this](lv_event_t*) { handle_auto_start_toggle(); });
+    EventBridgeLVGL::register_handler(ET::AUTO_START_THRESHOLD_SLIDER, [this](lv_event_t*) { handle_auto_start_threshold_slider(); });
+    EventBridgeLVGL::register_handler(ET::AUTO_START_THRESHOLD_SLIDER_RELEASED, [this](lv_event_t*) { handle_auto_start_threshold_slider_released(); });
     EventBridgeLVGL::register_handler(ET::AUTO_RETURN_TOGGLE, [this](lv_event_t*) { handle_auto_return_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grinder_purge_mode_radio_button(); });
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_AMOUNT_SLIDER, [this](lv_event_t*) { handle_grinder_purge_amount_slider(); });
@@ -380,6 +383,35 @@ void MenuUIController::handle_auto_start_toggle() {
     }
 
     LOG_DEBUG_PRINTLN(enabled ? "Auto-start on cup enabled" : "Auto-start on cup disabled");
+}
+
+void MenuUIController::handle_auto_start_threshold_slider() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_auto_start_threshold_slider();
+    if (!slider) return;
+    const float threshold_g = lv_slider_get_value(slider) / MenuScreen::kAutoStartThresholdSliderScale;
+    ui_manager_->menu_screen.update_auto_start_threshold_label(threshold_g);
+}
+
+void MenuUIController::handle_auto_start_threshold_slider_released() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_auto_start_threshold_slider();
+    if (!slider) return;
+
+    float threshold_g = lv_slider_get_value(slider) / MenuScreen::kAutoStartThresholdSliderScale;
+    threshold_g = std::clamp(threshold_g,
+                             USER_AUTO_GRIND_TRIGGER_MIN_G,
+                             USER_AUTO_GRIND_TRIGGER_MAX_G);
+    Preferences prefs;
+    if (prefs.begin("autogrind", false)) {
+        prefs.putFloat("start_delta_g", threshold_g);
+        prefs.end();
+    }
+    ui_manager_->refresh_auto_action_settings();
+    ui_manager_->menu_screen.update_auto_start_threshold_label(threshold_g);
+    LOG_DEBUG_PRINT("Auto-start cup threshold set to: ");
+    LOG_DEBUG_PRINT(threshold_g);
+    LOG_DEBUG_PRINTLN("g");
 }
 
 void MenuUIController::handle_auto_return_toggle() {

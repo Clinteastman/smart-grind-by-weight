@@ -66,6 +66,8 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     grind_freshness_hours_label = nullptr;
     coast_ratio_slider = nullptr;
     coast_ratio_label = nullptr;
+    auto_start_threshold_slider = nullptr;
+    auto_start_threshold_label = nullptr;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 
     // Create menu UI immediately at boot for instant access
@@ -583,6 +585,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_separator(parent, "Automation");
     create_description_label(parent, "Start the selected profile as soon as the cup lands on the scale.");
     create_toggle_row(parent, "Start", &auto_start_toggle);
+    const uint32_t auto_start_min = static_cast<uint32_t>(USER_AUTO_GRIND_TRIGGER_MIN_G * kAutoStartThresholdSliderScale + 0.5f);
+    const uint32_t auto_start_max = static_cast<uint32_t>(USER_AUTO_GRIND_TRIGGER_MAX_G * kAutoStartThresholdSliderScale + 0.5f);
+    create_slider_row(parent, "Cup threshold", &auto_start_threshold_label,
+                      &auto_start_threshold_slider, lv_color_hex(THEME_COLOR_ACCENT),
+                      auto_start_min, auto_start_max);
+    create_description_label(parent, "Use a value below the empty cup or portafilter weight to prevent accidental starts.");
     create_description_label(parent, "Exit the completion screen once that cup weight drops away.");
     create_toggle_row(parent, "Return", &auto_return_toggle);
 
@@ -636,6 +644,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     if (auto_start_toggle) {
         lv_obj_add_event_cb(auto_start_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::AUTO_START_TOGGLE)));
+    }
+    if (auto_start_threshold_slider) {
+        lv_obj_add_event_cb(auto_start_threshold_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::AUTO_START_THRESHOLD_SLIDER)));
+        lv_obj_add_event_cb(auto_start_threshold_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::AUTO_START_THRESHOLD_SLIDER_RELEASED)));
     }
     if (auto_return_toggle) {
         lv_obj_add_event_cb(auto_return_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
@@ -1144,6 +1158,16 @@ void MenuScreen::update_coast_ratio_label(float ratio) {
     }
 }
 
+void MenuScreen::update_auto_start_threshold_label(float threshold_g) {
+    if (!auto_start_threshold_label) return;
+    const float clamped = std::clamp(threshold_g,
+                                     USER_AUTO_GRIND_TRIGGER_MIN_G,
+                                     USER_AUTO_GRIND_TRIGGER_MAX_G);
+    char buffer[28];
+    snprintf(buffer, sizeof(buffer), "Cup threshold: %.0fg", clamped);
+    lv_label_set_text(auto_start_threshold_label, buffer);
+}
+
 void MenuScreen::update_screensaver_toggles() {
     bool image_exists = LittleFS.exists(BLE_IMAGE_FILENAME);
 
@@ -1414,7 +1438,11 @@ void MenuScreen::update_grind_mode_toggles() {
     auto_prefs.begin("autogrind", true);
     bool auto_start_enabled = auto_prefs.getBool("auto_start", false);
     bool auto_return_enabled = auto_prefs.getBool("auto_return", false);
+    float auto_start_threshold_g = auto_prefs.getFloat("start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G);
     auto_prefs.end();
+    auto_start_threshold_g = std::clamp(auto_start_threshold_g,
+                                        USER_AUTO_GRIND_TRIGGER_MIN_G,
+                                        USER_AUTO_GRIND_TRIGGER_MAX_G);
 
     if (auto_start_toggle) {
         if (auto_start_enabled) {
@@ -1431,6 +1459,12 @@ void MenuScreen::update_grind_mode_toggles() {
             lv_obj_clear_state(auto_return_toggle, LV_STATE_CHECKED);
         }
     }
+
+    if (auto_start_threshold_slider) {
+        const int slider_value = static_cast<int>(auto_start_threshold_g * kAutoStartThresholdSliderScale + 0.5f);
+        lv_slider_set_value(auto_start_threshold_slider, slider_value, LV_ANIM_OFF);
+    }
+    update_auto_start_threshold_label(auto_start_threshold_g);
 
     // Update grinder purge mode radio group selection
     if (grinder_purge_mode_radio_group) {

@@ -1,5 +1,6 @@
 #include "device_api.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cctype>
 #include <cstring>
@@ -458,6 +459,16 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
         settings.profile_times[i] = value((String("time") + i).c_str()).toFloat();
     }
     settings.auto_start = form_bool(value("auto_start"));
+    if (request->hasParam("auto_start_threshold_g", true)) {
+        settings.auto_start_threshold_g = value("auto_start_threshold_g").toFloat();
+    } else {
+        Preferences auto_preferences;
+        if (auto_preferences.begin("autogrind", true)) {
+            settings.auto_start_threshold_g = auto_preferences.getFloat(
+                "start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G);
+            auto_preferences.end();
+        }
+    }
     settings.auto_return = form_bool(value("auto_return"));
     settings.purge_mode = value("purge_mode").toInt();
     settings.purge_amount_g = value("purge_amount_g").toFloat();
@@ -483,6 +494,9 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
 
     bool valid = settings.current_profile >= 0 && settings.current_profile < USER_PROFILE_COUNT &&
                  settings.grind_mode >= 0 && settings.grind_mode <= 1 &&
+                 std::isfinite(settings.auto_start_threshold_g) &&
+                 settings.auto_start_threshold_g >= USER_AUTO_GRIND_TRIGGER_MIN_G &&
+                 settings.auto_start_threshold_g <= USER_AUTO_GRIND_TRIGGER_MAX_G &&
                  settings.purge_mode >= 0 && settings.purge_mode <= 1 &&
                  std::isfinite(settings.purge_amount_g) &&
                  settings.purge_amount_g >= GRIND_PURGE_AMOUNT_MIN_G &&
@@ -553,6 +567,11 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& settings) {
     };
     put_bool("autogrind", "auto_start", settings.auto_start);
     put_bool("autogrind", "auto_return", settings.auto_return);
+    Preferences auto_preferences;
+    if (auto_preferences.begin("autogrind", false)) {
+        auto_preferences.putFloat("start_delta_g", settings.auto_start_threshold_g);
+        auto_preferences.end();
+    }
     put_bool("logging", "enabled", settings.logging_enabled);
     put_bool("swipe", "enabled", settings.swipe_enabled);
     put_bool("screensaver", "startup", settings.screensaver_startup);
@@ -608,6 +627,13 @@ void DeviceApi::refresh_settings_cache() {
         preferences.end();
         return value;
     };
+    auto read_float = [](const char* name_space, const char* key, float fallback) {
+        Preferences preferences;
+        if (!preferences.begin(name_space, true)) return fallback;
+        const float value = preferences.getFloat(key, fallback);
+        preferences.end();
+        return value;
+    };
     Preferences* grinder = hardware_->get_preferences();
     const int purge_mode = grinder->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
     const float purge_amount = grinder->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
@@ -628,7 +654,7 @@ void DeviceApi::refresh_settings_cache() {
              "{\"id\":0,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f},"
              "{\"id\":1,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f},"
              "{\"id\":2,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f}],"
-             "\"automatic\":{\"start\":%s,\"return\":%s},"
+             "\"automatic\":{\"start\":%s,\"threshold_g\":%.1f,\"return\":%s},"
              "\"purge\":{\"mode\":%d,\"amount_g\":%.2f,\"freshness_hours\":%.2f},"
              "\"coast_ratio\":%.2f,\"logging_enabled\":%s,\"swipe_enabled\":%s,"
              "\"display\":{\"brightness\":%d,\"screensaver_brightness\":%d,"
@@ -643,6 +669,8 @@ void DeviceApi::refresh_settings_cache() {
              profile_controller_->get_profile_name(1), profile_controller_->get_profile_weight(1), profile_controller_->get_profile_time(1),
              profile_controller_->get_profile_name(2), profile_controller_->get_profile_weight(2), profile_controller_->get_profile_time(2),
              read_bool("autogrind", "auto_start", false) ? "true" : "false",
+             std::clamp(read_float("autogrind", "start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G),
+                        USER_AUTO_GRIND_TRIGGER_MIN_G, USER_AUTO_GRIND_TRIGGER_MAX_G),
              read_bool("autogrind", "auto_return", false) ? "true" : "false",
              purge_mode, purge_amount, freshness, grind_controller_->get_coast_ratio(),
              read_bool("logging", "enabled", true) ? "true" : "false",
