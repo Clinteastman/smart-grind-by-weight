@@ -249,7 +249,11 @@ public:
     uint32_t get_elapsed_grind_ms() const;
     static constexpr const char* PREF_KEY_PRIME_ENABLED = "prime_enabled";
     static constexpr const char* PREF_KEY_GRINDER_MODE = "grinder_mode";
-    static constexpr const char* PREF_KEY_GRINDER_AMOUNT_G = "grinder_amount_g";
+    // ESP32 NVS keys are limited to 15 characters. The previous
+    // "grinder_amount_g" key was 16 characters, so Preferences::putFloat()
+    // rejected every purge-amount save.
+    static constexpr const char* PREF_KEY_GRINDER_AMOUNT_G = "purge_amount_g";
+    static_assert(sizeof("purge_amount_g") - 1 <= 15, "NVS preference key is too long");
     static constexpr const char* PREF_KEY_GRIND_FRESHNESS_HOURS = "freshness_hrs";
     static constexpr const char* PREF_KEY_COAST_RATIO = "coast_ratio";
     static constexpr const char* PREF_KEY_LAST_GRIND_RUNTIME = "last_grind_ms";
