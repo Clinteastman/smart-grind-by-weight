@@ -29,3 +29,21 @@ Windows build tools, but its source of truth remains this WSL checkout.
 Before changing code, read `CLAUDE.md` and the relevant complete source files.
 After changes, run the appropriate simulator tests, both firmware builds when
 shared code changed, `git diff --check`, and update user-facing documentation.
+
+## Completion protocol
+
+Before ending a coding session or reporting that a task is finished:
+
+1. Re-read the user's current request and the active task plan.
+2. Reconcile every agreed item as completed, deliberately deferred with a
+   reason, or blocked by a specific external dependency.
+3. Check every relevant worktree and branch for uncommitted or unpushed work,
+   and check any open PRs or CI runs that are part of the task.
+4. Run the required formatting, tests, V1/V2 builds, documentation checks, and
+   hardware or OTA validation appropriate to the changed scope.
+5. Report the complete outcome and list anything that remains. Never treat an
+   answered side question, an interruption, a successful compile, or one
+   completed subtask as completion of the wider task.
+
+If work is interrupted by a user question, answer it and then resume the active
+plan unless the user explicitly replaces or cancels that plan.
