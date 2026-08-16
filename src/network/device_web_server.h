@@ -14,6 +14,14 @@ enum class OtaPreparationState : uint8_t {
     READY,
 };
 
+enum class FirmwareUpdateState : uint8_t {
+    UNKNOWN,
+    CHECKING,
+    CURRENT,
+    AVAILABLE,
+    FAILED,
+};
+
 class DeviceWebServer {
 public:
     void init(HardwareManager* hardware_manager, GrindController* grind_controller,
@@ -26,6 +34,12 @@ public:
         return ota_preparation_state_.load() == OtaPreparationState::REQUESTED;
     }
     uint8_t ota_progress_percent() const;
+    FirmwareUpdateState firmware_update_state() const { return firmware_update_state_.load(); }
+    bool firmware_update_available() const {
+        return firmware_update_state_.load() == FirmwareUpdateState::AVAILABLE;
+    }
+    String latest_release_tag() const;
+    bool install_available_update();
     AsyncWebServer& server() { return server_; }
 
 private:
@@ -40,6 +54,13 @@ private:
     std::atomic<uint32_t> reboot_at_ms_{0};
     std::atomic<size_t> ota_received_{0};
     std::atomic<size_t> ota_total_{0};
+    std::atomic<FirmwareUpdateState> firmware_update_state_{FirmwareUpdateState::UNKNOWN};
+    std::atomic<bool> firmware_update_check_active_{false};
+    std::atomic<bool> on_device_update_pending_{false};
+    std::atomic<uint16_t> latest_version_major_{0};
+    std::atomic<uint16_t> latest_version_minor_{0};
+    std::atomic<uint16_t> latest_version_patch_{0};
+    std::atomic<uint32_t> last_firmware_update_check_ms_{0};
     HardwareManager* hardware_manager_ = nullptr;
     GrindController* grind_controller_ = nullptr;
     BluetoothManager* bluetooth_manager_ = nullptr;
@@ -50,6 +71,8 @@ private:
     bool start_github_ota(const String& tag);
     static void github_ota_task(void* parameter);
     void perform_github_ota(const String& tag);
+    static void firmware_update_check_task(void* parameter);
+    void perform_firmware_update_check();
     void request_ota_preparation();
     void recover_from_ota_failure();
     void finish_ota(bool success);

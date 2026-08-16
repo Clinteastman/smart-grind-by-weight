@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Populate firmware assets from releases
         env:
@@ -80,11 +80,11 @@ jobs:
                   version = tag.lstrip('v')
                   base = f"smart-grind-by-weight-{tag}"
                   variants = (
-                      ("Original CO5300 (V1 firmware)", base),
-                      ("Newer SH8601 (V2 firmware; may say Rev1.1)", f"{base}-waveshare-164-v2"),
+                      ("v1", "Original CO5300 (V1 firmware)", base),
+                      ("v2", "Newer SH8601 (V2 firmware; may say Rev1.1)", f"{base}-waveshare-164-v2"),
                   )
 
-                  for board, artifact_base in variants:
+                  for variant, board, artifact_base in variants:
                       manifest_rel = f"firmware/{tag}/{artifact_base}.manifest.json"
                       ota_rel = f"firmware/{tag}/{artifact_base}-web-ota.bin"
                       manifest_abs = os.path.join(tag_path, f"{artifact_base}.manifest.json")
@@ -98,6 +98,7 @@ jobs:
                           "tag": tag,
                           "version": version,
                           "board": board,
+                          "variant": variant,
                           "display": f"{tag} - {board}",
                           "prerelease": prerelease,
                           "manifest": manifest_rel,
@@ -108,6 +109,26 @@ jobs:
               with open(index_path, "w", encoding="utf-8") as handle:
                   json.dump(entries, handle, indent=2)
                   handle.write("\n")
+
+              def version_key(tag):
+                  return tuple(int(part) for part in tag.lstrip("v").split("."))
+
+              stable_tags = sorted(
+                  {entry["tag"] for entry in entries if not entry["prerelease"]},
+                  key=version_key,
+                  reverse=True,
+              )
+              if stable_tags:
+                  latest_tag = stable_tags[0]
+                  latest_entries = [entry for entry in entries if entry["tag"] == latest_tag]
+                  latest = {
+                      "tag": latest_tag,
+                      "v1": any(entry["variant"] == "v1" for entry in latest_entries),
+                      "v2": any(entry["variant"] == "v2" for entry in latest_entries),
+                  }
+                  with open(os.path.join(firmware_root, "latest.json"), "w", encoding="utf-8") as handle:
+                      json.dump(latest, handle, separators=(",", ":"))
+                      handle.write("\n")
           PY
         
       - name: Setup Pages

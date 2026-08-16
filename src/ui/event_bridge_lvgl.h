@@ -29,6 +29,7 @@ public:
         MENU_DIAGNOSTIC_RESET,
         MENU_BACK,
         MENU_REFRESH_STATS,
+        MENU_INSTALL_UPDATE,
         BLE_TOGGLE,
         BLE_STARTUP_TOGGLE,
         LOGGING_TOGGLE,

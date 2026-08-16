@@ -238,12 +238,16 @@ Before flashing, verify that the selected image matches the display generation. 
    - After installation, device is ready for wireless updates
 
 2. **Future Updates (Wi-Fi Recommended)**
-   - Download the matching V1 or V2 `.bin` from the
+   - When the green refresh symbol appears, tap it and confirm **Install**; or
+     open **Menu → Wi-Fi** and choose **Install update**
+   - Alternatively, open `http://smartgrind.local` (or the IP shown on the
+     Wi-Fi page), choose **Settings → System & updates**, and install the latest
+     stable release there
+   - The grinder chooses the matching V1 or V2 image, validates it, installs it
+     and restarts; keep it powered until the update completes
+   - Manual `.bin` upload from the
      [Community releases page](https://github.com/Clinteastman/smart-grind-by-weight/releases)
-   - Open `http://smartgrind.local` (or the IP shown on the Wi-Fi page)
-   - Choose **Settings → System & updates**, select the image and confirm upload
-   - The grinder validates the image, installs it and restarts; keep it powered
-     until the web page reports that the firmware was accepted
+     remains available as an advanced fallback
 
    BLE updating remains available as a fallback when the grinder cannot join
    the local Wi-Fi network.

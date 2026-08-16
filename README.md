@@ -64,8 +64,8 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
 - **Wi-Fi setup on the device** with network scanning, a secured captive portal,
   QR access, Improv Serial provisioning and `smartgrind.local` discovery.
 - **One-click firmware updates from GitHub**, with automatic stable-release
-  checks and strict V1/V2 image selection, plus manual Wi-Fi/Bluetooth upload
-  and USB recovery.
+  checks, a touchscreen update indicator and on-device installer, strict V1/V2
+  image selection, plus manual Wi-Fi/Bluetooth upload and USB recovery.
 - **On-device diagnostics** with downloadable retained startup/runtime logs.
 - **V1 and V2 Waveshare support**, reproducible CI builds, a public web flasher
   and a deterministic Windows desktop simulator for development.
@@ -84,8 +84,11 @@ current grind, review its full recorded trace, change grinder/display settings
 and install the latest stable firmware from a browser on the same network. The
 System & updates page checks this project's GitHub releases and selects the
 matching V1 or V2 application image automatically; manual upload remains
-available as an advanced fallback. If mDNS is unavailable, use the IP address
-shown on the grinder's Wi-Fi screen.
+available as an advanced fallback. The grinder also checks in the background
+while idle: a green refresh symbol appears when an update is ready, and either
+that symbol or **Menu → Wi-Fi → Install update** starts the same guarded update
+flow. If mDNS is unavailable, use the IP address shown on the grinder's Wi-Fi
+screen.
 
 <table>
 <tr>
@@ -172,9 +175,9 @@ incompatibilities, and a community V1 hardware acceptance run is welcome.
 | V1/V2 maintained baseline | Complete | Tested firmware targets, V2 wiring, simulator and faster/reliable display gestures |
 | Public web flasher and releases | Complete | Explicit controller-generation selection and downloadable, reproducible V1/V2 packages |
 | Wi-Fi provisioning and safe OTA | Complete | Reliable setup, `smartgrind.local` discovery, one-click stable-release updates and manual full-image upload |
-| Shared live device API | Complete | Bounded 10 Hz WebSocket feed, safe stop/dismiss requests, settings and history APIs |
+| Shared live device API | Complete | Bounded 10 Hz WebSocket feed, correlated controller-backed grind/profile/tare requests, settings and history APIs |
 | Live grinder web UI | Complete | Dashboard, live/completed graphs, settings, history/analytics, downloads, OTA and screensavers |
-| Native Home Assistant integration | Validation in progress | Separate Zeroconf/local-push integration; live Home Assistant acceptance remains |
+| Native Home Assistant integration | Complete | [Separate Zeroconf/local-push integration](https://github.com/Clinteastman/smart-grind-home-assistant), validated in Home Assistant 2026.8 against physical V2 hardware with correlated safe commands and a separate user-present one-second protocol motor acceptance |
 
 The [community roadmap](docs/COMMUNITY_ROADMAP.md) records the detailed delivery
 status, reviewed upstream work and contribution plan. The independently

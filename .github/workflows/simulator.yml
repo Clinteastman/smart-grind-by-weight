@@ -25,9 +25,9 @@ jobs:
     env:
       SMART_GRIND_FETCHCONTENT_BASE_DIR: ${{ github.workspace }}\.cache\fetchcontent
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Restore simulator dependency cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache/fetchcontent
           key: ${{ runner.os }}-sim-lvgl-9.5.0

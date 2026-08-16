@@ -12,17 +12,21 @@ public:
 
     void build();
     void update();
+    void prompt_firmware_update();
 
 private:
     void update_ble_status_icon();
     void update_wifi_status_icon();
     void update_warning_icon();
+    void update_firmware_update_icon();
 
     UIManager* ui_manager_;
     lv_obj_t* ble_status_icon_ = nullptr;
     lv_obj_t* wifi_status_icon_ = nullptr;
     lv_obj_t* warning_icon_ = nullptr;
+    lv_obj_t* firmware_update_icon_ = nullptr;
     int8_t last_ble_state_ = -1;
     int8_t last_wifi_state_ = -1;
     int8_t last_warning_state_ = -1;
+    int8_t last_firmware_update_state_ = -1;
 };

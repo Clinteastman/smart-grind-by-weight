@@ -20,6 +20,7 @@ public:
     void handle_autotune();
     void handle_back();
     void handle_refresh_stats();
+    void handle_install_update();
     void handle_diagnostics_reset();
     void handle_ble_toggle();
     void handle_ble_startup_toggle();
