@@ -5,6 +5,7 @@
 - [Motor Does Not Start](#motor-does-not-start)
 - [Display Stays Black After Flashing (Waveshare 1.64 V2)](#display-stays-black-after-flashing-waveshare-164-v2)
 - [HX711 Not Detected / Wrong Sample Rate](#hx711-not-detected--wrong-sample-rate)
+- [Suspected HX711 or Load Cell Damage](#suspected-hx711-or-load-cell-damage)
 - [Unknown board ID 'esp32-s3-devkitc-1'](#unknown-board-id-esp32-s3-devkitc-1)
 - [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
 - [Grind Timeout Screen](#grind-timeout-screen)
@@ -106,6 +107,88 @@ If wires were reversed, swap them so Pin 3 connects to the correct GPIO for the 
 - **NOT_CONNECTED:** Verify VCC/GND/SCK/DOUT wiring and that the HX711 board is powered.
 - **SAMPLE_RATE_INVALID:** Ensure the HX711 `RATE` pin is tied to GND for 10 SPS; a floating/high pin forces 80 SPS and will now block startup.
 - After correcting hardware, reboot the scale. The diagnostic clears automatically when healthy samples are detected.
+
+---
+
+## Suspected HX711 or Load Cell Damage
+
+**Applies to:** A reversed connector, short circuit, overheated HX711 module, or
+a scale that stopped responding immediately after a wiring mistake.
+
+> [!CAUTION]
+> Disconnect the grinder from mains power before opening it. Remove USB power
+> and any battery connection before moving wires or measuring resistance. Do
+> not reconnect an HX711 module that became unusually hot; a damaged module can
+> place another fault on the ESP32's 3.3 V rail.
+
+### What the symptoms establish
+
+- An HX711 IC that became too hot to touch after a reversed connection should
+  be treated as failed and replaced, even if it later appears to cool normally.
+- A four-wire load cell is a passive Wheatstone bridge and will often survive a
+  fault on the ESP32-to-HX711 cable, but this is not guaranteed.
+- An ESP32 that still boots, runs the display and controls the motor is broadly
+  functional, but those tests do not prove that its HX711 GPIO pins survived.
+- `HX711_NOT_CONNECTED` means the firmware received no valid samples. It cannot
+  distinguish a failed HX711, broken load cell, damaged GPIO or bad wiring by
+  itself.
+
+### Isolate the components
+
+1. **Remove the suspect HX711.** Photograph and label every connection first,
+   then disconnect both the ESP32 cable and load cell. Check for a cracked IC,
+   discolouration, lifted tracks or a burnt smell. Do not use this module for
+   further testing if it overheated.
+2. **Check the disconnected load cell with a multimeter.** Use its datasheet or
+   the documented wiring labels rather than relying only on wire colours.
+   Measure resistance across the excitation pair (`E+` to `E-`) and signal pair
+   (`A+` to `A-`). Both readings should be finite, stable and normally in the
+   hundreds of ohms. An open circuit or near-short indicates a damaged cable or
+   bridge. The two values need not be identical because load cells can contain
+   compensation resistors.
+3. **Check insulation.** With the load cell still disconnected, there should be
+   no low-resistance continuity from any of its four bridge wires to the metal
+   body or cable shield. The shield itself is excluded from this test.
+4. **Fit a known-good replacement HX711.** Verify all four ESP32 connections
+   before applying power: V1 uses GPIO 2 for SCK and GPIO 3 for DOUT; V2 uses
+   GPIO 1 for SCK and GPIO 3 for DOUT. VCC is 3.3 V and GND is GND. Perform the
+   first test with the grinder disconnected from mains and the motor-control
+   lead disconnected and insulated; USB power is sufficient to test the scale.
+5. **Interpret the result.** If valid readings return, recalibrate and the ESP32
+   and load cell have passed the practical test. If the new HX711 is still not
+   detected, recheck the cable and pin mapping, then test with a known-good load
+   cell or ESP32 board to isolate the remaining component. Do not keep swapping
+   parts onto a module that overheats or pulls down the 3.3 V rail.
+
+The normal wiring map is in [Installation & Wiring](DOC.md#-installation--wiring).
+After installing the replacement, reboot and check **Menu → Diagnostics** or a
+[diagnostic report](#getting-diagnostic-reports). A healthy 10 SPS HX711 clears
+the hardware fault automatically; calibration is still required before weight
+mode can grind.
+
+### Temporary operation without a load cell
+
+The maintained firmware can still operate the grinder while replacement scale
+parts are in transit. Install the image that matches the display generation—in
+particular, an original 1.64-inch V1/CO5300 board must use the **V1** image—then
+use either:
+
+- **Manual mode** for target-free start/stop operation with its independent
+  30-second safety cutoff; or
+- **Time mode** for a repeatable timed dose.
+
+These modes control the motor through the normal guarded grind controller and
+do not require a working HX711. Weight mode, live weight, tare, calibration,
+start-on-cup and weight-based stopping remain unavailable until the scale is
+repaired. The matching V1/V2 images are available from the
+[Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
+
+The resistance checks above follow standard Wheatstone-bridge fault isolation:
+compare excitation and signal resistance with the load-cell specification and
+check insulation between the bridge, shield and body. See Analog Devices'
+[bridge measurement overview](https://www.analog.com/en/resources/reference-designs/circuits-from-the-lab/cn0600.html)
+and the [HX711 datasheet](https://datasheet.lcsc.com/lcsc/2011051703_Avia-Semicon-Xiamen-HX711_C43656.pdf)
+for the underlying circuit and supply limits.
 
 ## Unknown board ID 'esp32-s3-devkitc-1'
 
