@@ -22,6 +22,7 @@
 #include "../network/device_web_server.h"
 
 extern HardwareManager hardware_manager;
+extern GrindController grind_controller;
 
 BluetoothManager::BluetoothManager()
     : ble_server(nullptr)
@@ -690,11 +691,18 @@ void BluetoothManager::set_data_status(BLEDataStatus status) {
 void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteristic) {
     String data = characteristic->getValue();
     if (data.length() == 0) return;
-    
+
     uint8_t command = data[0];
     
     switch (command) {
         case BLE_OTA_CMD_START:
+            if (grind_controller.is_active() ||
+                (hardware_manager.get_grinder() && hardware_manager.get_grinder()->is_grinding())) {
+                log("Bluetooth OTA: Rejected while grinder is active\n");
+                update_ui_status("Stop grinder before update");
+                set_ota_status(BLE_OTA_ERROR);
+                break;
+            }
             if (device_web_server.is_ota_active() ||
                 image_handler.is_upload_active() || data_export_in_progress) {
                 log("Bluetooth OTA: Rejected while data channel is busy\n");
