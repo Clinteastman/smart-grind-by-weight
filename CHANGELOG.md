@@ -27,6 +27,9 @@ line. Earlier release history remains available in the original project's
 - Flashed the release candidate over Wi-Fi and validated discovery, status,
   live state, all 16 Home Assistant entities and correlated safe-command
   handling against physical V2 hardware running Home Assistant 2026.8.
+- Completed a user-present physical motor acceptance: manual start and stop
+  were both acknowledged, the motor ran for one second, and the final pushed
+  state confirmed `IDLE` with the motor off.
 
 ## [1.5.2] - 2026-08-15
 
