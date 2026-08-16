@@ -97,17 +97,12 @@ void GaggiMateStatusClient::init() {
     });
     websocket_.setReconnectInterval(3000);
     websocket_.enableHeartbeat(15000, 3000, 2);
-    if (!task_handle_) {
-        if (xTaskCreatePinnedToCore(task_entry, "GaggiMateStatus", 6144, this, 1,
-                                    &task_handle_, 1) != pdPASS) {
-            task_handle_ = nullptr;
-            LOG_BLE("[GAGGIMATE] Failed to create status polling task\n");
-        }
-    }
+    if (enabled_) ensure_task();
 }
 
 bool GaggiMateStatusClient::configure(bool enabled, const String& host) {
     if ((!host.isEmpty() && !valid_host(host)) || (enabled && host.isEmpty())) return false;
+    if (enabled && !ensure_task()) return false;
 
     Preferences preferences;
     if (!preferences.begin(kPreferencesNamespace, false)) return false;
@@ -140,6 +135,17 @@ String GaggiMateStatusClient::configured_host() const {
     const String copy = host_;
     if (mutex_) xSemaphoreGive(mutex_);
     return copy;
+}
+
+bool GaggiMateStatusClient::ensure_task() {
+    if (task_handle_) return true;
+    if (xTaskCreatePinnedToCore(task_entry, "GaggiMateStatus", 6144, this, 1,
+                                &task_handle_, 1) == pdPASS) {
+        return true;
+    }
+    task_handle_ = nullptr;
+    LOG_BLE("[GAGGIMATE] Failed to create status polling task\n");
+    return false;
 }
 
 void GaggiMateStatusClient::task_entry(void* context) {
@@ -176,7 +182,7 @@ void GaggiMateStatusClient::task_loop() {
             stop_websocket();
             mark_offline_if_stale(millis());
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(enabled ? 20 : 500));
     }
 }
 

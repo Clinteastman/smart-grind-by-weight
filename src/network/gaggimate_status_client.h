@@ -41,6 +41,7 @@ private:
     uint32_t last_success_ms_ = 0;
     uint32_t last_http_poll_ms_ = 0;
 
+    bool ensure_task();
     static void task_entry(void* context);
     void task_loop();
     void start_websocket(const String& host);
