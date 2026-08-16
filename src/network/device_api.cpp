@@ -1,6 +1,7 @@
 #include "device_api.h"
 
 #include <cmath>
+#include <cctype>
 #include <cstring>
 #include <LittleFS.h>
 
@@ -12,6 +13,7 @@
 #include "../hardware/hardware_manager.h"
 #include "../system/screensaver_settings.h"
 #include "device_web_server.h"
+#include "gaggimate_status_client.h"
 
 DeviceApi device_api;
 
@@ -58,6 +60,17 @@ bool websocket_origin_allowed(AsyncWebServerRequest* request) {
     const AsyncWebHeader* origin_header = request->getHeader("Origin");
     if (!origin_header) return false;
     return origin_header->value() == ("http://" + request->host());
+}
+
+bool valid_local_host(const String& host) {
+    if (host.isEmpty() || host.length() > 63) return false;
+    for (size_t index = 0; index < host.length(); ++index) {
+        const char value = host[index];
+        if (!isalnum(static_cast<unsigned char>(value)) && value != '.' && value != '-') {
+            return false;
+        }
+    }
+    return true;
 }
 
 const char* api_phase_name(const GrindController& controller) {
@@ -462,6 +475,10 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
     settings.screensaver_startup_timeout_s = static_cast<uint8_t>(screensaver_startup_timeout_s);
     const String screensaver_style = value("screensaver_style");
     strncpy(settings.screensaver_style, screensaver_style.c_str(), sizeof(settings.screensaver_style) - 1);
+    const String gaggimate_host = request->hasParam("gaggimate_host", true)
+                                      ? value("gaggimate_host")
+                                      : gaggimate_status_client.configured_host();
+    strncpy(settings.gaggimate_host, gaggimate_host.c_str(), sizeof(settings.gaggimate_host) - 1);
     settings.bluetooth_startup = form_bool(value("bluetooth_startup"));
 
     bool valid = settings.current_profile >= 0 && settings.current_profile < USER_PROFILE_COUNT &&
@@ -484,7 +501,8 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
                  ScreensaverSettings::is_valid_startup_timeout(settings.screensaver_startup_timeout_s) &&
                  (screensaver_style == "orbit" || screensaver_style == "minimal" ||
                   screensaver_style == "blank" ||
-                  (screensaver_style == "custom" && LittleFS.exists(BLE_IMAGE_FILENAME)));
+                  (screensaver_style == "custom" && LittleFS.exists(BLE_IMAGE_FILENAME)) ||
+                  (screensaver_style == "gaggimate" && valid_local_host(gaggimate_host)));
     for (int i = 0; i < 3 && valid; ++i) {
         valid = std::isfinite(settings.profile_weights[i]) &&
                 profile_controller_->is_weight_valid(settings.profile_weights[i]) &&
@@ -556,6 +574,11 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& settings) {
         screensaver.putString("style", settings.screensaver_style);
         screensaver.end();
     }
+    if (!gaggimate_status_client.configure(
+            strcmp(settings.screensaver_style, "gaggimate") == 0,
+            settings.gaggimate_host)) {
+        return false;
+    }
     hardware_->get_display()->set_brightness(settings.brightness_percent / 100.0f);
     LOG_BLE("[WEB] Grinder settings updated\n");
     return true;
@@ -596,6 +619,7 @@ void DeviceApi::refresh_settings_cache() {
         screensaver_style = screensaver_preferences.getString("style", screensaver_style);
         screensaver_preferences.end();
     }
+    const String gaggimate_host = gaggimate_status_client.configured_host();
 
     char json[2048];
     snprintf(json, sizeof(json),
@@ -610,7 +634,8 @@ void DeviceApi::refresh_settings_cache() {
              "\"display\":{\"brightness\":%d,\"screensaver_brightness\":%d,"
              "\"screensaver_startup\":%s,\"screensaver_sleep\":%s,"
              "\"screensaver_idle_timeout_s\":%u,\"screensaver_startup_timeout_s\":%u,"
-             "\"screensaver_style\":\"%s\",\"has_custom_screensaver\":%s},"
+             "\"screensaver_style\":\"%s\",\"has_custom_screensaver\":%s,"
+             "\"gaggimate_host\":\"%s\"},"
              "\"bluetooth_startup\":%s}",
              profile_controller_->get_current_profile(),
              profile_controller_->get_grind_mode() == GrindMode::TIME ? "time" : "weight",
@@ -628,6 +653,7 @@ void DeviceApi::refresh_settings_cache() {
              read_bool("screensaver", "sleep", false) ? "true" : "false",
              screensaver_timing.idle_timeout_s, screensaver_timing.startup_timeout_s,
              screensaver_style.c_str(), LittleFS.exists(BLE_IMAGE_FILENAME) ? "true" : "false",
+             gaggimate_host.c_str(),
              read_bool("bluetooth", "startup", true) ? "true" : "false");
     xSemaphoreTake(settings_mutex_, portMAX_DELAY);
     settings_json_cache_ = json;

@@ -41,6 +41,7 @@ private:
     lv_obj_t* image_widget_;
     lv_obj_t* primary_label_;
     lv_obj_t* secondary_label_;
+    lv_obj_t* detail_label_;
     lv_timer_t* animation_timer_;
     uint8_t* image_buffer_;
     lv_image_dsc_t image_dsc_;

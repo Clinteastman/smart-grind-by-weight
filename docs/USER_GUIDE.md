@@ -197,12 +197,19 @@ Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup
 ## Screensaver
 
 Open `http://smartgrind.local` and choose **Settings → Display & screensaver**.
-Select the built-in Minimal, Orbit or Black AMOLED design, or upload a normal
-photo; the browser crops and converts it to the display's 280 × 456 RGB565
-format before sending it to the grinder.
+Select the built-in Minimal, Orbit or Black AMOLED design, the live GaggiMate
+status view, or upload a normal photo; the browser crops and converts custom
+images to the display's 280 × 456 RGB565 format before sending them to the
+grinder.
 
 - **Custom image**: Upload a normal photo from the web interface; conversion
   happens in the browser before it is sent to the grinder.
+- **GaggiMate status**: Enter the machine hostname (normally
+  `gaggimate.local`) or its IP address. While both devices are on the same
+  Wi-Fi network, the screensaver shows temperature and readiness, then live
+  shot time, phase, pressure and flow during an extraction. It uses
+  GaggiMate's existing WebSocket API and falls back to its compact HTTP status
+  endpoint, so no modified GaggiMate firmware is required.
 - **Timing settings**: Configure idle timeout and startup duration in the local web app.
 - **Device settings**: Brightness and startup/sleep toggles remain available under **Menu → Display** and are synchronized with the web settings.
 - **Startup behavior**: On normal Ready boots, the image is drawn early while the full UI initializes, then the regular timed screensaver overlay takes over.

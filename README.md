@@ -67,8 +67,9 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   display updates and reliable short-swipe gestures.
 - **Adjustable coast compensation** from 70% to 150%, stored on the grinder;
   the neutral 100% default preserves the original behaviour.
-- **Built-in screensavers** plus custom RGB565 image upload, configurable
-  brightness, startup display and idle timeout.
+- **Built-in screensavers** plus custom RGB565 image upload and an optional
+  live GaggiMate status view, with configurable brightness, startup display
+  and idle timeout.
 - **Local Wi-Fi web app** with light/dark themes, live weight and flow, saved
   dose selection, round start/stop control, settings, grind history, analytics
   and data downloads.

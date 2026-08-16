@@ -31,6 +31,7 @@ struct DeviceSettingsUpdate {
     uint16_t screensaver_idle_timeout_s = 300;
     uint8_t screensaver_startup_timeout_s = 3;
     char screensaver_style[12] = "minimal";
+    char gaggimate_host[64] = "gaggimate.local";
     bool bluetooth_startup = true;
 };
 
