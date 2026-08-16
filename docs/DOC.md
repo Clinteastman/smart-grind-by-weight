@@ -1,742 +1,141 @@
 # Smart Grind-by-Weight Documentation
 
-Complete build instructions, parts list, and usage guide for the Smart Grind-by-Weight system.
-
----
-
-## 📋 Table of Contents
-
-- [Smart Grind-by-Weight Documentation](#smart-grind-by-weight-documentation)
-  - [📋 Table of Contents](#-table-of-contents)
-  - [Start here](#start-here)
-  - [🛠️ Parts List](#️-parts-list)
-    - [3D Printed Parts](#3d-printed-parts)
-    - [Fusion 360 Source Files](#fusion-360-source-files)
-  - [📹 Assembly Video](#-assembly-video)
-  - [🔌 Installation \& Wiring](#-installation--wiring)
-    - [Pin Configuration](#pin-configuration)
-    - [Recommended Wire Lengths](#recommended-wire-lengths)
-    - [Installation Steps](#installation-steps)
-  - [🚀 Firmware Installation](#-firmware-installation)
-    - [🌐 Web Flasher (Recommended)](#-web-flasher-recommended)
-    - [Command Line (Fallback)](#command-line-fallback)
-  - [⚖️ Initial Calibration](#️-initial-calibration)
-    - [Auto-Tune Motor Response](#auto-tune-motor-response)
-    - [Diagnostics System](#diagnostics-system)
-  - [📱 Usage Guide](#-usage-guide)
-    - [Manual Grinding](#manual-grinding)
-    - [Grinding Profiles](#grinding-profiles)
-    - [Navigation](#navigation)
-    - [Grind Settings](#grind-settings)
-    - [Basic Operation](#basic-operation)
-    - [Quick Scale View](#quick-scale-view)
-    - [Display Modes](#display-modes)
-  - [🗺️ User Interface Navigation](#️-user-interface-navigation)
-  - [⚡ Automated Grind Flow](#-automated-grind-flow)
-  - [🔵 Bluetooth Connectivity](#-bluetooth-connectivity)
-  - [🔍 Diagnostic Report](#-diagnostic-report)
-    - [Report Contents](#report-contents)
-    - [Access Methods](#access-methods)
-  - [Screensaver](#screensaver)
-  - [📊 Analytics \& Data Export](#-analytics--data-export)
-    - [Launch Interactive Dashboard](#launch-interactive-dashboard)
-    - [Available Tools](#available-tools)
-    - [Tools Directory Structure](#tools-directory-structure)
-  - [🧠 Algorithm Details](#-algorithm-details)
-    - [Grinding Algorithm](#grinding-algorithm)
-  - [❓ Frequently Asked Questions](#-frequently-asked-questions)
-  - [🔧 Troubleshooting](#-troubleshooting)
-
----
-
-## Start here
-
-This page contains the complete reference, but a normal first installation is
-only seven stages. Work through these links in order instead of reading the
-whole document before starting.
+Choose what you are trying to do. Each guide is short enough to use while you
+are working; you no longer need to search one very long page.
 
 > [!CAUTION]
 > This modification involves a mains-powered appliance. Disconnect the grinder
 > from mains before opening it, preserve protective earth and insulation, and
 > ask a qualified person to handle mains wiring if you are not competent to do
-> so. The first controller and scale test should use USB power only, with the
-> grinder's motor-control lead disconnected and insulated.
+> so. Bench-test the controller and scale from USB before connecting the motor.
 
-1. **Confirm compatibility.** Check the
-   [grinder compatibility matrix](GRINDER_COMPATIBILITY.md), then collect the
-   [parts](#️-parts-list) and appropriate
-   [3D-printed mounts](3D_PRINTS.md).
-2. **Identify the display generation.** Do this before wiring or flashing. The
-   PCB may say `Rev1.1` even when it needs V2 firmware. Use the
-   [V1/V2 identification guide](TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2)
-   rather than relying on the printed revision alone.
-3. **Flash and test the controller on the bench.** Use the
-   [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/)
-   in Chrome or Edge and explicitly choose **Original CO5300 (V1)** or
-   **Newer SH8601 (V2)**. Confirm that the display and touch work while the
-   board is still powered only by USB.
-4. **Wire the low-voltage components.** Follow the
-   [pin configuration](#pin-configuration). V1 and V2 use different HX711 SCK
-   and motor-control GPIOs; wire colours on the grinder harness are not a
-   reliable guide.
-5. **Test the scale before connecting the grinder.** With USB power only,
-   confirm that the HX711 is detected and produces changing readings. This
-   isolates controller, amplifier and load-cell problems from the appliance
-   wiring.
-6. **Install in the grinder.** Disconnect all power, follow the
-   [installation steps](#installation-steps) and the
-   [assembly video](#-assembly-video), then recheck every connection before
-   applying power.
-7. **Calibrate and verify.** Complete
-   [initial calibration](#️-initial-calibration), perform a safe manual test,
-   then configure Single, Double and Custom profiles. If anything behaves
-   unexpectedly, stop and use the [troubleshooting guide](TROUBLESHOOTING.md).
+## Start here
 
-Already assembled? Use the [firmware installation](#-firmware-installation),
-[usage guide](#-usage-guide) or [diagnostics](#-diagnostic-report) sections
-directly. Building or modifying the source is covered separately in the
-[development guide](DEVELOPMENT.md).
+### I am building one for the first time
 
----
+1. Confirm your grinder in the
+   [compatibility matrix](GRINDER_COMPATIBILITY.md).
+2. Use the [hardware and installation guide](HARDWARE_INSTALLATION.md) to buy
+   parts, print mounts and understand the wiring.
+3. Identify whether the Waveshare display needs V1 or V2 firmware in the
+   [firmware and first-setup guide](FIRMWARE_SETUP.md).
+4. Flash and test the display, touch controller and scale using USB power only.
+5. Disconnect all power, install the components and recheck every connection.
+6. Calibrate the scale, then perform a controlled manual test.
+7. Use the [everyday guide](USER_GUIDE.md) to configure profiles and optional
+   automation.
+
+### I already have a working grinder
+
+| I want to… | Go to |
+| --- | --- |
+| Update or recover the firmware | [Firmware, updates and calibration](FIRMWARE_SETUP.md) |
+| Learn the touchscreen and web controls | [Everyday use](USER_GUIDE.md) |
+| Diagnose a fault or download logs | [Diagnostics and data](DIAGNOSTICS_AND_DATA.md) |
+| Understand predictive stopping and pulses | [How Smart Grind works](HOW_IT_WORKS.md) |
+| Solve a known problem | [Troubleshooting](TROUBLESHOOTING.md) |
+| Develop or build from source | [Development guide](DEVELOPMENT.md) |
+
+## Guide map
+
+### [Hardware and installation](HARDWARE_INSTALLATION.md)
+
+Parts, printable components, assembly video, V1/V2 pin maps, recommended wire
+lengths and physical installation.
+
+### [Firmware and first setup](FIRMWARE_SETUP.md)
+
+Display-generation identification, browser flashing, Wi-Fi/Bluetooth updates,
+USB fallback, initial calibration and pulse auto-tuning.
+
+### [Everyday use](USER_GUIDE.md)
+
+Manual, Weight and Time modes; profiles; gestures; menu navigation;
+screensavers; automatic cup actions; Bluetooth and the local web interface.
+
+### [Diagnostics and data](DIAGNOSTICS_AND_DATA.md)
+
+On-device and browser diagnostics, retained logs, grind history, downloads and
+the legacy Python archive tools.
+
+### [How Smart Grind works](HOW_IT_WORKS.md)
+
+Predictive grinding, settling, correction pulses, motor-latency learning,
+safety limits and frequently asked questions.
+
+## Quick links
+
+**[Install firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
+**[Latest release](https://github.com/Clinteastman/smart-grind-by-weight/releases/latest)** ·
+**[Compatibility](GRINDER_COMPATIBILITY.md)** ·
+**[3D designs](3D_PRINTS.md)** ·
+**[Troubleshooting](TROUBLESHOOTING.md)** ·
+**[Ask for help](https://github.com/Clinteastman/smart-grind-by-weight/issues)**
+
+<details>
+<summary>Links for old bookmarks into the previous all-in-one guide</summary>
+
+The material has moved, but these headings remain so older links still lead to
+the correct new guide.
+
 ## 🛠️ Parts List
 
-> **Note:** All links are **for reference only** — sellers and items are **not personally verified** unless explicitly stated.
-
-- **[Waveshare ESP32-S3 1.64" AMOLED Touch Display](https://www.waveshare.com/esp32-s3-touch-amoled-1.64.htm)** — Main controller. Waveshare has shipped incompatible V1 and V2 display revisions; confirm the revision before flashing.
-- **[HX711 ADC module](https://nl.aliexpress.com/item/1005006851380544.html)** — Load cell amplifier
-- **MAVIN or T70 load cell** (0.3 – 1 kg range) — Weight sensor
-  ⚠️ Avoid cheap unshielded small load cells — accuracy will suffer
-  - **Required dimensions:** 70 × 22 × 15 mm (L × H × D)
-  - **Screw pattern:** 4 holes in rectangular layout (`: :` pattern), NOT linear (`. . . .`)
-  - **1 kg:** Recommended. Suits portafilter use cases.
-  - **0.3 kg:** Only suitable for dosing cups.
-  - **Examples:**
-    - [AliExpress T70](https://nl.aliexpress.com/item/1005009409460619.html)
-    - [TinyTronics MAVIN](https://www.tinytronics.nl/en/sensors/weight-pressure-force/load-cells/mavin-load-cell-0.3kg)
-    - [NA6 (Mavin) 0.3 / 1 kg](https://www.alibaba.com/product-detail/subject_1601564701384.html) - [NA6 that delivers to Germany](https://de.aliexpress.com/item/1005002600322988.html)
-    - [T70 1 kg](https://nl.aliexpress.com/item/1005008658337192.html)
-    - [P70 1 kg](https://nl.aliexpress.com/item/1005006257978435.html) (looks compatible with T70, not personally tested)
-  - **Tested:** Only the 1 kg T70 and 0.3 kg Mavin load cells have been personally verified
-- **6× M3 screws** (≈10 mm) — Mounting hardware
-- **1000 µF capacitor** (≥10 V) — Brownout protection. Smaller values may work; larger voltage ratings (e.g. 25V) are fine but physically bigger, so check fitment. [Example (untested)](https://nl.aliexpress.com/item/1005006037906723.html)
-- **Wires & Dupont connectors** — General wiring  
-  Example: [22 AWG silicone wire set](https://www.aliexpress.com/item/2255800441309579.html)
-- **Dupont connector kit** — [Example (untested)](https://nl.aliexpress.com/item/1005008995345289.html)
-- **Angled pin headers** — [Example (untested)](https://nl.aliexpress.com/item/1005006149080284.html)
-- **[JST-PH 4-pin male connector (optional)](https://nl.aliexpress.com/item/1005009479983500.html)** — Optional solder-free connection to Eureka
-
-[<img src="../media/waveshare_board_wired_up_1.jpg" alt="Wired Waveshare Board" width="30%">](../media/waveshare_board_wired_up_1.jpg)
-
-### 3D Printed Parts
-
-All parts designed to print **without supports**. Keep the orientation of the STL files. Some holes are covered with thin plastic layers that you can easily remove.
-
-**Print Settings:**
-- **Material**: PETG (preferred) - Flexible enough for snap fits to work properly
-- **Layer Height**: 0.2mm
-- **Alternative**: PLA might work but will offer a reduced experience due to brittleness
-
-**Default Eureka Parts** (`3d_files/`):
-
-- **[Screen adapter](../3d_files/Waveshare%20AMOLED%201_64%20adapter.stl)** - Mounts Waveshare screen to Eureka location
-- **[Back plate](../3d_files/Back%20plate.stl)** - Mounts to Eureka and holds HX711/load cell
-- **[Cover plate](../3d_files/Cover.stl)** - Clean finishing cover
-- **Cup holder** - Connects to load cell for dosing cup
-  - **[54mm cup holder](../3d_files/54mm%20Cup%20holder.stl)** - For 54mm dosing cups
-  - **[58mm cup holder](../3d_files/58mm%20Cup%20holder.stl)** - For 58mm dosing cups
-- **Screw hole covers** - Hides screws and protects against coffee grounds
-  - **[54mm hole cover](../3d_files/54mm%20Cup%20holder%20hole%20cover.stl)**
-  - **[58mm hole cover](../3d_files/58mm%20Cup%20holder%20hole%20cover.stl)**
-
-**Community Designs:**
-
-Looking for grinder-specific mounts or portafilter holders? See **[Community 3D Designs](3D_PRINTS.md)** for portafilter holders, alternative screen mounts, and adaptations for other grinder models.
-
-### Fusion 360 Source Files
-- **[All components](https://a360.co/3HYgubb)** - Customizable source files
-
-Use these to adjust mounts for your specific grinder. Cup holders available for 54mm and 58mm dosing cups.
-Compatible dosing cup: [AliExpress 54mm Cup](https://nl.aliexpress.com/item/1005006526852408.html)
-
----
+See [Hardware and installation](HARDWARE_INSTALLATION.md#parts-list).
 
 ## 📹 Assembly Video
 
-Watch the complete Eureka Mignon Specialita assembly process: **[YouTube Assembly Guide](https://youtu.be/-kfKjiwJsGM)**
-
----
+See [Hardware and installation](HARDWARE_INSTALLATION.md#assembly-video).
 
 ## 🔌 Installation & Wiring
 
-[<img src="../media/wiring_diagram.png" alt="Wiring Diagram" width="50%">](../media/wiring_diagram.png)
-
-### Pin Configuration
-
-**HX711 Load Cell Amplifier Connections:**
-```
-ESP32-S3 GPIO 2 (V1) / GPIO 1 (V2) → HX711 SCK
-ESP32-S3 GPIO 3    →    HX711 DOUT
-ESP32-S3 3.3V      →    HX711 VCC
-ESP32-S3 GND       →    HX711 GND
-```
-
-**Load Cell to HX711 Wiring:**
-```
-Load Cell           HX711
-Red (E+)         →  E+
-Black (E-)       →  E-
-White (A-)       →  A-
-Green (A+)       →  A+
-Yellow (Shield)  →  GND
-```
-
-- Connect the load cell shield wire (usually yellow) to the HX711 GND
-- The HX711 only has 1 GND pin - solder the shield wire to the backside of the pin header
-- **Tip**: Keep the load cell wire as short as possible to reduce noise
-
-### Recommended Wire Lengths
-
-Advised lengths:
-- **Load cell → HX711:** ~10 cm
-- **Eureka → Waveshare board:** ~15 cm (image shows a slightly shorter lead; 15 cm gives comfortable slack)
-- **Grinder harness → HX711:** ~30 cm to route from the housing feed-through to the amplifier without strain
-
-These lengths fit the Eureka Mignon layout shown here; other grinders may require different cable lengths.
-
-[<img src="../media/wiring%20length.jpg" alt="Wire Length Example" width="25%">](../media/wiring%20length.jpg)
-
-**Eureka Mignon Connections:**
-
-⚠️ **CRITICAL WARNING:** Always verify your specific Eureka's wiring independently! Wire colors vary between units and cannot be trusted. Use the numbered pin positions shown in the reference image.
-
-Using the 4-pin Eureka plug pinout (see `../media/4-pin_Eureka_plug_pinout.png`), counting from left to right with the plug oriented with 'ribs' towards you:
-
-[<img src="../media/4-pin_Eureka_plug_pinout.png" alt="4-Pin Eureka Plug Pinout" width="50%">](../media/4-pin_Eureka_plug_pinout.png)
-
-```
-ESP32-S3 5V        →    Pin 1 (5V power)
-                        Pin 2 (Button signal - not used in this project)
-ESP32-S3 GPIO 18 (V1) / GPIO 16 (V2) → Pin 3 (Motor control signal)
-ESP32-S3 GND       →    Pin 4 (Ground)
-```
-
-**4-Pin Eureka Plug Reference (Left to Right):**
-- **Pin 1**: 5V power supply
-- **Pin 2**: Button signal (unused in this project)  
-- **Pin 3**: Motor control signal *(active-high — the motor runs when the revision-specific GPIO drives this pin to ~3.3V)*
-- **Pin 4**: Ground
-
-> [!WARNING]
-> On V2, do not connect motor control to GPIO 18. It is shared with the touchscreen interrupt (`TP_INT`) and its pull-up circuitry can leak voltage into the grinder control input. The physically verified V2 wiring uses GPIO 16 for motor control and GPIO 1 for HX711 SCK.
-
-⚠️ **VERIFY 5V:** Use a multimeter to confirm the 5V pin and identify the motor lead by plug position, not colour. In the verified V2 Specialita installation, Pin 3 (motor control) was the **grey** wire and Pin 2 (unused button signal) was **white**; an earlier assumption had these reversed. Wire colours can differ between grinder revisions, so treat this only as a checked example and leave Pin 2 disconnected and insulated.
-
-### Installation Steps
-
-1. **Flash the firmware** on the Waveshare board (see Firmware Instructions below)
-2. **Add the 1000μF capacitor** between 5V and ground (protects against brownouts)
-3. **Create HX711 to Waveshare connection:**
-   - Add angled pin headers to HX711 (VCC, GND, DOUT, SCK pins)
-   - Connect dupont cables to Waveshare board
-   - Load cell can be directly soldered to HX711 (Make the wires as short as possible. Connect shield wire as well to GND)
-4. **For Eureka Mignon assembly:**
-   - Disassemble top plate and front plate
-   - Remove the button: unscrew from front plate, open grinder from below, unplug connector from powerboard, store plug+cable to revert mod later
-   - Use JST-PH plug to connect to Waveshare board
-   - **WARNING:** Wire colors vary significantly between Eureka units - always verify pin functions with a multimeter before connecting!
-   - Mount Waveshare screen using 3D printed adapter where original screen was (the Waveshare screen with adapter replaces the original screen and reuses the original mounting screws)
-   - Fish HX711 wire through housing, exit via button hole
-   - Mount load cell and HX711 to 3D printed back plate
-   - Clip 3D printed back plate onto Eureka Mignon
-   - Connect plug to HX711
-   - Add 3D printed cover plate and screw down
-   - Add 3D printed dosing cup holder on load cell and screw down
-   - Hide screws with 3D printed screw covers
-5. **Calibrate load cell** (see [Initial Calibration](#️-initial-calibration)) 
-
----
+See [Hardware and installation](HARDWARE_INSTALLATION.md#installation-and-wiring).
 
 ## 🚀 Firmware Installation
 
-### Check the display revision first
-
-The 1.64-inch Waveshare board now exists in two firmware-incompatible revisions. V1 uses the original CO5300 display path; V2 uses an SH8601 controller, GPIO 46 chip select, and a 20-pixel framebuffer offset. Firmware built for the wrong revision can boot normally while the AMOLED remains completely black.
-
-The PCB silkscreen is not a dependable way to choose between them. The newer SH8601 hardware verified for this project is marked `Rev1.1` on its back but requires the V2 firmware. Here, “V1” and “V2” are convenient names for the original CO5300 and newer SH8601 display generations, not necessarily the revision number printed on the board.
-
-The external wiring also differs: V1 uses GPIO 2 for HX711 SCK and GPIO 18 for motor control; V2 uses GPIO 1 for HX711 SCK and GPIO 16 for motor control. Select the correct firmware target and follow the matching wiring before powering the grinder.
-
-If the board was supplied with V2 factory firmware, or Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2) works while V1 firmware stays black, use the V2 build target. See the [black-display troubleshooting entry](TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2) before wiring the grinder.
-
-### 🌐 Web Flasher (Recommended)
-**[🔗 Open Community Web Flasher Tool](https://clinteastman.github.io/smart-grind-by-weight/)**
-
-Before flashing, verify that the selected image matches the display generation. Choose **Original CO5300 (V1 firmware)** or **Newer SH8601 (V2 firmware; may say Rev1.1)**. If uncertain, use the official-demo test above; flashing the original CO5300 image to SH8601 hardware produces a black screen.
-
-**Browser Compatibility:**
-- ✅ **Chrome** (Desktop & Android) - Full support
-- ✅ **Microsoft Edge** (Desktop) - Full support
-- ❌ **Safari/iOS** - Not supported (use command line method below)
-- ❌ **Firefox** - Not supported (use command line method below)
-
-**Two-Step Installation Process:**
-
-1. **Initial Setup (USB - One Time Only)**
-   - Connect ESP32 via USB cable
-   - Use Chrome/Edge browser (desktop or Android)
-   - Select firmware version from dropdown
-   - Click "Flash via USB" - opens ESP Web Tools
-   - After installation, device is ready for wireless updates
-
-2. **Future Updates (Wi-Fi Recommended)**
-   - When the green refresh symbol appears, tap it and confirm **Install**; or
-     open **Menu → Wi-Fi** and choose **Install update**
-   - Alternatively, open `http://smartgrind.local` (or the IP shown on the
-     Wi-Fi page), choose **Settings → System & updates**, and install the latest
-     stable release there
-   - The grinder chooses the matching V1 or V2 image, validates it, installs it
-     and restarts; keep it powered until the update completes
-   - Manual `.bin` upload from the
-     [Community releases page](https://github.com/Clinteastman/smart-grind-by-weight/releases)
-     remains available as an advanced fallback
-
-   BLE updating remains available as a fallback when the grinder cannot join
-   the local Wi-Fi network.
-
-**Key Benefits:**
-- ✅ **No downloads needed** - firmware hosted automatically
-- ✅ **No command line** - simple web interface
-- ✅ **Automatic version listing** - all releases available in dropdown
-- ✅ **Wireless Wi-Fi and BLE updates** - once installed, USB is retained mainly
-  for recovery
-
-**Screensaver tools:**
-- Upload a custom 280 × 456 image from the **Screensaver** tab
-- Configure idle timeout (30-3600 seconds) and startup image timeout (1-30 seconds)
-- Screensaver brightness and startup/sleep enable toggles remain on the grinder under **Menu → Display**
-
-*Initial USB flashing powered by [ESP Web Tools](https://esphome.github.io/esp-web-tools/)*
-
-### Command Line (Fallback)
-
-The `upload` command uses Bluetooth and therefore cannot install firmware on a
-new or unresponsive controller. For a first-time USB installation when the web
-flasher is unavailable, follow
-[Initial USB Flashing](DEVELOPMENT.md#initial-usb-flashing) to build and upload
-the matching V1 or V2 target with PlatformIO.
-
-For an existing Smart Grind installation, enable Bluetooth on the grinder and
-upload a matching release image with:
-
-```bash
-python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
-```
-
-**Manual firmware download:** [Community releases page](https://github.com/Clinteastman/smart-grind-by-weight/releases)
-
-**Build from source:** See [DEVELOPMENT.md](DEVELOPMENT.md)
-
----
+See [Firmware and first setup](FIRMWARE_SETUP.md#firmware-installation).
 
 ## ⚖️ Initial Calibration
 
-After flashing firmware, calibrate the load cell for accurate measurements:
-
-1. **Access calibration**: Menu → Calibrate (Tools section)
-2. **Empty calibration**: Remove all weight from scale platform → Press OK
-3. **Weight calibration**: 
-   - Place known weight on scale (e.g., coffee mug with water)
-   - Use +/- buttons to adjust displayed value to match actual weight
-   - Press OK to complete
-
-**Tip**: A coffee mug with water makes ideal calibration weight - weigh it on kitchen scale first.
-
-### Auto-Tune Motor Response
-
-The auto-tune feature models your grinder's motor response behavior by measuring the physical lag between relay activation and grounds production. This accounts for hardware variations like voltage differences (110V vs 220V), relay types (solid-state vs mechanical), and burr inertia across different grinder models. The default 50ms value works well for most setups, but if you experience unreliable pulse corrections or want to minimize coffee waste through hardware-specific optimization, run auto-tune via **Menu → Tune Pulses** (Tools section). The 1-2 minute calibration process finds the minimum reliable pulse duration for your specific hardware and saves it automatically.
-
-### Diagnostics System
-
-The system includes comprehensive load cell health monitoring accessible via **Menu → Diagnostics**. A warning icon (⚠) appears in the top-right corner when diagnostics are active - tap it to navigate directly to the diagnostics page.
-
-**Diagnostic Types:**
-1. **Load Cell Not Calibrated** - Appears until calibration is completed via Menu → Calibrate (Tools section)
-2. **Sustained Noise** - Triggers after 60 seconds of excessive noise; clears after 120 seconds of acceptable levels
-3. **Mechanical Instability** - Detects sudden weight drops during grinding (3+ events); auto-resets on next grind or via manual reset
-
-**Displayed Values:**
-- **Motor Latency** - Current motor response latency in milliseconds (default: 50ms, or calibrated value from auto-tune)
-- **Calibration Factor** - Load cell calibration factor from Menu → Calibrate (Tools section)
-
-**Noise Floor Diagnostics:**
-
-Access via **Menu → Diagnostics → Noise Floor**.
-
-**Three values displayed:**
-1. **Standard Deviation (grams)** - Noise level in calibrated weight units
-2. **Standard Deviation (ADC)** - Raw sensor noise values
-3. **Noise Level Indicator** - Shows if noise will cause slow taring (>2s) or timeouts
-
-**Important:** Noise diagnostics require prior calibration as they're based on calibrated gram values. High noise readings indicate wiring issues (check shield connection, use shorter wire leads). Read diagnostics in a stable, vibration-free environment for accurate assessment.
-
----
+See [Firmware and first setup](FIRMWARE_SETUP.md#initial-calibration).
 
 ## 📱 Usage Guide
 
-### Manual Grinding
-
-**Manual** is the first page in the main-screen carousel. Tap **START** to run
-the grinder without a weight or time target, then tap **STOP** when the desired
-amount has been ground. When a healthy load cell is fitted, the page shows a
-large live weight and a large **TARE** button. Put the empty cup in place and
-tap **TARE** if you want to weigh the result; taring is never automatic in
-Manual mode. During grinding, the screen shows live weight and elapsed motor
-time.
-
-Manual start/stop works without a load cell; the scale readout and TARE button
-simply report that the scale is unavailable. Manual mode deliberately skips
-automatic taring, purging, predictive stopping, finishing pulses and
-grind-history recording. It still adds the real motor run time to lifetime
-statistics and stops automatically after 30 seconds. Use Single, Double or
-Custom when you want a repeatable target and a recorded result.
-
-### Grinding Profiles
-All profiles are fully customizable. Default grind-by-weight targets (fallback time values shown in parenthesis):
-- **Single**: 9 g (5 s)
-- **Double**: 18 g (10 s)  
-- **Custom**: 21.5 g (12 s)
-
-> 💡 **Tip** – the target label always shows the active unit (`g` or `s`). Long-press to edit in whichever mode you are currently using.
-
-### Navigation
-- **Swipe left/right** to navigate between menu tabs
-- **Swipe up/down** on the ready screen to toggle between grind-by-weight and grind-by-time modes (when enabled in Menu → Grind Settings)
-- **Tap** to select profiles or buttons
-- **Long press** on profile targets to edit/customize them
-
-> **Color cues:** The GRIND button background turns **red** in weight mode and **blue** in time mode, so you always know which behaviour is armed.
-
-### Grind Settings
-Access **Menu → Grind Settings** to configure:
-- **Swipe Gestures**: Enable/disable vertical swipe gestures for mode switching (default: disabled)
-- **Time Mode**: Directly toggle between Weight and Time modes regardless of swipe setting
-- **Start on Cup**: Start the active profile automatically when the scale gains ≈50 g within ~2 s (after a short post-boot warmup)
-- **Return on Removal**: Leave the completion screen as soon as that cup weight drops back off the scale
-- **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding
-  - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
-  - **Purge mode** (default): Prompts you to discard stale grinds before continuing
-  - **Amount slider**: Configure purge/prime amount (0.1g-5.0g, default 1.0g). Amount is a minimum target; actual output will be slightly higher.
-  - **"Keep purge grinds from now on" checkbox**: Appears during purge confirmation - switches to Prime mode when checked
-
-  *Explanation:* The time between motor start and grinds hitting the cup (grind latency) is used to predict the coast time (how long grinds will keep coming after the motor is disengaged). Purging clears stale coffee and saturates the grinder with fresh grounds, ensuring accurate latency detection. If you prefer to keep all coffee without manual intervention, select Prime mode.
-
-### Basic Operation
-These steps describe the default grind-by-weight workflow:
-1. Select profile by tapping on the main screen
-2. Long press the profile target to edit/customize the weight if needed
-3. Place the dosing cup on the scale platform
-4. Press the GRIND button – the scale will tare automatically
-5. The system grinds to the precise target weight using the predictive algorithm
-6. GRIND COMPLETE shows the final settled weight in grams (with statistics)
-
-> Optional automation (Menu → Grind Settings): enable the new auto-start toggle to begin grinding as soon as the scale sees ~50 g arrive (no tare needed); the system waits for the load cell to gather enough quiet samples before arming itself, then auto-return jumps back to Ready whenever that cup is lifted off again.
-
-Need the stock timed run? Enable swipe gestures in **Menu → Grind Settings**, then swipe up or down on the ready screen before you start; the GRIND button background turns blue to confirm time mode is active (red = weight). Alternatively, use the direct **Time Mode** toggle in the menu.
-
-> **Time mode pulse button:** In time mode completion, a "+" button appears next to OK for 100ms additional grinding pulses.
-
-From the local web dashboard, choose Single, Double or Custom and use the round
-play/stop button to request the same target grind remotely. The request passes
-through the firmware's normal checks and state machine; Manual mode remains an
-on-device control.
-
-### Quick Scale View
-Need a simple live readout? Open **Menu → Scale** to jump into a full-screen weight display. Entering the page automatically tares the scale (using the same blocking overlay as the main workflow), and a large `TARE` button at the bottom lets you re-zero manually whenever you need.
-
-### Display Modes
-- **Arc Layout**: Clean, minimal arc-based interface
-- **Nerdy Layout**: Detailed charts showing flow rates and real-time grinding analytics
-- **Switching**: Tap anywhere on grind screen to switch between layouts during grinding
-- **Screensaver**: Custom image can show on startup or when the display dims.
-
----
+See [Everyday use](USER_GUIDE.md#usage-guide).
 
 ## 🗺️ User Interface Navigation
 
-```
-Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode if enabled)
-|
-+-- Manual
-|   |-- Live elapsed motor time
-|   \-- START / STOP button (30s safety limit)
-|
-+-- Single Profile 
-|   |-- Weight display (long press to edit)
-|   \-- GRIND button (red=weight, blue=time)
-|
-+-- Double Profile
-|   |-- Weight display (long press to edit)
-|   \-- GRIND button (red=weight, blue=time)
-|
-+-- Custom Profile
-|   |-- Weight display (long press to edit)
-|   \-- GRIND button (red=weight, blue=time)
-|   \-- Time mode completion: OK + PULSE buttons
-|
-\-- Menu (scrollable hub)
-    |
-    +-- Tools (quick actions)
-    |   |-- Scale (live weight view with Tare action)
-    |   |-- Calibrate (launch calibration workflow)
-    |   |-- Tune Pulses (auto-tune motor latency)
-    |   \-- Motor Test (1s safety pulse)
-    |
-    +-- Settings
-    |   +-- Bluetooth
-    |   |   |-- Bluetooth toggle (30m timer)
-    |   |   |-- Bluetooth startup toggle (configurable auto-enable)
-    |   |   |-- Connection status display
-    |   |   \-- Auto-disable timer display
-    |   |
-	    |   +-- Display
-	    |   |   |-- Normal brightness slider
-	    |   |   |-- Screensaver brightness slider
-	    |   |   \-- Screensaver startup/sleep toggles
-    |   |
-    |   \-- Grind Settings
-    |       |-- Swipe Gestures toggle (enable/disable vertical swipes)
-    |       |-- Time Mode toggle (direct weight/time mode selection)
-    |       |-- Start on Cup toggle (start when ≈50 g arrives within ~2 s)
-    |       |-- Return on Removal toggle (drop back to Ready when that weight leaves)
-    |       |-- Purging (Prime/Purge radio buttons)
-    |       \-- Amount slider (0.1g-5.0g for purge/prime operation)
-    |
-    \-- Info
-        +-- Diagnostics
-        |   |-- Load Cell Status (calibration flag, calibration factor)
-        |   |-- Noise Floor (std dev g/ADC, noise level indicator)
-        |   |-- Active diagnostic warnings
-        |   \-- Reset diagnostics button
-        |
-        +-- System Info
-        |   |-- Firmware version & build number
-        |   |-- Real-time weight sensor data (instant, samples, raw)
-        |   |-- Uptime display
-        |   \-- Memory usage
-        |
-        +-- Logs & Data
-        |   |-- Logging toggle (enable/disable session file writing)
-        |   |-- Sessions / Events / Measurements counters
-        |   |-- Purge Logs button
-        |   \-- Factory Reset button
-        |
-        \-- Lifetime Stats
-            |-- Refresh Stats button
-            |-- Total grinds, shots, weight
-            |-- Motor runtime, uptime, accuracy
-            \-- Pulse counts
-
-During Grinding:
-|-- Weight/elapsed display & progress
-|-- Tap anywhere: Arc ↔ Nerdy display modes
-|-- STOP button
-\-- Purge Confirmation (appears in Purge mode after grinder saturation)
-    |-- "Grinder Purged" title
-    |-- Instruction message
-    |-- "Keep purge grinds from now on" checkbox
-    \-- CONTINUE button
-```
-
----
+See [Everyday use](USER_GUIDE.md#user-interface-navigation).
 
 ## ⚡ Automated Grind Flow
 
-Want the scale to run itself? Enable the automation toggles in **Menu → Grind Settings**:
-
-- **Start on Cup**: As soon as a recognized cup or portafilter lands on the load cell (≈50 g delta inside a 2 s window), the active profile tars and begins grinding automatically. Ideal when dosing cups dock directly under the chute.
-- **Return on Removal**: When the cup weight drops away after completion, the grinder exits the results screen and returns to Ready. Useful for keeping the workflow hands-free between shots.
-
-Both automation settings rely on the same smoothed weight deltas used for flow detection, so no extra calibration is required. Leave them disabled if you prefer manual control or experience false triggers with lighter accessories.
-
----
+See [Everyday use](USER_GUIDE.md#automated-grind-flow).
 
 ## 🔵 Bluetooth Connectivity
 
-Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, legacy grind-data export and device management. Grind session logging is configurable in **Menu → Data → Logging** and is enabled by default so the local web History page works immediately; disable it if you do not want sessions written to flash.
-
----
+See [Everyday use](USER_GUIDE.md#bluetooth-connectivity).
 
 ## 🔍 Diagnostic Report
 
-Generate a comprehensive diagnostic report from your device for troubleshooting or attaching to GitHub issues. The report includes firmware version, system health metrics, load cell diagnostics, and all compile-time parameters.
-
-For routine checks without opening the grinder, visit `http://smartgrind.local`,
-open **Settings → System & updates**, and refresh or download the recent
-diagnostic log. The latest 4 KiB of boot/runtime messages are retained in RAM,
-so this adds no ongoing flash wear. USB serial is only needed when the firmware
-cannot boot far enough to reconnect to Wi-Fi; the full compile-time diagnostic
-report below remains available through the legacy Bluetooth tooling.
-
-### Report Contents
-
-- **Firmware Information**: Version, build number, git commit, branch, and build timestamp
-- **System Runtime**: Uptime, CPU frequency, heap memory usage, flash size, and driver type
-- **Runtime Diagnostics**:
-  - Load cell calibration status and factor
-  - Noise levels (standard deviation in grams and ADC units)
-  - Noise acceptability assessment
-  - Motor response latency (default or auto-tuned value)
-- **Compile-Time Parameters**: Profile defaults, weight/time ranges, screen settings, auto-grind thresholds, and all user-configurable constants
-
-### Access Methods
-
-**Web Flasher (Recommended):**
-1. Visit the [Community Web Flasher Tool](https://clinteastman.github.io/smart-grind-by-weight/)
-2. Navigate to the **Diagnostics** tab
-3. Click "Connect & Get Diagnostics"
-4. Copy to clipboard or download the report as a text file
-
-**Command Line:**
-```bash
-# Display report in terminal
-python3 tools/grinder.py diagnostics
-
-# Save report to file
-python3 tools/grinder.py diagnostics --save diagnostic-report.txt
-```
-
-**When to Use:**
-- Reporting bugs or issues on GitHub (attach the report to your issue)
-- Verifying calibration status and noise levels
-- Checking motor latency settings after auto-tune
-- Confirming firmware version and compile-time parameters
-- General troubleshooting and system health assessment
-
----
+See [Diagnostics and data](DIAGNOSTICS_AND_DATA.md#diagnostic-report).
 
 ## Screensaver
 
-Open `http://smartgrind.local` and choose **Settings → Display & screensaver**.
-Select the built-in Minimal, Orbit or Black AMOLED design, or upload a normal
-photo; the browser crops and converts it to the display's 280 × 456 RGB565
-format before sending it to the grinder.
-
-- **Timing settings**: Configure idle timeout and startup duration in the local web app.
-- **Device settings**: Brightness and startup/sleep toggles remain available under **Menu → Display** and are synchronized with the web settings.
-- **Startup behavior**: On normal Ready boots, the image is drawn early while the full UI initializes, then the regular timed screensaver overlay takes over.
-- **OTA behavior**: During BLE OTA updates and OTA failure warnings, the screensaver is disabled so progress and recovery prompts stay visible.
-
----
+See [Everyday use](USER_GUIDE.md#screensaver).
 
 ## 📊 Analytics & Data Export
 
-Grind session logging is enabled by default. Open `http://smartgrind.local` and
-choose **History** to inspect the latest 10 sessions, including accuracy,
-consistency, weight and flow graphs. Download any session as CSV, JSON or its
-original raw record directly in the browser.
-
-The Python dashboard remains a legacy archive/recovery option when you want to
-collect sessions beyond the device's bounded history:
-
-### Launch Interactive Dashboard
-```bash
-# Export data and launch Streamlit dashboard
-python3 tools/grinder.py analyze
-
-# Or view reports from existing data
-python3 tools/grinder.py report
-```
-
-### Available Tools
-```bash
-python3 tools/grinder.py --help          # Show all available commands
-python3 tools/grinder.py scan            # Scan for BLE devices
-python3 tools/grinder.py connect         # Connect to grinder device  
-python3 tools/grinder.py debug           # Stream live debug logs
-python3 tools/grinder.py info            # Get device system information
-python3 tools/grinder.py export          # Export grind data to database
-```
-
-### Tools Directory Structure
-- **`grinder.py`**: Cross-platform Python tool for all operations (build, upload, analyze)
-- **`ble/`**: BLE communication tools and OTA update system
-- **`streamlit-reports/`**: Interactive data visualization and analytics
-- **`database/`**: SQLite database management for grind session storage
-
----
+See [Diagnostics and data](DIAGNOSTICS_AND_DATA.md#analytics-and-data-export).
 
 ## 🧠 Algorithm Details
 
-### Grinding Algorithm
-
-The system uses a **zero-shot learning algorithm** requiring no prior knowledge or manually tuned variables. It instantly adapts to changes in temperature, humidity, grinding coarseness, bean type, and hardware characteristics.
-
-**Multi-Phase Approach:**
-
-1. **Initialization & Taring Phase**
-   - Automatic tare on grind button press
-   - 30-second timeout from grind start to completion
-   - Noise-adaptive settling detection
-
-2. **Grinder Saturation Phase** (Weight mode only)
-   - Saturates the grinder before main grind for accurate latency detection
-   - Configurable amount: 0.1g-5.0g (default 1.0g)
-   - **Prime mode**: Keeps coffee, continues immediately after settling
-   - **Purge mode**: Shows confirmation popup, waits for user to discard stale grinds
-   - Logging and chart updates disabled during purge confirmation
-
-3. **Predictive Phase**
-   - Learns flow rate and motor-to-cup latency (relay + motor inertia + burr spin-up)
-   - Predicts when to stop motor based on measured flow and coast characteristics
-   - Target: barely undershoot target weight (overshoot is unrecoverable)
-   - Uses runtime-configurable motor response latency (30-200ms, default 50ms)
-
-4. **Pulse Correction Phase**
-   - Conservative pulse duration calculation using 95th percentile flow rate
-   - Bounded pulses respect hardware-specific motor response latency
-   - Pulses range from motor latency minimum to latency + 225ms maximum
-   - Mechanical instability detection (3+ sudden weight drops triggers diagnostic)
-   - Repeats until target ± tolerance reached
-
-5. **Time Mode Additional Pulses**
-   - Dedicated `TIME_ADDITIONAL_PULSE` phase for post-completion grinding
-   - 100ms fixed pulse duration
-   - Split-button UI: OK + PULSE buttons on completion screen
-
-**Motor Response Latency Model:**
-
-The motor response latency represents the physical system lag between relay activation and grounds production. This value is hardware-specific and accounts for:
-- Relay closure time (solid-state vs mechanical relays)
-- Motor inertia (110V vs 220V motors)
-- Burr spin-up characteristics (different grinder models/designs)
-
-The latency value is automatically calibrated via **Auto-Tune Motor Response** (Menu → Tune Pulses) using binary search with statistical verification, or uses a safe 50ms default. This enables universal grinder compatibility without firmware modifications.
-
-**Key Features:**
-- Noise-resistant through multi-modal load cell measurement (instant, smoothed, filtered)
-- Hardware-adaptive pulse control via runtime motor latency
-- Conservative approach: undershoots target, then corrects with bounded pulses
-- Mechanical instability detection with hysteresis and persistence
-- 30-second grind timeout protection with user acknowledgment requirement
-
----
+See [How Smart Grind works](HOW_IT_WORKS.md#algorithm-details).
 
 ## ❓ Frequently Asked Questions
 
-**Will this modification work on grinders other than the Eureka Mignon Specialita?**
-
-See the comprehensive **[Grinder Compatibility Matrix](GRINDER_COMPATIBILITY.md)** for detailed compatibility information across different grinder models, including confirmed compatible models, adaptation requirements, and installation methods.
-
-**Can I use this to grind directly into a portafilter instead of a dosing cup?**
-
-Yes, but requires modifications: use 1kg load cell (vs 0.3kg) for better accuracy with heavier portafilters. Design and 3D print custom portafilter holder mounting to load cell. The dosing cup holder design serves as reference for portafilter adapter.
-
----
+See [How Smart Grind works](HOW_IT_WORKS.md#frequently-asked-questions).
 
 ## 🔧 Troubleshooting
 
-For common build and setup issues, see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
+See the dedicated [troubleshooting guide](TROUBLESHOOTING.md).
 
----
-
-For additional support, refer to the project repository issues section, but please note that support availability is limited as mentioned in the project status.
+</details>

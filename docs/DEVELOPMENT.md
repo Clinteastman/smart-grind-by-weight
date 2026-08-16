@@ -272,7 +272,11 @@ For complete debugging (including boot sequence and system messages), use USB se
 
 ## 📚 Additional Documentation
 
-- **[DOC.md](DOC.md)** - Complete build instructions and parts list
+- **[DOC.md](DOC.md)** - Task-oriented documentation home
+- **[HARDWARE_INSTALLATION.md](HARDWARE_INSTALLATION.md)** - Parts, wiring and physical installation
+- **[FIRMWARE_SETUP.md](FIRMWARE_SETUP.md)** - Firmware selection, flashing and calibration
+- **[USER_GUIDE.md](USER_GUIDE.md)** - Touchscreen, web UI and everyday operation
+- **[DIAGNOSTICS_AND_DATA.md](DIAGNOSTICS_AND_DATA.md)** - Logs, reports and grind history
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
 - **[GRINDER_COMPATIBILITY.md](GRINDER_COMPATIBILITY.md)** - Adapting to different grinder models
 - **[RELEASES.md](RELEASES.md)** - Release process and versioning
