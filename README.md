@@ -127,7 +127,7 @@ for longer-term archives and recovery workflows.
 > do so. Build and use it at your own risk.
 
 1. **Check compatibility and collect the parts.** Start with the
-   [parts list](docs/DOC.md#-parts-list) and
+   [parts list](docs/HARDWARE_INSTALLATION.md#parts-list) and
    [grinder compatibility matrix](docs/GRINDER_COMPATIBILITY.md).
 2. **Print the mounting parts.** Use the included STL files and review the
    [community 3D-print designs](docs/3D_PRINTS.md).

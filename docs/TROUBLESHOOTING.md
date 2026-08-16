@@ -160,7 +160,8 @@ a scale that stopped responding immediately after a wiring mistake.
    cell or ESP32 board to isolate the remaining component. Do not keep swapping
    parts onto a module that overheats or pulls down the 3.3 V rail.
 
-The normal wiring map is in [Installation & Wiring](DOC.md#-installation--wiring).
+The normal wiring map is in
+[Hardware and installation](HARDWARE_INSTALLATION.md#installation-and-wiring).
 After installing the replacement, reboot and check **Menu → Diagnostics** or a
 [diagnostic report](#getting-diagnostic-reports). A healthy 10 SPS HX711 clears
 the hardware fault automatically; calibration is still required before weight
@@ -275,7 +276,11 @@ If you want to try a less aggressive approach first:
 Extended taring due to load cell noise prevents grinding from completing within 30-second limit.
 
 ### Diagnosis
-Check **Menu → Diagnostics → "Noise Floor"** section (see [Diagnostics System](DOC.md#diagnostics-system) for details). If "Noise level: Too High" (red text) appears persistently, your load cell has sustained noise issues that will cause slow taring (>2 seconds). A warning icon (⚠) will appear in the top-right corner when sustained noise is detected.
+Check **Menu → Diagnostics → "Noise Floor"** (see
+[Diagnostics System](FIRMWARE_SETUP.md#diagnostics-system) for details). If
+"Noise level: Too High" (red text) appears persistently, your load cell has
+sustained noise issues that will cause slow taring (>2 seconds). A warning icon
+(⚠) will appear in the top-right corner when sustained noise is detected.
 
 ### Resolution
 1. **Check load cell wiring:**
