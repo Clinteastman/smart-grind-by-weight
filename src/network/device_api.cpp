@@ -133,18 +133,32 @@ void DeviceApi::update() {
     last_publish_ms_ = now;
 
     const String message = build_state_message();
-    for (auto& slot : client_ids_) {
+    for (size_t index = 0; index < MAX_CLIENTS; ++index) {
+        auto& slot = client_ids_[index];
         const uint32_t id = slot.load();
-        if (id == 0) continue;
+        if (id == 0) {
+            backpressure_skips_[index].store(0);
+            continue;
+        }
         if (!websocket_.hasClient(id)) {
             slot.store(0);
+            backpressure_skips_[index].store(0);
             continue;
         }
         if (!websocket_.availableForWrite(id)) {
-            websocket_.close(id, 1013, "client too slow");
-            slot.store(0);
+            uint8_t skipped = backpressure_skips_[index].load();
+            if (skipped < MAX_CONSECUTIVE_BACKPRESSURE_SKIPS) ++skipped;
+            backpressure_skips_[index].store(skipped);
+            if (skipped >= MAX_CONSECUTIVE_BACKPRESSURE_SKIPS) {
+                LOG_BLE("[WEB] Closing WebSocket client %lu after sustained backpressure\n",
+                        static_cast<unsigned long>(id));
+                websocket_.close(id, 1013, "client remained too slow");
+                slot.store(0);
+                backpressure_skips_[index].store(0);
+            }
             continue;
         }
+        backpressure_skips_[index].store(0);
         websocket_.text(id, message);
     }
 }
@@ -273,9 +287,11 @@ void DeviceApi::handle_event(AsyncWebSocket*, AsyncWebSocketClient* client,
 }
 
 void DeviceApi::add_client(AsyncWebSocketClient* client) {
-    for (auto& slot : client_ids_) {
+    for (size_t index = 0; index < MAX_CLIENTS; ++index) {
+        auto& slot = client_ids_[index];
         uint32_t empty = 0;
         if (slot.compare_exchange_strong(empty, client->id())) {
+            backpressure_skips_[index].store(0);
             client->keepAlivePeriod(20);
             client->text(build_state_message());
             return;
@@ -285,9 +301,12 @@ void DeviceApi::add_client(AsyncWebSocketClient* client) {
 }
 
 void DeviceApi::remove_client(uint32_t client_id) {
-    for (auto& slot : client_ids_) {
+    for (size_t index = 0; index < MAX_CLIENTS; ++index) {
+        auto& slot = client_ids_[index];
         uint32_t expected = client_id;
-        slot.compare_exchange_strong(expected, 0);
+        if (slot.compare_exchange_strong(expected, 0)) {
+            backpressure_skips_[index].store(0);
+        }
     }
 }
 

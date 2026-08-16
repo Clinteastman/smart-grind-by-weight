@@ -66,6 +66,7 @@ private:
 
     static constexpr size_t MAX_CLIENTS = 4;
     static constexpr uint32_t PUBLISH_INTERVAL_MS = 100;
+    static constexpr uint8_t MAX_CONSECUTIVE_BACKPRESSURE_SKIPS = 50;
 
     AsyncWebSocket websocket_{"/ws"};
     HardwareManager* hardware_ = nullptr;
@@ -75,6 +76,7 @@ private:
     SemaphoreHandle_t settings_mutex_ = nullptr;
     String settings_json_cache_;
     std::atomic<uint32_t> client_ids_[MAX_CLIENTS]{};
+    std::atomic<uint8_t> backpressure_skips_[MAX_CLIENTS]{};
     uint32_t last_publish_ms_ = 0;
     std::atomic<uint32_t> sequence_{0};
     std::atomic<bool> settings_cache_dirty_{false};
