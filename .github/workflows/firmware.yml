@@ -3,7 +3,15 @@ name: Firmware
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'media/**'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'media/**'
   workflow_dispatch:
 
 permissions:
