@@ -8,6 +8,11 @@
 [![Hardware](https://img.shields.io/badge/hardware-Waveshare%20V1%20%7C%20V2-6f42c1)](docs/GRINDER_COMPATIBILITY.md)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
+> [!TIP]
+> **Using Home Assistant?** Add automatic discovery, live local-push sensors,
+> grinder controls and firmware-update reporting with the companion
+> **[Smart Grind by Weight Home Assistant integration →](https://github.com/Clinteastman/smart-grind-home-assistant)**
+
 Turn a compatible coffee grinder into a precise, touch-controlled
 grind-by-weight system using a Waveshare ESP32-S3 AMOLED board and load cell.
 Smart Grind learns the grinder's live flow and stopping delay, switches the
