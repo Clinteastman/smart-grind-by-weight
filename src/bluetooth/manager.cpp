@@ -1419,6 +1419,9 @@ void BluetoothManager::generate_diagnostic_report() {
         bool noise_acceptable = weight_sensor->noise_level_diagnostic();
         float cal_factor = weight_sensor->get_calibration_factor();
         bool is_calibrated = weight_sensor->is_calibrated();
+        int32_t raw_adc = weight_sensor->get_raw_adc_instant();
+        uint32_t adc_headroom = weight_sensor->get_adc_headroom_counts();
+        bool adc_near_saturation = weight_sensor->is_adc_near_saturation();
 
         // Get motor latency
         float motor_latency = grind_controller.get_motor_response_latency();
@@ -1427,6 +1430,9 @@ void BluetoothManager::generate_diagnostic_report() {
             "[RUNTIME DIAGNOSTICS]\n"
             "  Load Cell Status: %s\n"
             "  Calibration Factor: %.2f\n"
+            "  Raw ADC: %ld\n"
+            "  ADC Headroom: %lu counts\n"
+            "  ADC Near Saturation: %s\n"
             "  Std Dev (g): %.4f\n"
             "  Std Dev (ADC): %ld\n"
             "  Noise Level: %s\n"
@@ -1434,6 +1440,9 @@ void BluetoothManager::generate_diagnostic_report() {
             "\n",
             is_calibrated ? "Calibrated" : "NOT CALIBRATED",
             cal_factor,
+            (long)raw_adc,
+            (unsigned long)adc_headroom,
+            adc_near_saturation ? "YES - check wiring/preload" : "No",
             std_dev_g,
             (long)std_dev_adc,
             noise_acceptable ? "OK" : "Too High",
