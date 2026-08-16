@@ -17,6 +17,7 @@ struct DeviceSettingsUpdate {
     float profile_weights[3]{};
     float profile_times[3]{};
     bool auto_start = false;
+    float auto_start_threshold_g = 50.0f;
     bool auto_return = false;
     int purge_mode = 1;
     float purge_amount_g = 1.0f;
@@ -31,6 +32,7 @@ struct DeviceSettingsUpdate {
     uint16_t screensaver_idle_timeout_s = 300;
     uint8_t screensaver_startup_timeout_s = 3;
     char screensaver_style[12] = "minimal";
+    char gaggimate_host[64] = "gaggimate.local";
     bool bluetooth_startup = true;
 };
 
@@ -66,6 +68,7 @@ private:
 
     static constexpr size_t MAX_CLIENTS = 4;
     static constexpr uint32_t PUBLISH_INTERVAL_MS = 100;
+    static constexpr uint8_t MAX_CONSECUTIVE_BACKPRESSURE_SKIPS = 50;
 
     AsyncWebSocket websocket_{"/ws"};
     HardwareManager* hardware_ = nullptr;
@@ -75,6 +78,7 @@ private:
     SemaphoreHandle_t settings_mutex_ = nullptr;
     String settings_json_cache_;
     std::atomic<uint32_t> client_ids_[MAX_CLIENTS]{};
+    std::atomic<uint8_t> backpressure_skips_[MAX_CLIENTS]{};
     uint32_t last_publish_ms_ = 0;
     std::atomic<uint32_t> sequence_{0};
     std::atomic<bool> settings_cache_dirty_{false};

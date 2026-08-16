@@ -26,14 +26,14 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build & installation guide](docs/DOC.md#start-here)** ·
-**[What's new in v1.5.3](CHANGELOG.md#153---2026-08-16)** ·
+**[What's new in v1.5.4](CHANGELOG.md#154---2026-08-16)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
-> **v1.5.3** adds native Home Assistant control and automatic on-device update
-> checks, while retaining the Manual grinding, polished browser controls and
-> reliable V1/V2 updates from v1.5.2. Read the
-> [v1.5.3 changelog](CHANGELOG.md#153---2026-08-16) or install it from the
+> **v1.5.4** adds an adjustable automatic-start cup threshold, a live read-only
+> GaggiMate status screensaver and connection-reliability fixes, alongside
+> purge, touch-startup and load-cell diagnostic fixes. Read the
+> [v1.5.4 changelog](CHANGELOG.md#154---2026-08-16) or install it from the
 > [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
 
 <table>
@@ -67,8 +67,12 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   display updates and reliable short-swipe gestures.
 - **Adjustable coast compensation** from 70% to 150%, stored on the grinder;
   the neutral 100% default preserves the original behaviour.
-- **Built-in screensavers** plus custom RGB565 image upload, configurable
-  brightness, startup display and idle timeout.
+- **Configurable automatic-start threshold** for cup or portafilter detection,
+  editable from the touchscreen or web interface with the original 50 g
+  behaviour retained by default.
+- **Built-in screensavers** plus custom RGB565 image upload and an optional
+  live GaggiMate status view, with configurable brightness, startup display
+  and idle timeout.
 - **Local Wi-Fi web app** with light/dark themes, live weight and flow, saved
   dose selection, round start/stop control, settings, grind history, analytics
   and data downloads.

@@ -19,6 +19,11 @@
 #define SIGNAL_TIMEOUT 100             // Signal timeout in ms
 #define TARE_TIMEOUT_MS 2000           // Tare operation timeout
 
+namespace {
+constexpr int32_t kAdcMaximumRaw = 0xFFFFFF;
+constexpr int32_t kAdcSaturationMargin = 0x00FFFF;
+}
+
 WeightSensor::WeightSensor() {
     // Initialize calibration parameters
 #if DEBUG_ENABLE_LOADCELL_MOCK
@@ -408,6 +413,18 @@ int32_t WeightSensor::get_raw_adc_smoothed(uint32_t window_ms) const {
     return raw_filter.get_smoothed_raw(window_ms);
 }
 
+uint32_t WeightSensor::get_adc_headroom_counts() const {
+    if (get_sample_count() == 0) return 0;
+
+    const int32_t raw = get_raw_adc_instant();
+    if (raw < 0 || raw > kAdcMaximumRaw) return 0;
+    return static_cast<uint32_t>(min(raw, kAdcMaximumRaw - raw));
+}
+
+bool WeightSensor::is_adc_near_saturation() const {
+    return get_sample_count() > 0 && get_adc_headroom_counts() <= kAdcSaturationMargin;
+}
+
 // Primary weight readings using CircularBufferMath with single conversion point
 float WeightSensor::get_instant_weight() const {
     return raw_to_weight(raw_filter.get_instant_raw());
@@ -741,6 +758,18 @@ bool WeightSensor::sample_and_feed_filter() {
             // Update instance variables atomically (ESP32 guarantees atomic 32-bit writes)
             current_raw_adc = raw_adc;
             current_weight = raw_to_weight(raw_adc);  // Convert using WeightSensor calibration
+
+            if (raw_adc <= kAdcSaturationMargin ||
+                raw_adc >= kAdcMaximumRaw - kAdcSaturationMargin) {
+                static uint32_t last_saturation_log_ms = 0;
+                if (last_saturation_log_ms == 0 || timestamp - last_saturation_log_ms >= 5000) {
+                    const uint32_t headroom = static_cast<uint32_t>(
+                        min(raw_adc, kAdcMaximumRaw - raw_adc));
+                    LOG_BLE("WeightSensor: HX711 input near ADC rail - raw=%ld, headroom=%lu counts; check load-cell wiring and preload\n",
+                            (long)raw_adc, (unsigned long)headroom);
+                    last_saturation_log_ms = timestamp;
+                }
+            }
             
             // Update temperature if available
             update_temperature_if_available();

@@ -3,6 +3,7 @@
 #include <functional>
 #include <cstdint>
 #include <memory>
+#include "../config/constants.h"
 #include "components/blocking_overlay.h"
 #include "components/ui_operations.h"
 #include "screens/ready_screen.h"
@@ -150,6 +151,7 @@ private:
     struct AutoActionState {
         bool auto_start_enabled = false;
         bool auto_return_enabled = false;
+        float auto_start_threshold_g = USER_AUTO_GRIND_TRIGGER_DELTA_G;
         uint32_t last_auto_start_ms = 0;
         uint32_t last_auto_return_ms = 0;
     } auto_actions_;

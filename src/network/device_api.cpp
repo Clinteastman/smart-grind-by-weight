@@ -1,6 +1,8 @@
 #include "device_api.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <cstring>
 #include <LittleFS.h>
 
@@ -12,6 +14,7 @@
 #include "../hardware/hardware_manager.h"
 #include "../system/screensaver_settings.h"
 #include "device_web_server.h"
+#include "gaggimate_status_client.h"
 
 DeviceApi device_api;
 
@@ -58,6 +61,17 @@ bool websocket_origin_allowed(AsyncWebServerRequest* request) {
     const AsyncWebHeader* origin_header = request->getHeader("Origin");
     if (!origin_header) return false;
     return origin_header->value() == ("http://" + request->host());
+}
+
+bool valid_local_host(const String& host) {
+    if (host.isEmpty() || host.length() > 63) return false;
+    for (size_t index = 0; index < host.length(); ++index) {
+        const char value = host[index];
+        if (!isalnum(static_cast<unsigned char>(value)) && value != '.' && value != '-') {
+            return false;
+        }
+    }
+    return true;
 }
 
 const char* api_phase_name(const GrindController& controller) {
@@ -133,18 +147,32 @@ void DeviceApi::update() {
     last_publish_ms_ = now;
 
     const String message = build_state_message();
-    for (auto& slot : client_ids_) {
+    for (size_t index = 0; index < MAX_CLIENTS; ++index) {
+        auto& slot = client_ids_[index];
         const uint32_t id = slot.load();
-        if (id == 0) continue;
+        if (id == 0) {
+            backpressure_skips_[index].store(0);
+            continue;
+        }
         if (!websocket_.hasClient(id)) {
             slot.store(0);
+            backpressure_skips_[index].store(0);
             continue;
         }
         if (!websocket_.availableForWrite(id)) {
-            websocket_.close(id, 1013, "client too slow");
-            slot.store(0);
+            uint8_t skipped = backpressure_skips_[index].load();
+            if (skipped < MAX_CONSECUTIVE_BACKPRESSURE_SKIPS) ++skipped;
+            backpressure_skips_[index].store(skipped);
+            if (skipped >= MAX_CONSECUTIVE_BACKPRESSURE_SKIPS) {
+                LOG_BLE("[WEB] Closing WebSocket client %lu after sustained backpressure\n",
+                        static_cast<unsigned long>(id));
+                websocket_.close(id, 1013, "client remained too slow");
+                slot.store(0);
+                backpressure_skips_[index].store(0);
+            }
             continue;
         }
+        backpressure_skips_[index].store(0);
         websocket_.text(id, message);
     }
 }
@@ -273,9 +301,11 @@ void DeviceApi::handle_event(AsyncWebSocket*, AsyncWebSocketClient* client,
 }
 
 void DeviceApi::add_client(AsyncWebSocketClient* client) {
-    for (auto& slot : client_ids_) {
+    for (size_t index = 0; index < MAX_CLIENTS; ++index) {
+        auto& slot = client_ids_[index];
         uint32_t empty = 0;
         if (slot.compare_exchange_strong(empty, client->id())) {
+            backpressure_skips_[index].store(0);
             client->keepAlivePeriod(20);
             client->text(build_state_message());
             return;
@@ -285,9 +315,12 @@ void DeviceApi::add_client(AsyncWebSocketClient* client) {
 }
 
 void DeviceApi::remove_client(uint32_t client_id) {
-    for (auto& slot : client_ids_) {
+    for (size_t index = 0; index < MAX_CLIENTS; ++index) {
+        auto& slot = client_ids_[index];
         uint32_t expected = client_id;
-        slot.compare_exchange_strong(expected, 0);
+        if (slot.compare_exchange_strong(expected, 0)) {
+            backpressure_skips_[index].store(0);
+        }
     }
 }
 
@@ -426,6 +459,16 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
         settings.profile_times[i] = value((String("time") + i).c_str()).toFloat();
     }
     settings.auto_start = form_bool(value("auto_start"));
+    if (request->hasParam("auto_start_threshold_g", true)) {
+        settings.auto_start_threshold_g = value("auto_start_threshold_g").toFloat();
+    } else {
+        Preferences auto_preferences;
+        if (auto_preferences.begin("autogrind", true)) {
+            settings.auto_start_threshold_g = auto_preferences.getFloat(
+                "start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G);
+            auto_preferences.end();
+        }
+    }
     settings.auto_return = form_bool(value("auto_return"));
     settings.purge_mode = value("purge_mode").toInt();
     settings.purge_amount_g = value("purge_amount_g").toFloat();
@@ -443,10 +486,17 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
     settings.screensaver_startup_timeout_s = static_cast<uint8_t>(screensaver_startup_timeout_s);
     const String screensaver_style = value("screensaver_style");
     strncpy(settings.screensaver_style, screensaver_style.c_str(), sizeof(settings.screensaver_style) - 1);
+    const String gaggimate_host = request->hasParam("gaggimate_host", true)
+                                      ? value("gaggimate_host")
+                                      : gaggimate_status_client.configured_host();
+    strncpy(settings.gaggimate_host, gaggimate_host.c_str(), sizeof(settings.gaggimate_host) - 1);
     settings.bluetooth_startup = form_bool(value("bluetooth_startup"));
 
     bool valid = settings.current_profile >= 0 && settings.current_profile < USER_PROFILE_COUNT &&
                  settings.grind_mode >= 0 && settings.grind_mode <= 1 &&
+                 std::isfinite(settings.auto_start_threshold_g) &&
+                 settings.auto_start_threshold_g >= USER_AUTO_GRIND_TRIGGER_MIN_G &&
+                 settings.auto_start_threshold_g <= USER_AUTO_GRIND_TRIGGER_MAX_G &&
                  settings.purge_mode >= 0 && settings.purge_mode <= 1 &&
                  std::isfinite(settings.purge_amount_g) &&
                  settings.purge_amount_g >= GRIND_PURGE_AMOUNT_MIN_G &&
@@ -465,7 +515,8 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
                  ScreensaverSettings::is_valid_startup_timeout(settings.screensaver_startup_timeout_s) &&
                  (screensaver_style == "orbit" || screensaver_style == "minimal" ||
                   screensaver_style == "blank" ||
-                  (screensaver_style == "custom" && LittleFS.exists(BLE_IMAGE_FILENAME)));
+                  (screensaver_style == "custom" && LittleFS.exists(BLE_IMAGE_FILENAME)) ||
+                  (screensaver_style == "gaggimate" && valid_local_host(gaggimate_host)));
     for (int i = 0; i < 3 && valid; ++i) {
         valid = std::isfinite(settings.profile_weights[i]) &&
                 profile_controller_->is_weight_valid(settings.profile_weights[i]) &&
@@ -516,6 +567,11 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& settings) {
     };
     put_bool("autogrind", "auto_start", settings.auto_start);
     put_bool("autogrind", "auto_return", settings.auto_return);
+    Preferences auto_preferences;
+    if (auto_preferences.begin("autogrind", false)) {
+        auto_preferences.putFloat("start_delta_g", settings.auto_start_threshold_g);
+        auto_preferences.end();
+    }
     put_bool("logging", "enabled", settings.logging_enabled);
     put_bool("swipe", "enabled", settings.swipe_enabled);
     put_bool("screensaver", "startup", settings.screensaver_startup);
@@ -536,6 +592,11 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& settings) {
     if (screensaver.begin("screensaver", false)) {
         screensaver.putString("style", settings.screensaver_style);
         screensaver.end();
+    }
+    if (!gaggimate_status_client.configure(
+            strcmp(settings.screensaver_style, "gaggimate") == 0,
+            settings.gaggimate_host)) {
+        return false;
     }
     hardware_->get_display()->set_brightness(settings.brightness_percent / 100.0f);
     LOG_BLE("[WEB] Grinder settings updated\n");
@@ -566,6 +627,13 @@ void DeviceApi::refresh_settings_cache() {
         preferences.end();
         return value;
     };
+    auto read_float = [](const char* name_space, const char* key, float fallback) {
+        Preferences preferences;
+        if (!preferences.begin(name_space, true)) return fallback;
+        const float value = preferences.getFloat(key, fallback);
+        preferences.end();
+        return value;
+    };
     Preferences* grinder = hardware_->get_preferences();
     const int purge_mode = grinder->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
     const float purge_amount = grinder->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
@@ -577,6 +645,7 @@ void DeviceApi::refresh_settings_cache() {
         screensaver_style = screensaver_preferences.getString("style", screensaver_style);
         screensaver_preferences.end();
     }
+    const String gaggimate_host = gaggimate_status_client.configured_host();
 
     char json[2048];
     snprintf(json, sizeof(json),
@@ -585,13 +654,14 @@ void DeviceApi::refresh_settings_cache() {
              "{\"id\":0,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f},"
              "{\"id\":1,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f},"
              "{\"id\":2,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f}],"
-             "\"automatic\":{\"start\":%s,\"return\":%s},"
+             "\"automatic\":{\"start\":%s,\"threshold_g\":%.1f,\"return\":%s},"
              "\"purge\":{\"mode\":%d,\"amount_g\":%.2f,\"freshness_hours\":%.2f},"
              "\"coast_ratio\":%.2f,\"logging_enabled\":%s,\"swipe_enabled\":%s,"
              "\"display\":{\"brightness\":%d,\"screensaver_brightness\":%d,"
              "\"screensaver_startup\":%s,\"screensaver_sleep\":%s,"
              "\"screensaver_idle_timeout_s\":%u,\"screensaver_startup_timeout_s\":%u,"
-             "\"screensaver_style\":\"%s\",\"has_custom_screensaver\":%s},"
+             "\"screensaver_style\":\"%s\",\"has_custom_screensaver\":%s,"
+             "\"gaggimate_host\":\"%s\"},"
              "\"bluetooth_startup\":%s}",
              profile_controller_->get_current_profile(),
              profile_controller_->get_grind_mode() == GrindMode::TIME ? "time" : "weight",
@@ -599,6 +669,8 @@ void DeviceApi::refresh_settings_cache() {
              profile_controller_->get_profile_name(1), profile_controller_->get_profile_weight(1), profile_controller_->get_profile_time(1),
              profile_controller_->get_profile_name(2), profile_controller_->get_profile_weight(2), profile_controller_->get_profile_time(2),
              read_bool("autogrind", "auto_start", false) ? "true" : "false",
+             std::clamp(read_float("autogrind", "start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G),
+                        USER_AUTO_GRIND_TRIGGER_MIN_G, USER_AUTO_GRIND_TRIGGER_MAX_G),
              read_bool("autogrind", "auto_return", false) ? "true" : "false",
              purge_mode, purge_amount, freshness, grind_controller_->get_coast_ratio(),
              read_bool("logging", "enabled", true) ? "true" : "false",
@@ -609,6 +681,7 @@ void DeviceApi::refresh_settings_cache() {
              read_bool("screensaver", "sleep", false) ? "true" : "false",
              screensaver_timing.idle_timeout_s, screensaver_timing.startup_timeout_s,
              screensaver_style.c_str(), LittleFS.exists(BLE_IMAGE_FILENAME) ? "true" : "false",
+             gaggimate_host.c_str(),
              read_bool("bluetooth", "startup", true) ? "true" : "false");
     xSemaphoreTake(settings_mutex_, portMAX_DELAY);
     settings_json_cache_ = json;

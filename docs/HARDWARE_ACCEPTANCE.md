@@ -33,6 +33,10 @@ interrupt on this controller and must not be used for the relay.
   the web UI. Confirm the running controller applies them without a reboot and
   that weight activity recorded before the save does not postpone the new
   timeout.
+- Select the GaggiMate status screensaver and confirm it shows idle
+  temperature/readiness, then live phase, elapsed time, pressure and flow
+  during a shot. Turn GaggiMate off and confirm the grinder reports it offline
+  without slowing touch, grinding or its own web interface.
 
 ## 3. Wi-Fi provisioning
 

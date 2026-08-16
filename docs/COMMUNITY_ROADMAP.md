@@ -92,6 +92,8 @@ hardening is kept in separate commits so the provenance remains clear.
 | #106 coast compensation | Integrated with follow-up | Restored the existing neutral `1.0` default instead of changing behaviour to `0.9` |
 | #136 sensor-free time mode and pause | Integrated; supersedes #135 | Added state-ordering, completion and null-safety fixes |
 | #114 screensaver | Integrated with follow-up | Added V2 compatibility, transactional image replacement and explicit upload acknowledgement |
+| Issue #98 configurable auto-start threshold | Integrated independently | Added bounded touchscreen and web settings while retaining the existing 50 g default |
+| Issue #96 automatic profile selection | Future design | Requires a deliberate learn-and-match workflow for multiple cup or portafilter weights; not safe to infer from one threshold |
 | #82 alternate board/display support | Redesign required | The proposed pin/display assumptions conflict with the maintained V1/V2 targets and cannot be safely cherry-picked |
 
 ## Contribution and upstream policy

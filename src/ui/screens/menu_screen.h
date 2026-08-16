@@ -73,6 +73,8 @@ private:
     lv_obj_t* grind_mode_radio_group;
     lv_obj_t* grind_mode_swipe_toggle;
     lv_obj_t* auto_start_toggle;
+    lv_obj_t* auto_start_threshold_slider;
+    lv_obj_t* auto_start_threshold_label;
     lv_obj_t* auto_return_toggle;
     lv_obj_t* grinder_purge_mode_radio_group;
     lv_obj_t* grinder_purge_amount_slider;
@@ -113,6 +115,7 @@ private:
 public:
     static constexpr float kPurgeSliderScale = 10.0f; // Slider uses 0.1g increments
     static constexpr float kCoastRatioSliderScale = 20.0f; // Slider uses 0.05 increments
+    static constexpr float kAutoStartThresholdSliderScale = 1.0f / USER_AUTO_GRIND_TRIGGER_STEP_G;
 
     void create(BluetoothManager* bluetooth, GrindController* grind_ctrl, GrindingScreen* grind_screen, class HardwareManager* hw_mgr, DiagnosticsController* diag_ctrl);
     void show();
@@ -127,6 +130,7 @@ public:
     void update_bluetooth_startup_toggle();
     void update_logging_toggle();
     void update_grind_mode_toggles();
+    void update_auto_start_threshold_label(float threshold_g);
     void update_grinder_purge_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
     void update_coast_ratio_label(float ratio);
@@ -154,6 +158,7 @@ public:
     lv_obj_t* get_grind_mode_radio_group() const { return grind_mode_radio_group; }
     lv_obj_t* get_grind_mode_swipe_toggle() const { return grind_mode_swipe_toggle; }
     lv_obj_t* get_auto_start_toggle() const { return auto_start_toggle; }
+    lv_obj_t* get_auto_start_threshold_slider() const { return auto_start_threshold_slider; }
     lv_obj_t* get_auto_return_toggle() const { return auto_return_toggle; }
     lv_obj_t* get_grinder_purge_mode_radio_group() const { return grinder_purge_mode_radio_group; }
     lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }

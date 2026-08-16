@@ -10,12 +10,12 @@ struct TouchData {
 
 class TouchDriver {
 private:
-    TouchData last_touch;
-    bool initialized;
-    bool disabled;
+    TouchData last_touch{0, 0, false};
+    bool initialized = false;
+    bool disabled = false;
     
     // Touch activity tracking
-    uint32_t last_touch_time;
+    uint32_t last_touch_time = 0;
 
 public:
     void init();

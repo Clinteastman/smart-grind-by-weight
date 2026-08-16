@@ -1,6 +1,7 @@
 #include "ui_manager.h"
 #include <Arduino.h>
 #include <Preferences.h>
+#include <algorithm>
 #include <cmath>
 #include "../config/constants.h"
 #include "screens/calibration_screen.h"
@@ -412,6 +413,10 @@ void UIManager::refresh_auto_action_settings() {
     prefs.begin("autogrind", true);
     auto_actions_.auto_start_enabled = prefs.getBool("auto_start", false);
     auto_actions_.auto_return_enabled = prefs.getBool("auto_return", false);
+    auto_actions_.auto_start_threshold_g = prefs.getFloat("start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G);
+    auto_actions_.auto_start_threshold_g = std::clamp(auto_actions_.auto_start_threshold_g,
+                                                      USER_AUTO_GRIND_TRIGGER_MIN_G,
+                                                      USER_AUTO_GRIND_TRIGGER_MAX_G);
     prefs.end();
 
     uint32_t now = millis();
@@ -462,15 +467,16 @@ void UIManager::update_auto_actions() {
                     if (sensor->get_weight_delta(kExtendedWindow, &delta_g, &samples_used, &span_ms) &&
                         samples_used >= kMinSamplesForWindow &&
                         span_ms <= kExtendedWindow &&
-                        delta_g >= USER_AUTO_GRIND_TRIGGER_DELTA_G) {
+                        delta_g >= auto_actions_.auto_start_threshold_g) {
 
                         const bool rearm_ready =
                             (now - auto_actions_.last_auto_start_ms) >= USER_AUTO_GRIND_REARM_DELAY_MS;
 
                         if (rearm_ready) {
-                            LOG_BLE("[AUTO ACTION] Trigger confirmed: %.1fg over %lums with settled weight - auto-starting grind\n",
+                            LOG_BLE("[AUTO ACTION] Trigger confirmed: %.1fg over %lums (threshold %.1fg) with settled weight - auto-starting grind\n",
                                     static_cast<double>(delta_g),
-                                    static_cast<unsigned long>(span_ms));
+                                    static_cast<unsigned long>(span_ms),
+                                    static_cast<double>(auto_actions_.auto_start_threshold_g));
                             auto_actions_.last_auto_start_ms = now;
                             grinding_controller_->handle_grind_button();
                         }

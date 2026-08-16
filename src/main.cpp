@@ -19,6 +19,7 @@
 #include "network/network_manager.h"
 #include "network/provisioning_service.h"
 #include "network/device_web_server.h"
+#include "network/gaggimate_status_client.h"
 
 HardwareManager hardware_manager;
 StateMachine state_machine;
@@ -122,6 +123,7 @@ void setup() {
     // Wi-Fi and HTTP services start asynchronously so they never block the
     // real-time scale, motor, touch, or rendering tasks.
     network_manager.init(hardware_manager.get_preferences());
+    gaggimate_status_client.init();
     device_web_server.init(&hardware_manager, &grind_controller, &bluetooth_manager, &profile_controller);
     provisioning_service.init(hardware_manager.get_preferences(), &device_web_server.server());
     

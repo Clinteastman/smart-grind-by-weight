@@ -156,6 +156,8 @@ public:
     int32_t get_raw_adc_instant() const;                    // Latest raw ADC reading
     int32_t get_raw_adc_smoothed(uint32_t window_ms) const; // Smoothed raw ADC over time window
     int32_t get_raw_adc_data() const;  // Direct hardware access
+    uint32_t get_adc_headroom_counts() const;               // Distance from the nearest ADC rail
+    bool is_adc_near_saturation() const;                     // True when a valid sample is near either rail
     
     // Primary weight readings using CircularBufferMath with single conversion point
     float get_instant_weight() const;                        // Latest single sample converted to weight

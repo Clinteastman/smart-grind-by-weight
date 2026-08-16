@@ -163,7 +163,8 @@ original precision; completed graphs are replaced with the full recorded trace.
 - `GET /api/v1/status`: device, build, network, memory and OTA progress state,
   plus the WebSocket path, protocol level and advertised command capabilities.
 - `GET /api/v1/settings`: the three grinder profiles and the matching on-device
-  automation, purge, display, screensaver, logging, swipe and Bluetooth values.
+  automation, purge, display, screensaver, optional GaggiMate host, logging,
+  swipe and Bluetooth values.
 - `POST /api/v1/settings`: validates a complete form and queues its application
   on the normal UI task. It is refused while grinding.
 - `POST /api/v1/profile`: selects Single, Double or Custom while idle, persists
@@ -185,6 +186,11 @@ authentication and signed images remain roadmap work. History and image access
 are refused while grind logging, OTA or another transfer could contend for the
 filesystem. HTTP endpoints do not start the motor; starts use the bounded
 WebSocket command queue and controller path described above.
+
+The optional GaggiMate screensaver is a separate outbound local-network
+client. It consumes GaggiMate's existing `/ws` status stream and uses
+`/api/status` as a temperature-only compatibility fallback. It never sends
+control commands to the espresso machine.
 
 `GET /api/v1/status` also exposes a stable 12-character device identifier,
 model and hardware revision. The same identifier is advertised as the `id` TXT

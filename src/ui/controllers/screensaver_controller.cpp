@@ -2,7 +2,9 @@
 #include "../../config/constants.h"
 #include "../../config/logging.h"
 #include "../../system/screensaver_settings.h"
+#include "../../network/gaggimate_status_client.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <LittleFS.h>
 #include <Preferences.h>
@@ -14,6 +16,7 @@ ScreensaverController::ScreensaverController()
     , image_widget_(nullptr)
     , primary_label_(nullptr)
     , secondary_label_(nullptr)
+    , detail_label_(nullptr)
     , animation_timer_(nullptr)
     , image_buffer_(nullptr)
     , animation_step_(0)
@@ -44,7 +47,8 @@ String ScreensaverController::selected_style() const {
     if (!preferences.begin("screensaver", true)) return fallback;
     const String style = preferences.getString("style", fallback);
     preferences.end();
-    if (style == "custom" || style == "minimal" || style == "orbit" || style == "blank") {
+    if (style == "custom" || style == "minimal" || style == "orbit" ||
+        style == "blank" || style == "gaggimate") {
         return style;
     }
     return fallback;
@@ -129,6 +133,7 @@ void ScreensaverController::hide() {
         image_widget_ = nullptr;
         primary_label_ = nullptr;
         secondary_label_ = nullptr;
+        detail_label_ = nullptr;
     }
 
     free_image();
@@ -148,6 +153,31 @@ bool ScreensaverController::create_builtin(const String& style) {
         lv_obj_set_style_text_font(primary_label_, &lv_font_montserrat_32, 0);
         lv_obj_align(primary_label_, LV_ALIGN_TOP_LEFT, 22, 22);
         animation_timer_ = lv_timer_create(animation_timer_callback, 2500, this);
+        return animation_timer_ != nullptr;
+    }
+
+    if (style == "gaggimate") {
+        lv_label_set_text(primary_label_, "--.- C");
+        lv_obj_set_style_text_font(primary_label_, &lv_font_montserrat_32, 0);
+        lv_obj_align(primary_label_, LV_ALIGN_CENTER, 0, -46);
+
+        secondary_label_ = lv_label_create(overlay_screen_);
+        if (!secondary_label_) return false;
+        lv_label_set_text(secondary_label_, "GAGGIMATE\nConnecting...");
+        lv_obj_set_style_text_font(secondary_label_, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_align(secondary_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(secondary_label_, lv_color_hex(THEME_COLOR_PRIMARY), 0);
+        lv_obj_align(secondary_label_, LV_ALIGN_CENTER, 0, 14);
+
+        detail_label_ = lv_label_create(overlay_screen_);
+        if (!detail_label_) return false;
+        lv_label_set_text(detail_label_, "Target --.- C");
+        lv_obj_set_style_text_font(detail_label_, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_align(detail_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(detail_label_, lv_color_hex(0xAAB5A6), 0);
+        lv_obj_align(detail_label_, LV_ALIGN_CENTER, 0, 68);
+
+        animation_timer_ = lv_timer_create(animation_timer_callback, 1000, this);
         return animation_timer_ != nullptr;
     }
 
@@ -182,6 +212,43 @@ void ScreensaverController::update_builtin() {
         static const int16_t x_offsets[] = {22, 0, -22, -22, -22, 0, 22, 22};
         static const int16_t y_offsets[] = {22, 22, 22, 0, -22, -22, -22, 0};
         lv_obj_align(primary_label_, alignments[animation_step_], x_offsets[animation_step_], y_offsets[animation_step_]);
+    } else if (style_ == "gaggimate") {
+        const GaggiMateStatus status = gaggimate_status_client.status();
+        const int8_t shift_x = static_cast<int8_t>((animation_step_ % 3) - 1) * 3;
+        const int8_t shift_y = static_cast<int8_t>(((animation_step_ / 2) % 3) - 1) * 2;
+
+        char primary[32];
+        char secondary[64];
+        char detail[96];
+        if (!status.online) {
+            snprintf(primary, sizeof(primary), "--.- C");
+            snprintf(secondary, sizeof(secondary), "GAGGIMATE\nOffline");
+            snprintf(detail, sizeof(detail), "Check Wi-Fi or host");
+        } else if (status.active) {
+            snprintf(primary, sizeof(primary), "%lu.%lus",
+                     static_cast<unsigned long>(status.elapsed_ms / 1000),
+                     static_cast<unsigned long>((status.elapsed_ms % 1000) / 100));
+            snprintf(secondary, sizeof(secondary), "GAGGIMATE\n%s", status.phase);
+            snprintf(detail, sizeof(detail), "%.1f bar  %.1f ml/s\n%.1f C",
+                     status.pressure, status.flow, status.current_temperature);
+        } else {
+            const bool ready = status.target_temperature > 0.0f &&
+                               fabsf(status.current_temperature - status.target_temperature) <= 1.0f;
+            snprintf(primary, sizeof(primary), "%.1f C", status.current_temperature);
+            snprintf(secondary, sizeof(secondary), "GAGGIMATE\n%s", ready ? "Ready" : "Heating");
+            if (status.profile[0] != '\0') {
+                snprintf(detail, sizeof(detail), "Target %.1f C\n%s",
+                         status.target_temperature, status.profile);
+            } else {
+                snprintf(detail, sizeof(detail), "Target %.1f C", status.target_temperature);
+            }
+        }
+        lv_label_set_text(primary_label_, primary);
+        lv_label_set_text(secondary_label_, secondary);
+        lv_label_set_text(detail_label_, detail);
+        lv_obj_align(primary_label_, LV_ALIGN_CENTER, shift_x, -46 + shift_y);
+        lv_obj_align(secondary_label_, LV_ALIGN_CENTER, shift_x, 14 + shift_y);
+        lv_obj_align(detail_label_, LV_ALIGN_CENTER, shift_x, 68 + shift_y);
     } else {
         static const int8_t offsets[][2] = {{0, 0}, {4, 2}, {-3, 4}, {-4, -2}, {3, -4}, {1, 3}, {-2, -3}, {0, 0}};
         lv_obj_align(primary_label_, LV_ALIGN_CENTER, offsets[animation_step_][0], offsets[animation_step_][1]);
