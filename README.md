@@ -64,8 +64,8 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
 - **Wi-Fi setup on the device** with network scanning, a secured captive portal,
   QR access, Improv Serial provisioning and `smartgrind.local` discovery.
 - **One-click firmware updates from GitHub**, with automatic stable-release
-  checks and strict V1/V2 image selection, plus manual Wi-Fi/Bluetooth upload
-  and USB recovery.
+  checks, a touchscreen update indicator and on-device installer, strict V1/V2
+  image selection, plus manual Wi-Fi/Bluetooth upload and USB recovery.
 - **On-device diagnostics** with downloadable retained startup/runtime logs.
 - **V1 and V2 Waveshare support**, reproducible CI builds, a public web flasher
   and a deterministic Windows desktop simulator for development.
@@ -84,8 +84,11 @@ current grind, review its full recorded trace, change grinder/display settings
 and install the latest stable firmware from a browser on the same network. The
 System & updates page checks this project's GitHub releases and selects the
 matching V1 or V2 application image automatically; manual upload remains
-available as an advanced fallback. If mDNS is unavailable, use the IP address
-shown on the grinder's Wi-Fi screen.
+available as an advanced fallback. The grinder also checks in the background
+while idle: a green refresh symbol appears when an update is ready, and either
+that symbol or **Menu → Wi-Fi → Install update** starts the same guarded update
+flow. If mDNS is unavailable, use the IP address shown on the grinder's Wi-Fi
+screen.
 
 <table>
 <tr>

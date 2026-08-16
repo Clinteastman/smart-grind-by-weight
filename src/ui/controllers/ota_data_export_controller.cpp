@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <cstring>
 
+#include "../../network/device_web_server.h"
 #include "../ui_manager.h"
 
 OtaDataExportController::OtaDataExportController(UIManager* manager)
@@ -28,9 +29,26 @@ void OtaDataExportController::register_events() {
 }
 
 bool OtaDataExportController::update() {
-    if (!ui_manager_ || !ui_manager_->bluetooth_manager) {
+    if (!ui_manager_) {
         return false;
     }
+
+    if (device_web_server.is_ota_preparing() || device_web_server.is_ota_active()) {
+        if (!ui_manager_->state_machine->is_state(UIState::OTA_UPDATE)) {
+            ui_manager_->ota_screen.show_ota_mode();
+            ui_manager_->switch_to_state(UIState::OTA_UPDATE);
+        }
+        if (device_web_server.is_ota_active()) {
+            ui_manager_->ota_screen.update_progress(device_web_server.ota_progress_percent());
+            ui_manager_->ota_screen.update_status("Installing update...\nDo not remove power.");
+        } else {
+            ui_manager_->ota_screen.update_progress(0);
+            ui_manager_->ota_screen.update_status("Preparing update...");
+        }
+        return true;
+    }
+
+    if (!ui_manager_->bluetooth_manager) return false;
 
     auto* bluetooth = ui_manager_->bluetooth_manager;
 

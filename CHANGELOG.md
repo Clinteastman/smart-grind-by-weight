@@ -4,7 +4,18 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
-## [1.5.3] - 2026-08-15
+## [1.5.3] - 2026-08-16
+
+### Firmware updates
+
+- Added a background stable-release check that runs only while the grinder is
+  idle and uses the flashing site's tiny hardware-aware release manifest.
+- Added a green refresh indicator when newer firmware is available. Tap it, or
+  use the install button on **Menu → Wi-Fi**, to confirm and install the correct
+  V1 or V2 image without opening the web interface.
+- Reused the existing guarded Wi-Fi OTA path, including idle-state checks,
+  temporary Bluetooth shutdown, image validation, progress display and a safe
+  restart after installation.
 
 ### Home Assistant integration
 

@@ -52,9 +52,13 @@ private:
     lv_obj_t* network_status_label;
     lv_obj_t* network_detail_label;
     lv_obj_t* network_qr;
+    lv_obj_t* network_update_label;
+    lv_obj_t* network_update_button;
     String network_status_text;
     String network_detail_text;
     String network_qr_payload;
+    String network_update_text;
+    bool network_update_button_visible;
     lv_obj_t* logging_toggle;
     lv_obj_t* brightness_normal_slider;
     lv_obj_t* brightness_screensaver_slider;
@@ -143,6 +147,7 @@ public:
     lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
+    lv_obj_t* get_network_update_button() const { return network_update_button; }
     lv_obj_t* get_diag_reset_button() const { return diag_reset_button; }
     lv_obj_t* get_brightness_normal_slider() const { return brightness_normal_slider; }
     lv_obj_t* get_brightness_screensaver_slider() const { return brightness_screensaver_slider; }

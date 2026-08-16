@@ -40,6 +40,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::MENU_DIAGNOSTIC_RESET, [this](lv_event_t*) { handle_diagnostics_reset(); });
     EventBridgeLVGL::register_handler(ET::MENU_BACK, [this](lv_event_t*) { handle_back(); });
     EventBridgeLVGL::register_handler(ET::MENU_REFRESH_STATS, [this](lv_event_t*) { handle_refresh_stats(); });
+    EventBridgeLVGL::register_handler(ET::MENU_INSTALL_UPDATE, [this](lv_event_t*) { handle_install_update(); });
 
     EventBridgeLVGL::register_handler(ET::BLE_TOGGLE, [this](lv_event_t*) { handle_ble_toggle(); });
     EventBridgeLVGL::register_handler(ET::BLE_STARTUP_TOGGLE, [this](lv_event_t*) { handle_ble_startup_toggle(); });
@@ -68,6 +69,12 @@ void MenuUIController::register_events() {
     // Note: Event registration for menu widgets is done in the page creation functions
     // (menu_screen.cpp) because the menu is created lazily and destroyed on hide.
     // Attempting to register events here would fail silently since widgets don't exist yet.
+}
+
+void MenuUIController::handle_install_update() {
+    if (ui_manager_ && ui_manager_->status_indicator_controller_) {
+        ui_manager_->status_indicator_controller_->prompt_firmware_update();
+    }
 }
 
 void MenuUIController::update() {

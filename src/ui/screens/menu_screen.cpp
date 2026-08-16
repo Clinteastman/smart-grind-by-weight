@@ -52,9 +52,13 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     network_status_label = nullptr;
     network_detail_label = nullptr;
     network_qr = nullptr;
+    network_update_label = nullptr;
+    network_update_button = nullptr;
     network_status_text.clear();
     network_detail_text.clear();
     network_qr_payload.clear();
+    network_update_text.clear();
+    network_update_button_visible = false;
     grinder_purge_mode_radio_group = nullptr;
     grinder_purge_amount_slider = nullptr;
     grinder_purge_amount_label = nullptr;
@@ -353,11 +357,29 @@ void MenuScreen::create_network_page(lv_obj_t* parent) {
     lv_qrcode_set_quiet_zone(network_qr, true);
     lv_obj_add_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
 
+    network_update_label = lv_label_create(parent);
+    lv_label_set_text(network_update_label, "");
+    lv_obj_set_width(network_update_label, LV_PCT(90));
+    lv_label_set_long_mode(network_update_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(network_update_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(network_update_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(network_update_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_add_flag(network_update_label, LV_OBJ_FLAG_HIDDEN);
+
+    network_update_button = create_button(parent, LV_SYMBOL_REFRESH "  INSTALL UPDATE",
+                                          lv_color_hex(THEME_COLOR_SUCCESS), 260, 72,
+                                          &lv_font_montserrat_24);
+    lv_obj_add_event_cb(
+        network_update_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+        reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::MENU_INSTALL_UPDATE)));
+    lv_obj_add_flag(network_update_button, LV_OBJ_FLAG_HIDDEN);
+
     update_network_status();
 }
 
 void MenuScreen::update_network_status() {
-    if (!network_status_label || !network_detail_label || !network_qr) return;
+    if (!network_status_label || !network_detail_label || !network_qr ||
+        !network_update_label || !network_update_button) return;
 
     String status;
     String detail;
@@ -420,6 +442,46 @@ void MenuScreen::update_network_status() {
             network_qr_payload = qr_payload;
         }
         lv_obj_clear_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    String update_text;
+    bool show_update_button = false;
+    if (network_manager.state() == NetworkState::WIFI_CONNECTED) {
+        switch (device_web_server.firmware_update_state()) {
+            case FirmwareUpdateState::UNKNOWN:
+                update_text = "Update check will run while idle.";
+                break;
+            case FirmwareUpdateState::CHECKING:
+                update_text = "Checking for updates...";
+                break;
+            case FirmwareUpdateState::CURRENT:
+                update_text = "Firmware is up to date.";
+                break;
+            case FirmwareUpdateState::AVAILABLE:
+                update_text = device_web_server.latest_release_tag() + " is ready to install.";
+                show_update_button = true;
+                break;
+            case FirmwareUpdateState::FAILED:
+                update_text = "Update check unavailable; it will retry.";
+                break;
+        }
+    }
+    if (update_text != network_update_text) {
+        network_update_text = update_text;
+        lv_label_set_text(network_update_label, update_text.c_str());
+        if (update_text.isEmpty()) {
+            lv_obj_add_flag(network_update_label, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(network_update_label, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (show_update_button != network_update_button_visible) {
+        network_update_button_visible = show_update_button;
+        if (show_update_button) {
+            lv_obj_clear_flag(network_update_button, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(network_update_button, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
 }
