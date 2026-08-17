@@ -125,7 +125,8 @@ struct GrindSession {
     uint8_t  max_pulse_attempts;      // Configured max pulse attempts
     uint8_t  pulse_count;             // Pulses executed
     uint8_t  termination_reason;      // See GrindTerminationReason
-    uint8_t  reserved[3];             // Alignment + future expansion
+    uint8_t  finish_mode;             // GrindFinishMode used for this session
+    uint8_t  reserved[2];             // Future expansion
     char     result_status[16];       // Null-terminated status string
 
     GrindSession() {

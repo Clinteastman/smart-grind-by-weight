@@ -16,6 +16,19 @@ enum class GrinderPurgeMode {
     PURGE = 1   // Saturate grinder, prompt user to discard stale grinds
 };
 
+// Weight-mode finishing policy. Precision preserves the existing correction
+// pulses; Predictive completes after the first continuous predictive stop.
+enum class GrindFinishMode {
+    PRECISION = 0,
+    PREDICTIVE = 1
+};
+
+constexpr bool grind_finish_uses_correction_pulses(GrindFinishMode mode) {
+    return mode == GrindFinishMode::PRECISION;
+}
+
+#define GRIND_FINISH_MODE_DEFAULT static_cast<int>(GrindFinishMode::PRECISION)
+
 // Grinder saturation defaults and ranges
 #define GRIND_PURGE_MODE_DEFAULT static_cast<int>(GrinderPurgeMode::PURGE)
 #define GRIND_PURGE_AMOUNT_DEFAULT_G 1.0f

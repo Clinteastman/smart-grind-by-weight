@@ -54,6 +54,10 @@ and chart layouts and for an animated Ready-screen tab swipe. They count LVGL
 flushes and flushed pixels, protecting the UI from accidentally returning to
 excessive redraws or sluggish page transitions.
 
+A finish-mode policy check also protects the two weight-mode choices: Precision
+continues into correction pulses, while Predictive completes pulse-free after
+the continuous stop and settling sequence.
+
 The simulator does not execute built ESP32 `.bin` files; those contain Xtensa
 machine code and cannot run in a native Windows process. The complete
 compatibility gate is therefore:

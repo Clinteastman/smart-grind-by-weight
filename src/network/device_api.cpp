@@ -454,6 +454,16 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
     DeviceSettingsUpdate settings{};
     settings.current_profile = value("current_profile").toInt();
     settings.grind_mode = value("grind_mode").toInt();
+    if (request->hasParam("finish_mode", true)) {
+        settings.finish_mode = value("finish_mode").toInt();
+    } else {
+        Preferences* grinder_preferences = hardware_->get_preferences();
+        settings.finish_mode = grinder_preferences
+                                   ? grinder_preferences->getInt(
+                                         GrindController::PREF_KEY_FINISH_MODE,
+                                         GRIND_FINISH_MODE_DEFAULT)
+                                   : GRIND_FINISH_MODE_DEFAULT;
+    }
     for (int i = 0; i < 3; ++i) {
         settings.profile_weights[i] = value((String("weight") + i).c_str()).toFloat();
         settings.profile_times[i] = value((String("time") + i).c_str()).toFloat();
@@ -497,6 +507,8 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
 
     bool valid = settings.current_profile >= 0 && settings.current_profile < USER_PROFILE_COUNT &&
                  settings.grind_mode >= 0 && settings.grind_mode <= 1 &&
+                 settings.finish_mode >= static_cast<int>(GrindFinishMode::PRECISION) &&
+                 settings.finish_mode <= static_cast<int>(GrindFinishMode::PREDICTIVE) &&
                  std::isfinite(settings.auto_start_threshold_g) &&
                  settings.auto_start_threshold_g >= USER_AUTO_GRIND_TRIGGER_MIN_G &&
                  settings.auto_start_threshold_g <= USER_AUTO_GRIND_TRIGGER_MAX_G &&
@@ -566,6 +578,7 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& settings) {
     grinder->putInt(GrindController::PREF_KEY_GRINDER_MODE, settings.purge_mode);
     grinder->putFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, settings.purge_amount_g);
     grinder->putFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, settings.freshness_hours);
+    grinder->putInt(GrindController::PREF_KEY_FINISH_MODE, settings.finish_mode);
     grind_controller_->save_coast_ratio(settings.coast_ratio);
     grind_controller_->save_motor_latency(settings.motor_latency_ms);
 
@@ -648,6 +661,10 @@ void DeviceApi::refresh_settings_cache() {
     const int purge_mode = grinder->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
     const float purge_amount = grinder->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
     const float freshness = grinder->getFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, GRIND_FRESHNESS_DEFAULT_HOURS);
+    int finish_mode = grinder->getInt(GrindController::PREF_KEY_FINISH_MODE, GRIND_FINISH_MODE_DEFAULT);
+    if (finish_mode != static_cast<int>(GrindFinishMode::PREDICTIVE)) {
+        finish_mode = static_cast<int>(GrindFinishMode::PRECISION);
+    }
     const ScreensaverTimingSettings screensaver_timing = ScreensaverSettings::load_timing();
     Preferences screensaver_preferences;
     String screensaver_style = LittleFS.exists(BLE_IMAGE_FILENAME) ? "custom" : "minimal";
@@ -659,7 +676,7 @@ void DeviceApi::refresh_settings_cache() {
 
     char json[2048];
     snprintf(json, sizeof(json),
-             "{\"api\":\"v1\",\"current_profile\":%d,\"grind_mode\":\"%s\","
+             "{\"api\":\"v1\",\"current_profile\":%d,\"grind_mode\":\"%s\",\"finish_mode\":%d,"
              "\"profiles\":["
              "{\"id\":0,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f},"
              "{\"id\":1,\"name\":\"%s\",\"weight\":%.2f,\"time\":%.2f},"
@@ -676,6 +693,7 @@ void DeviceApi::refresh_settings_cache() {
              "\"bluetooth_startup\":%s}",
              profile_controller_->get_current_profile(),
              profile_controller_->get_grind_mode() == GrindMode::TIME ? "time" : "weight",
+             finish_mode,
              profile_controller_->get_profile_name(0), profile_controller_->get_profile_weight(0), profile_controller_->get_profile_time(0),
              profile_controller_->get_profile_name(1), profile_controller_->get_profile_weight(1), profile_controller_->get_profile_time(1),
              profile_controller_->get_profile_name(2), profile_controller_->get_profile_weight(2), profile_controller_->get_profile_time(2),

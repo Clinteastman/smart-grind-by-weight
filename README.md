@@ -16,7 +16,8 @@
 Turn a compatible coffee grinder into a precise, touch-controlled
 grind-by-weight system using a Waveshare ESP32-S3 AMOLED board and load cell.
 Smart Grind learns the grinder's live flow and stopping delay, switches the
-motor off before the target, then uses controlled pulses to finish the dose.
+motor off before the target, then either uses controlled pulses to finish the
+dose or completes pulse-free in the optional Predictive finish mode.
 
 > **Community-maintained fork.** This repository continues the
 > [original Smart Grind-by-Weight project](https://github.com/jaapp/smart-grind-by-weight)
@@ -55,7 +56,7 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
 
 - **Accurate grind-by-weight control** with predictive motor stopping,
   controlled finishing pulses and a configurable control tolerance of
-  ±0.03 g.
+  ±0.03 g, plus an optional single-run Predictive finish mode.
 - **Three editable profiles** for Single, Double and Custom doses, synchronized
   between the touchscreen and browser.
 - **Target-free Manual mode** with one-tap start/stop, large optional live
@@ -170,7 +171,9 @@ flowchart LR
   start((Start)) --> T[Tare]
   T --> E[Predictive grind<br/>learn flow and stopping delay]
   E --> S[Settle]
-  S --> P[Controlled pulse]
+  S --> M{Finish mode}
+  M -->|Predictive / pulse-free| C
+  M -->|Precision| P[Controlled pulse]
   P -->|within tolerance, overshot,<br/>or pulse limit reached| C[Complete]
   P -->|more coffee needed| S
 ```
@@ -182,7 +185,10 @@ or grind-size profile. Coast compensation lets experienced users scale the
 latency estimate while leaving the neutral default unchanged. **Menu → Tune
 Pulses** remains the recommended way to measure minimum pulse latency; the same
 stored value can be adjusted manually under **Grind Settings** when automatic
-tuning is unavailable.
+tuning is unavailable. Users who prefer a smoother single motor run can select
+**Predictive / pulse-free** under **Grind Settings**; it completes after the
+first settled predictive stop and accepts a greater chance of finishing slightly
+under or over target.
 
 ## Community development status
 

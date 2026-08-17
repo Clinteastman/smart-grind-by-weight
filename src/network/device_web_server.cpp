@@ -506,14 +506,15 @@ void DeviceWebServer::configure_routes() {
                 "\"target_weight\":%.2f,\"target_time_ms\":%lu,\"final_weight\":%.2f,"
                 "\"error_grams\":%.2f,\"time_error_ms\":%ld,\"duration_ms\":%lu,"
                 "\"motor_time_ms\":%lu,\"pulses\":%u,\"result\":\"%s\","
-                "\"events\":%u,\"measurements\":%u,\"schema\":%u}",
+                "\"finish_mode\":%u,\"events\":%u,\"measurements\":%u,\"schema\":%u}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(session.session_timestamp),
                 session.profile_id, session.grind_mode == 1 ? "time" : "weight",
                 session.target_weight, static_cast<unsigned long>(session.target_time_ms),
                 session.final_weight, session.error_grams, static_cast<long>(session.time_error_ms),
                 static_cast<unsigned long>(session.total_time_ms),
                 static_cast<unsigned long>(session.total_motor_on_time_ms), session.pulse_count,
-                json_escape(String(result)).c_str(), header.event_count, header.measurement_count,
+                json_escape(String(result)).c_str(), session.finish_mode,
+                header.event_count, header.measurement_count,
                 header.schema_version);
         }
         response->print("]}");

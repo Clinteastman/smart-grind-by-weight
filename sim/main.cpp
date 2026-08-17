@@ -285,6 +285,17 @@ int main(int argc, char** argv) {
     const bool benchmark = has_arg(argc, argv, "--benchmark");
     const bool swipe_benchmark = has_arg(argc, argv, "--swipe-benchmark");
     const bool manual_smoke = has_arg(argc, argv, "--manual-smoke");
+    const bool finish_mode_smoke = has_arg(argc, argv, "--finish-mode-smoke");
+
+    if (finish_mode_smoke) {
+        if (!grind_finish_uses_correction_pulses(GrindFinishMode::PRECISION) ||
+            grind_finish_uses_correction_pulses(GrindFinishMode::PREDICTIVE)) {
+            std::fprintf(stderr, "Finish-mode pulse policy is inverted.\n");
+            return 8;
+        }
+        std::puts("[finish-mode-smoke] precision uses pulses; predictive is pulse-free");
+        return 0;
+    }
 
     if (smoke_test) {
         std::puts("[smoke] starting simulator");

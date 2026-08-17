@@ -39,6 +39,7 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     mode = GrindMode::WEIGHT;
     grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
     grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+    finish_mode_for_session = static_cast<GrindFinishMode>(GRIND_FINISH_MODE_DEFAULT);
     last_error_message[0] = '\0';
     last_session_result_ = GrindSessionResult::UNKNOWN;
     control_loop_paused_ = false;
@@ -137,12 +138,17 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
         // Read grinder purge settings from preferences (weight mode only)
         grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
         grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+        finish_mode_for_session = static_cast<GrindFinishMode>(GRIND_FINISH_MODE_DEFAULT);
         if (preferences) {
             int purge_mode_int = preferences->getInt(PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
             grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(purge_mode_int);
             float configured_amount = preferences->getFloat(PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
             configured_amount = std::clamp(configured_amount, GRIND_PURGE_AMOUNT_MIN_G, GRIND_PURGE_AMOUNT_MAX_G);
             grinder_purge_amount_g_for_session = configured_amount;
+            const int stored_finish_mode = preferences->getInt(PREF_KEY_FINISH_MODE, GRIND_FINISH_MODE_DEFAULT);
+            if (stored_finish_mode == static_cast<int>(GrindFinishMode::PREDICTIVE)) {
+                finish_mode_for_session = GrindFinishMode::PREDICTIVE;
+            }
         }
     }
 
@@ -194,6 +200,7 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     last_error_message[0] = '\0';
 
     session_descriptor.mode = mode;
+    session_descriptor.finish_mode = static_cast<uint8_t>(finish_mode_for_session);
     session_descriptor.target_weight = target_weight;
     session_descriptor.target_time_ms = target_time_ms;
     session_descriptor.tolerance = tolerance;
@@ -246,6 +253,7 @@ void GrindController::return_to_idle() {
         target_time_ms = 0;
         grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
         grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+        finish_mode_for_session = static_cast<GrindFinishMode>(GRIND_FINISH_MODE_DEFAULT);
         last_error_message[0] = '\0';
         if (active_strategy) {
             active_strategy->on_exit(session_descriptor, strategy_context);
@@ -280,6 +288,7 @@ void GrindController::stop_grind() {
     target_time_ms = 0;
     grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
     grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+    finish_mode_for_session = static_cast<GrindFinishMode>(GRIND_FINISH_MODE_DEFAULT);
     last_error_message[0] = '\0';
     if (active_strategy) {
         active_strategy->on_exit(session_descriptor, strategy_context);

@@ -35,11 +35,17 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
    - Uses runtime-configurable motor response latency (30-200ms, default 50ms)
 
 4. **Pulse Correction Phase**
+   - Used by the default **Precision** finish mode
    - Conservative pulse duration calculation using 95th percentile flow rate
    - Bounded pulses respect hardware-specific motor response latency
    - Pulses range from motor latency minimum to latency + 225ms maximum
    - Mechanical instability detection (3+ sudden weight drops triggers diagnostic)
    - Repeats until target ± tolerance reached
+
+   With **Predictive / pulse-free** selected, the same live predictive stop is
+   used, but the controller completes after the first settled motor stop instead
+   of entering pulse correction. This avoids a motor restart at the cost of a
+   greater chance of a small underdose or overshoot.
 
 5. **Time Mode Additional Pulses**
    - Dedicated `TIME_ADDITIONAL_PULSE` phase for post-completion grinding
@@ -59,6 +65,7 @@ The latency value is automatically calibrated via **Auto-Tune Motor Response** (
 - Noise-resistant through multi-modal load cell measurement (instant, smoothed, filtered)
 - Hardware-adaptive pulse control via runtime motor latency
 - Conservative approach: undershoots target, then corrects with bounded pulses
+- Optional single-run Predictive finish using the same flow and coast model
 - Mechanical instability detection with hysteresis and persistence
 - 30-second grind timeout protection with user acknowledgment requirement
 
