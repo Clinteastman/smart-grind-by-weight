@@ -6,6 +6,8 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-08-20
+
 ### Firmware updates
 
 - Fixed V1 firmware reporting itself as V2 and consequently selecting the V2
@@ -231,3 +233,5 @@ fixes described above.
 [1.5.1]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.1
 [1.5.2]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.2
 [1.5.3]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.3
+[1.5.4]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.4
+[1.5.5]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.5
