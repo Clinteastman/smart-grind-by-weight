@@ -6,6 +6,12 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Firmware updates
+
+- Fixed V1 firmware reporting itself as V2 and consequently selecting the V2
+  SH8601 image during automatic updates. Hardware identity and release-image
+  selection now come from the same compile-time board definition.
+
 ### Grinding and settings
 
 - Added a validated 30–300 ms manual motor-latency control to the touchscreen
