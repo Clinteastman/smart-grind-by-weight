@@ -49,6 +49,7 @@ void MenuUIController::register_events() {
 
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
+    EventBridgeLVGL::register_handler(ET::FINISH_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_finish_mode_radio_button(); });
     EventBridgeLVGL::register_handler(ET::AUTO_START_TOGGLE, [this](lv_event_t*) { handle_auto_start_toggle(); });
     EventBridgeLVGL::register_handler(ET::AUTO_START_THRESHOLD_SLIDER, [this](lv_event_t*) { handle_auto_start_threshold_slider(); });
     EventBridgeLVGL::register_handler(ET::AUTO_START_THRESHOLD_SLIDER_RELEASED, [this](lv_event_t*) { handle_auto_start_threshold_slider_released(); });
@@ -365,6 +366,29 @@ void MenuUIController::handle_grind_mode_radio_button() {
     }
 
     LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grind mode set to WEIGHT via radio button" : "Grind mode set to TIME via radio button");
+}
+
+void MenuUIController::handle_finish_mode_radio_button() {
+    if (!ui_manager_) return;
+
+    auto* radio_group = ui_manager_->menu_screen.get_finish_mode_radio_group();
+    if (!radio_group) return;
+
+    const int selected_index = radio_button_group_get_selection(radio_group);
+    if (selected_index < static_cast<int>(GrindFinishMode::PRECISION) ||
+        selected_index > static_cast<int>(GrindFinishMode::PREDICTIVE)) {
+        return;
+    }
+
+    auto* hardware = ui_manager_->get_hardware_manager();
+    Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
+    if (prefs) {
+        prefs->putInt(GrindController::PREF_KEY_FINISH_MODE, selected_index);
+    }
+
+    LOG_DEBUG_PRINTLN(selected_index == static_cast<int>(GrindFinishMode::PREDICTIVE)
+                          ? "Weight finish mode: Predictive / pulse-free"
+                          : "Weight finish mode: Precision pulse");
 }
 
 void MenuUIController::handle_auto_start_toggle() {

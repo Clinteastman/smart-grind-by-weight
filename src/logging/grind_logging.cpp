@@ -101,6 +101,7 @@ void GrindLogger::start_grind_session(const GrindSessionDescriptor& descriptor, 
     current_session->target_weight = descriptor.target_weight;
     current_session->tolerance = descriptor.tolerance;
     current_session->grind_mode = static_cast<uint8_t>(descriptor.mode);
+    current_session->finish_mode = descriptor.finish_mode;
     current_session->target_time_ms = descriptor.target_time_ms;
     current_session->start_weight = start_weight;
     current_session->max_pulse_attempts = GRIND_MAX_PULSE_ATTEMPTS;

@@ -60,6 +60,7 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     network_update_text.clear();
     network_update_button_visible = false;
     grinder_purge_mode_radio_group = nullptr;
+    finish_mode_radio_group = nullptr;
     grinder_purge_amount_slider = nullptr;
     grinder_purge_amount_label = nullptr;
     grind_freshness_hours_slider = nullptr;
@@ -540,6 +541,10 @@ static void grind_mode_callback(int selected_index, void* user_data) {
     EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::GRIND_MODE_RADIO_BUTTON, nullptr);
 }
 
+static void finish_mode_callback(int selected_index, void* user_data) {
+    EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::FINISH_MODE_RADIO_BUTTON, nullptr);
+}
+
 // Callback for grinder purge mode radio button selection
 static void grinder_purge_mode_callback(int selected_index, void* user_data) {
     // Trigger the event system instead of handling directly
@@ -595,6 +600,21 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_description_label(parent, "Use a value below the empty cup or portafilter weight to prevent accidental starts.");
     create_description_label(parent, "Exit the completion screen once that cup weight drops away.");
     create_toggle_row(parent, "Return", &auto_return_toggle);
+
+    create_separator(parent, "Finish");
+    create_description_label(parent, "Choose correction pulses for accuracy or finish after one predictive motor run.");
+    const char* finish_modes[] = {"Precision", "Pulse-free"};
+    finish_mode_radio_group = create_radio_button_group(
+        parent,
+        finish_modes,
+        2,
+        LV_FLEX_FLOW_ROW,
+        GRIND_FINISH_MODE_DEFAULT,
+        135, 100,
+        finish_mode_callback,
+        this
+    );
+    create_description_label(parent, "Pulse-free is smoother and faster, but the final dose may finish slightly under or over target.");
 
     // Grinder Purging section
     create_separator(parent, "Purging");
@@ -1437,6 +1457,7 @@ void MenuScreen::update_grind_mode_toggles() {
 
     // Read current grind mode from main grinder preferences using hardware manager
     int mode_index = 0; // Default to Weight (index 0)
+    int finish_mode_index = GRIND_FINISH_MODE_DEFAULT;
     int grinder_purge_mode_index = GRIND_PURGE_MODE_DEFAULT;  // Default to Purge
     float grinder_purge_amount_g = GRIND_PURGE_AMOUNT_DEFAULT_G;  // Default to 1.0g
     if (hardware_manager) {
@@ -1446,11 +1467,19 @@ void MenuScreen::update_grind_mode_toggles() {
             mode_index = (stored_mode == static_cast<int>(GrindMode::TIME)) ? 1 : 0;
             grinder_purge_mode_index = main_prefs->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
             grinder_purge_amount_g = main_prefs->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
+            finish_mode_index = main_prefs->getInt(GrindController::PREF_KEY_FINISH_MODE, GRIND_FINISH_MODE_DEFAULT);
         }
     }
 
     if (grind_mode_radio_group) {
         radio_button_group_set_selection(grind_mode_radio_group, mode_index);
+    }
+
+    if (finish_mode_index != static_cast<int>(GrindFinishMode::PREDICTIVE)) {
+        finish_mode_index = static_cast<int>(GrindFinishMode::PRECISION);
+    }
+    if (finish_mode_radio_group) {
+        radio_button_group_set_selection(finish_mode_radio_group, finish_mode_index);
     }
 
     if (grind_mode_swipe_toggle) {

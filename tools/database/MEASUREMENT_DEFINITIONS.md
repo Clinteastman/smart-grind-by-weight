@@ -139,6 +139,7 @@ This document provides comprehensive definitions for all measurements collected 
 - `max_pulse_attempts` (uint8_t) – Copy of `USER_GRIND_MAX_PULSE_ATTEMPTS`.  
 - `pulse_count` (uint8_t) – Actual number of corrective pulses executed.  
 - `termination_reason` (uint8_t) – Encoded `GrindTerminationReason` (COMPLETE / TIMEOUT / OVERSHOOT / MAX_PULSES / UNKNOWN).  
+- `finish_mode` (uint8_t) – Weight-session finish policy (`0 = PRECISION`, `1 = PREDICTIVE / pulse-free`).
 - `result_status` (char[16]) – Human-readable status string mirrored from the controller (e.g., `"COMPLETE"`, `"TIMEOUT"`, `"STOPPED_BY_USER"`).
 
 ### Predictive & Pulse Configuration Snapshots

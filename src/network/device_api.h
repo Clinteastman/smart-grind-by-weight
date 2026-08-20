@@ -14,6 +14,7 @@ class ProfileController;
 struct DeviceSettingsUpdate {
     int current_profile = 1;
     int grind_mode = 0;
+    int finish_mode = 0;
     float profile_weights[3]{};
     float profile_times[3]{};
     bool auto_start = false;

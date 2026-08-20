@@ -132,6 +132,13 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
     float conservative_target = controller.target_weight - GRIND_ACCURACY_TOLERANCE_G;
     float error = conservative_target - settled_weight;
 
+    if (!grind_finish_uses_correction_pulses(controller.finish_mode_for_session)) {
+        LOG_BLE("[PREDICTIVE] Pulse-free finish at %.2fg (target %.2fg)\n",
+                settled_weight, controller.target_weight);
+        controller.switch_phase(GrindPhase::FINAL_SETTLING, loop_data);
+        return;
+    }
+
     // coast_time_ms removed - was only used for logging pulse history
 
     if (controller.target_weight - settled_weight < GRIND_ACCURACY_TOLERANCE_G ||

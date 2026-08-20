@@ -14,6 +14,10 @@ line. Earlier release history remains available in the original project's
 
 ### Grinding and settings
 
+- Added an optional Predictive / pulse-free finish mode for weight profiles.
+  It uses the existing live flow, motor-latency and coast calculation for one
+  continuous motor run, then completes after settling without a correction
+  pulse. Precision pulse remains the default and existing behaviour.
 - Added a validated 30–300 ms manual motor-latency control to the touchscreen
   and web settings as a fallback when automatic Pulse Tune cannot complete.
   Values are stored on the grinder in 5 ms steps; Pulse Tune remains the

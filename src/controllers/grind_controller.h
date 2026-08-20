@@ -104,6 +104,7 @@ private:
     GrindMode mode;
     GrinderPurgeMode grinder_purge_mode_for_session;
     float grinder_purge_amount_g_for_session;
+    GrindFinishMode finish_mode_for_session;
 
     // Timeout tracking
     GrindPhase timeout_phase;   // Phase when timeout occurred
@@ -256,8 +257,11 @@ public:
     static_assert(sizeof("purge_amount_g") - 1 <= 15, "NVS preference key is too long");
     static constexpr const char* PREF_KEY_GRIND_FRESHNESS_HOURS = "freshness_hrs";
     static constexpr const char* PREF_KEY_COAST_RATIO = "coast_ratio";
+    static constexpr const char* PREF_KEY_FINISH_MODE = "finish_mode";
     static constexpr const char* PREF_KEY_LAST_GRIND_RUNTIME = "last_grind_ms";
+    static_assert(sizeof("finish_mode") - 1 <= 15, "NVS preference key is too long");
     GrindMode get_mode() const { return mode; }
+    GrindFinishMode get_finish_mode() const { return finish_mode_for_session; }
     const GrindSessionDescriptor& get_session_descriptor() const { return session_descriptor; }
     
     // Grind logging functions
