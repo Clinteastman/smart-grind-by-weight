@@ -331,11 +331,9 @@ void DeviceWebServer::perform_firmware_update_check() {
                 if (valid_release_tag(tag) && parse_semver(tag, major, minor, patch) &&
                     json_bool_value(manifest, "v1", v1_available) &&
                     json_bool_value(manifest, "v2", v2_available)) {
-#ifdef HW_DISPLAY_VARIANT_V2
-                    const bool asset_available = v2_available;
-#else
-                    const bool asset_available = v1_available;
-#endif
+                    const bool asset_available = HW_DISPLAY_VARIANT_V2
+                                                     ? v2_available
+                                                     : v1_available;
                     uint16_t current_major = 0;
                     uint16_t current_minor = 0;
                     uint16_t current_patch = 0;
@@ -406,11 +404,7 @@ void DeviceWebServer::configure_routes() {
         const String network_name = json_escape(network_manager.network_name());
         const String ip_address = json_escape(network_manager.ip_address());
         response->printf(
-#ifdef HW_DISPLAY_VARIANT_V2
-            "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"v2\"},"
-#else
-            "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"v1\"},"
-#endif
+            "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"%s\"},"
             "\"capabilities\":{\"protocol\":1,\"transport\":\"websocket\",\"path\":\"/ws\",\"state_interval_ms\":100,"
             "\"commands\":[\"start\",\"start_manual\",\"stop\",\"dismiss\",\"tare\",\"select_profile\",\"set_mode\"]},"
             "\"firmware\":{\"version\":\"%s\",\"build\":%d,\"commit\":\"%s\"},"
@@ -419,6 +413,7 @@ void DeviceWebServer::configure_routes() {
             "\"largest_internal_block\":%u,\"free_psram\":%u},"
             "\"ota\":{\"active\":%s,\"preparing\":%s,\"ready\":%s,\"progress\":%u}}",
             device_id.c_str(),
+            HW_DISPLAY_REVISION,
             BUILD_FIRMWARE_VERSION,
             BUILD_NUMBER,
             GIT_COMMIT_ID,
@@ -746,11 +741,8 @@ void DeviceWebServer::github_ota_task(void* parameter) {
 }
 
 void DeviceWebServer::perform_github_ota(const String& tag) {
-#ifdef HW_DISPLAY_VARIANT_V2
-    const String filename = "smart-grind-by-weight-" + tag + "-waveshare-164-v2.bin";
-#else
-    const String filename = "smart-grind-by-weight-" + tag + ".bin";
-#endif
+    const String filename =
+        "smart-grind-by-weight-" + tag + HW_RELEASE_FIRMWARE_SUFFIX + ".bin";
     const String url = String(GITHUB_RELEASE_MIRROR_BASE) + tag + "/" + filename;
     LOG_BLE("[WEB OTA] Downloading %s from release mirror\n", filename.c_str());
     if (hardware_manager_ && hardware_manager_->get_grinder()) {
