@@ -6,6 +6,13 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Wi-Fi and web interface
+
+- Serve the embedded setup and grinder pages directly from flash instead of
+  copying the full page into scarce internal RAM when a browser connects.
+  This avoids a roughly 50 KB allocation that can restart memory-constrained
+  controllers.
+
 ## [1.5.5] - 2026-08-20
 
 ### Firmware updates

@@ -104,7 +104,10 @@ void ProvisioningService::configure_routes() {
         const char* page = network_manager.state() == NetworkState::WIFI_SETUP_AP
                                ? SETUP_PAGE
                                : SMART_GRIND_DEVICE_PAGE;
-        request->send(200, "text/html", page);
+        // The text overload copies the complete page into an internal-RAM String.
+        // Keep the embedded page in flash and let the async response stream it.
+        request->send(200, "text/html", reinterpret_cast<const uint8_t*>(page),
+                      strlen_P(page));
     });
     server_->on(AsyncURIMatcher::exact("/api/v1/setup/networks"), HTTP_GET, [](AsyncWebServerRequest* request) {
         if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
