@@ -342,14 +342,9 @@ bool ProvisioningService::handle_improv_command(const improv::ImprovCommand& com
             return true;
         }
         case improv::GET_DEVICE_INFO: {
-#ifdef HW_DISPLAY_VARIANT_V2
-            const String hardware = "Waveshare ESP32-S3 Touch AMOLED 1.64 V2";
-#else
-            const String hardware = "Waveshare ESP32-S3 Touch AMOLED 1.64 V1";
-#endif
             send_improv_response(command.command,
                                  {"Smart Grind-by-Weight", BUILD_FIRMWARE_VERSION,
-                                  hardware, "Smart Grind"});
+                                  HW_DISPLAY_DESCRIPTION, "Smart Grind"});
             return true;
         }
         case improv::GET_NETWORK_STATE: {

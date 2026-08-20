@@ -21,9 +21,19 @@
 #define HW_DISPLAY_VARIANT_V2 0                                               // V1 remains the default hardware target
 #endif
 
+#if HW_DISPLAY_VARIANT_V2 != 0 && HW_DISPLAY_VARIANT_V2 != 1
+#error "HW_DISPLAY_VARIANT_V2 must be either 0 or 1"
+#endif
+
 #if HW_DISPLAY_VARIANT_V2
+#define HW_DISPLAY_REVISION "v2"
+#define HW_DISPLAY_DESCRIPTION "Waveshare ESP32-S3 Touch AMOLED 1.64 V2"
+#define HW_RELEASE_FIRMWARE_SUFFIX "-waveshare-164-v2"
 #define HW_DISPLAY_CS_PIN 46                                                   // V2 PCB chip select for SH8601 display controller
 #else
+#define HW_DISPLAY_REVISION "v1"
+#define HW_DISPLAY_DESCRIPTION "Waveshare ESP32-S3 Touch AMOLED 1.64 V1"
+#define HW_RELEASE_FIRMWARE_SUFFIX ""
 #define HW_DISPLAY_CS_PIN 9                                                    // V1 PCB chip select for CO5300 display controller
 #endif
 #define HW_DISPLAY_SCK_PIN 10                                                  // SPI clock for display controller
