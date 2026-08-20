@@ -27,8 +27,10 @@ jobs:
         include:
           - board: Waveshare 1.64 V1
             environment: waveshare-esp32s3-touch-amoled-164
+            variant: v1
           - board: Waveshare 1.64 V2
             environment: waveshare-esp32s3-touch-amoled-164-v2
+            variant: v2
     env:
       SMART_GRIND_BUILD_NUMBER: ${{ github.run_number }}
 
@@ -68,3 +70,19 @@ jobs:
         env:
           PLATFORMIO_BUILD_CACHE_DIR: .pio/build-cache/${{ matrix.environment }}
         run: pio run -e ${{ matrix.environment }}
+
+      - name: Prepare test firmware
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p test-firmware
+          cp ".pio/build/${{ matrix.environment }}/firmware.bin" \
+            "test-firmware/smart-grind-by-weight-pr${{ github.event.pull_request.number }}-${{ matrix.variant }}.bin"
+
+      - name: Upload test firmware
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-grind-by-weight-pr${{ github.event.pull_request.number }}-${{ matrix.variant }}
+          path: test-firmware/*.bin
+          if-no-files-found: error
+          retention-days: 7
