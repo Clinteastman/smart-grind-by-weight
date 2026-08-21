@@ -66,12 +66,16 @@ if ($lvglSource) {
 & $cmake @configureArguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $cmake --build $buildDirectory --config Release --target smart-grind-sim --parallel
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
 if ($Test) {
+    # Build every registered test executable before invoking CTest. Building
+    # only smart-grind-sim leaves standalone policy tests unbuilt.
+    & $cmake --build $buildDirectory --config Release --parallel
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & $cmake --build $buildDirectory --config Release --target RUN_TESTS
     exit $LASTEXITCODE
 }
+
+& $cmake --build $buildDirectory --config Release --target smart-grind-sim --parallel
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "Simulator built: $buildDirectory\Release\smart-grind-sim.exe"

@@ -47,6 +47,8 @@ private:
     uint32_t screen_height;
     uint32_t buffer_size;
     bool initialized;
+    bool panel_powered_on;
+    bool consume_wake_touch_until_release;
 
     portMUX_TYPE metrics_mux = portMUX_INITIALIZER_UNLOCKED;
     DisplayPerformanceSnapshot metrics_window;
@@ -58,6 +60,8 @@ public:
     void init();
     void update();
     void set_brightness(float brightness);
+    void set_panel_power(bool powered_on);
+    bool is_panel_powered_on() const { return panel_powered_on; }
     bool draw_rgb565_file(const char* path, uint16_t width, uint16_t height);
     
     uint32_t get_width() const { return screen_width; }
@@ -76,6 +80,7 @@ private:
     static void display_rounder_cb(lv_event_t* e);
     static void display_metrics_cb(lv_event_t* e);
     static void touchpad_read_cb(lv_indev_t* indev, lv_indev_data_t* data);
+    bool filter_touch_for_panel_wake(const TouchData& touch);
     static uint32_t millis_cb();
 };
 

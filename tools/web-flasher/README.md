@@ -18,8 +18,9 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 
 ### 🖼️ Screensaver
 - Upload a custom 280 × 456 RGB565 screensaver image
-- Configure idle timeout and startup image duration over BLE
-- Brightness and image enable toggles remain on the grinder
+- Configure idle timeout, startup image duration and optional later panel-off
+  delay over BLE
+- Brightness and screensaver image enable toggles remain on the grinder
 
 ## Browser Support
 
@@ -48,7 +49,8 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 1. Ensure grinder is powered and BLE enabled
 2. Go to the "Screensaver" tab
 3. Click "Connect & Load Settings" to read current timing values
-4. Set idle timeout (30-3600 seconds) and startup timeout (1-30 seconds)
+4. Set idle timeout (30-3600 seconds), startup timeout (1-30 seconds), and
+   optionally enable full panel-off after an additional 30-43200 seconds
 5. Click "Save Settings"
 
 ## Firmware Sources
