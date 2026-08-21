@@ -14,6 +14,13 @@ line. Earlier release history remains available in the original project's
   touch, scale activity or grinding. The first wake touch is consumed to avoid
   accidental controls, and panel-off remains disabled by default.
 
+### Grinding and safety
+
+- Fixed isolated negative load-cell readings incorrectly stopping a weight
+  grind. Cup or portafilter removal is now checked against its measured
+  pre-tare weight and must persist across multiple samples before stopping the
+  motor.
+
 ## [1.5.5] - 2026-08-20
 
 ### Firmware updates
