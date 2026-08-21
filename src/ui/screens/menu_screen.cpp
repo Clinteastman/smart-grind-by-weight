@@ -8,6 +8,7 @@
 #include "../../config/constants.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/statistics_manager.h"
+#include "../../system/screensaver_settings.h"
 #include "../../hardware/hardware_manager.h"
 #include "../../network/network_manager.h"
 #include "../../network/provisioning_service.h"
@@ -70,6 +71,7 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     motor_latency_label = nullptr;
     auto_start_threshold_slider = nullptr;
     auto_start_threshold_label = nullptr;
+    display_off_toggle = nullptr;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 
     // Create menu UI immediately at boot for instant access
@@ -520,7 +522,8 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
     create_separator(parent, "Custom Image");
     create_description_label(parent, "Show uploaded image on startup or when display dims.");
     create_toggle_row(parent, "Startup", &screensaver_startup_toggle);
-    create_toggle_row(parent, "Sleep", &screensaver_sleep_toggle);
+    create_toggle_row(parent, "Idle Screensaver", &screensaver_sleep_toggle);
+    create_toggle_row(parent, "Turn Display Off", &display_off_toggle);
 
     if (screensaver_startup_toggle) {
         lv_obj_add_event_cb(screensaver_startup_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
@@ -529,6 +532,10 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
     if (screensaver_sleep_toggle) {
         lv_obj_add_event_cb(screensaver_sleep_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::SCREENSAVER_SLEEP_TOGGLE)));
+    }
+    if (display_off_toggle) {
+        lv_obj_add_event_cb(display_off_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::DISPLAY_OFF_TOGGLE)));
     }
 
 }
@@ -1204,6 +1211,7 @@ void MenuScreen::update_screensaver_toggles() {
     bool startup_on = prefs.getBool("startup", false);
     bool sleep_on = prefs.getBool("sleep", false);
     prefs.end();
+    const bool display_off_enabled = ScreensaverSettings::load_timing().display_off_enabled;
 
     if (screensaver_startup_toggle) {
         if (startup_on && image_exists) {
@@ -1229,6 +1237,14 @@ void MenuScreen::update_screensaver_toggles() {
             lv_obj_clear_state(screensaver_sleep_toggle, LV_STATE_DISABLED);
         } else {
             lv_obj_add_state(screensaver_sleep_toggle, LV_STATE_DISABLED);
+        }
+    }
+
+    if (display_off_toggle) {
+        if (display_off_enabled) {
+            lv_obj_add_state(display_off_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(display_off_toggle, LV_STATE_CHECKED);
         }
     }
 }

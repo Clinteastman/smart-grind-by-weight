@@ -36,4 +36,5 @@ private:
     uint32_t last_settings_refresh_ms_ = 0;
     uint32_t settings_applied_at_ms_ = 0;
     bool screen_dimmed_;
+    bool panel_off_;
 };

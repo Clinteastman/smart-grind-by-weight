@@ -49,6 +49,13 @@ target_include_directories(smart-grind-sim PRIVATE
 )
 target_link_libraries(smart-grind-sim PRIVATE lvgl user32 gdi32 shell32)
 
+add_executable(display-idle-policy-test
+    display_idle_policy_test.cpp
+)
+target_include_directories(display-idle-policy-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
 if(MSVC)
     target_compile_options(smart-grind-sim PRIVATE /W4 /permissive-)
 endif()
@@ -62,4 +69,6 @@ if(BUILD_TESTING)
     set_tests_properties(simulator_swipe_budget PROPERTIES TIMEOUT 10)
     add_test(NAME simulator_manual_smoke COMMAND smart-grind-sim --manual-smoke)
     set_tests_properties(simulator_manual_smoke PROPERTIES TIMEOUT 15)
+    add_test(NAME display_idle_policy COMMAND display-idle-policy-test)
+    set_tests_properties(display_idle_policy PROPERTIES TIMEOUT 5)
 endif()

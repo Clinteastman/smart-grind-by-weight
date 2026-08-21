@@ -6,6 +6,14 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Display and screensaver
+
+- Separated the idle screensaver from an optional later AMOLED panel-off
+  stage. The screensaver can remain visible indefinitely as before, or the
+  panel can switch fully off after a configurable additional delay and wake on
+  touch, scale activity or grinding. The first wake touch is consumed to avoid
+  accidental controls, and panel-off remains disabled by default.
+
 ## [1.5.5] - 2026-08-20
 
 ### Firmware updates

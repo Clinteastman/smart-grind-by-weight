@@ -58,6 +58,8 @@ const SCREENSAVER_IDLE_TIMEOUT_MIN_S = 30;
 const SCREENSAVER_IDLE_TIMEOUT_MAX_S = 3600;
 const SCREENSAVER_STARTUP_TIMEOUT_MIN_S = 1;
 const SCREENSAVER_STARTUP_TIMEOUT_MAX_S = 30;
+const DISPLAY_OFF_DELAY_MIN_S = 30;
+const DISPLAY_OFF_DELAY_MAX_S = 43200;
 
 // Commands and status codes (from your Python implementation)
 const BLE_OTA_CMD_START = 0x01;
@@ -871,7 +873,11 @@ function waitForScreensaverSettings(statusChar, timeoutMs = 5000) {
                 cleanup();
                 resolve({
                     idleTimeoutS: val[1] | (val[2] << 8),
-                    startupTimeoutS: val[3]
+                    startupTimeoutS: val[3],
+                    displayOffEnabled: val.length >= 7 ? val[4] !== 0 : false,
+                    displayOffDelayS: val.length >= 7
+                        ? val[5] | (val[6] << 8)
+                        : 3600
                 });
             } else if (val[0] === BLE_SETTINGS_STATUS_ERROR) {
                 cleanup();
@@ -892,6 +898,9 @@ function waitForScreensaverSettings(statusChar, timeoutMs = 5000) {
 function applyScreensaverSettings(settings) {
     document.getElementById('screensaverIdleTimeout').value = settings.idleTimeoutS;
     document.getElementById('screensaverStartupTimeout').value = settings.startupTimeoutS;
+    document.getElementById('displayOffEnabled').checked = settings.displayOffEnabled;
+    document.getElementById('displayOffDelay').value = settings.displayOffDelayS;
+    document.getElementById('displayOffDelay').disabled = !settings.displayOffEnabled;
 }
 
 function readSecondsInput(id, min, max, label) {
@@ -965,6 +974,13 @@ async function saveScreensaverSettings() {
             SCREENSAVER_STARTUP_TIMEOUT_MAX_S,
             'Startup timeout'
         );
+        const displayOffEnabled = document.getElementById('displayOffEnabled').checked;
+        const displayOffDelayS = readSecondsInput(
+            'displayOffDelay',
+            DISPLAY_OFF_DELAY_MIN_S,
+            DISPLAY_OFF_DELAY_MAX_S,
+            'Display-off delay'
+        );
 
         loadBtn.disabled = true;
         saveBtn.disabled = true;
@@ -977,11 +993,14 @@ async function saveScreensaverSettings() {
         await statusChar.startNotifications();
         const settingsPromise = waitForScreensaverSettings(statusChar);
 
-        const payload = new Uint8Array(4);
+        const payload = new Uint8Array(7);
         payload[0] = BLE_SETTINGS_CMD_SET_SCREENSAVER;
         payload[1] = idleTimeoutS & 0xFF;
         payload[2] = (idleTimeoutS >> 8) & 0xFF;
         payload[3] = startupTimeoutS;
+        payload[4] = displayOffEnabled ? 1 : 0;
+        payload[5] = displayOffDelayS & 0xFF;
+        payload[6] = (displayOffDelayS >> 8) & 0xFF;
 
         updateScreensaverStatus('Saving screensaver settings...', 'info');
         await connection.controlChar.writeValue(payload);

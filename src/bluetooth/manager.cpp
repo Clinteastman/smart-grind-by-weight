@@ -1042,7 +1042,7 @@ void BluetoothManager::handle_screensaver_settings_command(uint8_t command, cons
             break;
 
         case BLE_SETTINGS_CMD_SET_SCREENSAVER: {
-            if (value.length() != 4) {
+            if (value.length() != 4 && value.length() != 7) {
                 LOG_BLE("Screensaver settings: invalid SET length %d\n",
                         static_cast<int>(value.length()));
                 send_screensaver_settings_error(BLE_SETTINGS_ERROR_INVALID_LENGTH);
@@ -1053,23 +1053,36 @@ void BluetoothManager::handle_screensaver_settings_command(uint8_t command, cons
             uint16_t idle_timeout_s = static_cast<uint16_t>(data[1]) |
                                       (static_cast<uint16_t>(data[2]) << 8);
             uint8_t startup_timeout_s = data[3];
+            const ScreensaverTimingSettings current = ScreensaverSettings::load_timing();
+            bool display_off_enabled = current.display_off_enabled;
+            uint16_t display_off_delay_s = current.display_off_delay_s;
+            if (value.length() == 7) {
+                display_off_enabled = data[4] != 0;
+                display_off_delay_s = static_cast<uint16_t>(data[5]) |
+                                      (static_cast<uint16_t>(data[6]) << 8);
+            }
 
             if (!ScreensaverSettings::is_valid_idle_timeout(idle_timeout_s) ||
-                !ScreensaverSettings::is_valid_startup_timeout(startup_timeout_s)) {
-                LOG_BLE("Screensaver settings: rejected idle=%u startup=%u\n",
-                        idle_timeout_s, startup_timeout_s);
+                !ScreensaverSettings::is_valid_startup_timeout(startup_timeout_s) ||
+                !ScreensaverSettings::is_valid_display_off_delay(display_off_delay_s)) {
+                LOG_BLE("Screensaver settings: rejected idle=%u startup=%u panel-off=%u delay=%u\n",
+                        idle_timeout_s, startup_timeout_s, display_off_enabled,
+                        display_off_delay_s);
                 send_screensaver_settings_error(BLE_SETTINGS_ERROR_INVALID_RANGE);
                 return;
             }
 
-            if (!ScreensaverSettings::save_timing(idle_timeout_s, startup_timeout_s)) {
+            if (!ScreensaverSettings::save_timing(idle_timeout_s, startup_timeout_s,
+                                                   display_off_enabled,
+                                                   display_off_delay_s)) {
                 LOG_BLE("Screensaver settings: failed to save timing preferences\n");
                 send_screensaver_settings_error(BLE_SETTINGS_ERROR_STORAGE);
                 return;
             }
 
-            LOG_BLE("Screensaver settings: saved idle=%us startup=%us\n",
-                    idle_timeout_s, startup_timeout_s);
+            LOG_BLE("Screensaver settings: saved idle=%us startup=%us panel-off=%s delay=%us\n",
+                    idle_timeout_s, startup_timeout_s,
+                    display_off_enabled ? "ON" : "OFF", display_off_delay_s);
             send_screensaver_settings();
             break;
         }
@@ -1086,11 +1099,14 @@ void BluetoothManager::send_screensaver_settings() {
     }
 
     auto settings = ScreensaverSettings::load_timing();
-    uint8_t payload[4] = {
+    uint8_t payload[7] = {
         static_cast<uint8_t>(BLE_SETTINGS_STATUS_VALUE),
         static_cast<uint8_t>(settings.idle_timeout_s & 0xFF),
         static_cast<uint8_t>((settings.idle_timeout_s >> 8) & 0xFF),
         settings.startup_timeout_s,
+        static_cast<uint8_t>(settings.display_off_enabled ? 1 : 0),
+        static_cast<uint8_t>(settings.display_off_delay_s & 0xFF),
+        static_cast<uint8_t>((settings.display_off_delay_s >> 8) & 0xFF),
     };
 
     data_status_characteristic->setValue(payload, sizeof(payload));
