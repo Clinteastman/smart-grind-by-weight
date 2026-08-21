@@ -30,6 +30,18 @@ Before changing code, read `CLAUDE.md` and the relevant complete source files.
 After changes, run the appropriate simulator tests, both firmware builds when
 shared code changed, `git diff --check`, and update user-facing documentation.
 
+## GitHub write verification
+
+When posting or editing pull request descriptions, issue comments, review
+comments, or release notes:
+
+- Do not pass multiline text through nested PowerShell, WSL, and Bash `$'...'`
+  quoting. The outer shell can reduce the body to `$` or remove substitutions.
+- Prefer structured GitHub connector or API fields for the body text.
+- Immediately read the published object back from GitHub and compare its visible
+  body with the intended text. An API success response is not publication proof.
+- Repair malformed text before continuing with the wider task.
+
 ## Completion protocol
 
 Before ending a coding session or reporting that a task is finished:
