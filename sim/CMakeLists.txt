@@ -37,6 +37,13 @@ add_executable(smart-grind-sim
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_60.c"
 )
 
+add_executable(net-weight-guard-test
+    net_weight_guard_test.cpp
+)
+target_include_directories(net-weight-guard-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
 target_compile_definitions(smart-grind-sim PRIVATE
     SMART_GRIND_SIM
     NOMINMAX
@@ -71,4 +78,6 @@ if(BUILD_TESTING)
     set_tests_properties(simulator_manual_smoke PROPERTIES TIMEOUT 15)
     add_test(NAME display_idle_policy COMMAND display-idle-policy-test)
     set_tests_properties(display_idle_policy PROPERTIES TIMEOUT 5)
+    add_test(NAME net_weight_guard COMMAND net-weight-guard-test)
+    set_tests_properties(net_weight_guard PROPERTIES TIMEOUT 5)
 endif()

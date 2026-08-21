@@ -8,6 +8,7 @@
 - [Suspected HX711 or Load Cell Damage](#suspected-hx711-or-load-cell-damage)
 - [Unknown board ID 'esp32-s3-devkitc-1'](#unknown-board-id-esp32-s3-devkitc-1)
 - [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
+- [Unexpected Net Weight Error](#unexpected-net-weight-error)
 - [Grind Timeout Screen](#grind-timeout-screen)
 - [Unreliable Pulse Corrections](#unreliable-pulse-corrections)
 - [Getting Diagnostic Reports](#getting-diagnostic-reports)
@@ -260,6 +261,22 @@ If you want to try a less aggressive approach first:
 4. Perform a clean build in PlatformIO
 
 **Note:** This issue is specific to the pioarduino platform fork usage and the way PlatformIO handles custom platform URLs.
+
+---
+
+## Unexpected Net Weight Error
+
+**Applies to:** A weight grind stopping after a brief negative scale reading
+even though the cup or portafilter is still in place.
+
+Current firmware records the vessel weight immediately before tare. It only
+treats a negative reading as vessel removal when the reading approaches that
+full pre-tare weight and persists across several samples. Smaller isolated
+negative spikes are ignored.
+
+If the error still occurs, download the diagnostic log from the grinder web UI
+and include the pre-tare reference, removal threshold and reported weight in a
+GitHub issue.
 
 ---
 
