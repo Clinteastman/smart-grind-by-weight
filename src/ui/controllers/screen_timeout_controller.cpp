@@ -14,6 +14,7 @@ ScreenTimeoutController::ScreenTimeoutController(UIManager* manager)
     : ui_manager_(manager)
     , timing_settings_(ScreensaverSettings::load_timing())
     , settings_applied_at_ms_(millis())
+    , last_weight_activity_ms_(settings_applied_at_ms_)
     , screen_dimmed_(false)
     , panel_off_(false) {}
 
@@ -52,23 +53,24 @@ void ScreenTimeoutController::update() {
     uint32_t idle_timeout_ms = ScreensaverSettings::idle_timeout_ms(timing_settings_);
     uint32_t display_off_timeout_ms =
         ScreensaverSettings::display_off_timeout_ms(timing_settings_);
-    uint32_t weight_activity_window_ms =
-        ScreensaverSettings::weight_activity_window_ms(timing_settings_);
     const uint32_t ms_since_settings_applied = now - settings_applied_at_ms_;
-    // Do not let weight changes from before a runtime settings save keep the
-    // display awake under the newly selected timeout.
-    weight_activity_window_ms = min(weight_activity_window_ms, ms_since_settings_applied);
-    bool recent_weight_activity = sensor &&
-                                  sensor->weight_range_exceeds(weight_activity_window_ms,
-                                                               USER_WEIGHT_ACTIVITY_THRESHOLD_G);
+    float weight_delta_g = 0.0f;
+    if (sensor && sensor->get_weight_delta(1000U, &weight_delta_g) &&
+        display_weight_activity_detected(weight_delta_g, USER_WEIGHT_ACTIVITY_THRESHOLD_G)) {
+        last_weight_activity_ms_ = now;
+    }
 
-    const uint32_t inactive_ms = min(ms_since_touch, ms_since_settings_applied);
-    const DisplayIdleState idle_state = recent_weight_activity
-        ? DisplayIdleState::ACTIVE
-        : display_idle_state(inactive_ms,
-                             idle_timeout_ms,
-                             timing_settings_.display_off_enabled,
-                             static_cast<uint32_t>(timing_settings_.display_off_delay_s) * 1000U);
+    // Use the age of the most recent real activity. Comparing the ends of a
+    // short weight window rejects isolated scale noise that could otherwise
+    // wake the panel repeatedly from a long min/max history.
+    const uint32_t ms_since_weight = now - last_weight_activity_ms_;
+    const uint32_t inactive_ms = min(min(ms_since_touch, ms_since_weight),
+                                     ms_since_settings_applied);
+    const DisplayIdleState idle_state = display_idle_state(
+        inactive_ms,
+        idle_timeout_ms,
+        timing_settings_.display_off_enabled,
+        static_cast<uint32_t>(timing_settings_.display_off_delay_s) * 1000U);
     const bool should_dim = idle_state != DisplayIdleState::ACTIVE;
     const bool should_turn_off = idle_state == DisplayIdleState::PANEL_OFF;
 
@@ -116,6 +118,7 @@ void ScreenTimeoutController::update() {
 void ScreenTimeoutController::apply_runtime_settings() {
     timing_settings_ = ScreensaverSettings::load_timing();
     settings_applied_at_ms_ = millis();
+    last_weight_activity_ms_ = settings_applied_at_ms_;
     last_settings_refresh_ms_ = settings_applied_at_ms_;
     LOG_BLE("[DISPLAY] Runtime settings applied; screensaver=%lus panel-off=%s delay=%lus\n",
             static_cast<unsigned long>(timing_settings_.idle_timeout_s),

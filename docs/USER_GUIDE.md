@@ -227,7 +227,8 @@ grinder.
   with the web settings. The web app controls the additional off delay.
 - **Wake behaviour**: Touching the dark panel, changing the scale load or
   starting a grind wakes it. The first wake touch is consumed so it cannot
-  accidentally press the control underneath.
+  accidentally press the control underneath. Lift your finger after waking
+  the panel, then use the next touch normally.
 - **Startup behavior**: On normal Ready boots, the image is drawn early while the full UI initializes, then the regular timed screensaver overlay takes over.
 - **OTA behavior**: During BLE OTA updates and OTA failure warnings, the screensaver is disabled so progress and recovery prompts stay visible.
 

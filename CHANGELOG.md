@@ -11,6 +11,15 @@ line. Earlier release history remains available in the original project's
 - Fixed **Return when cup is removed** failing after an otherwise completed
   grind that finished slightly over target or reached its pulse limit.
 
+### Display and screensaver
+
+- Fixed the first touch after AMOLED panel wake being able to leave touch
+  input suppressed until reboot. Wake-touch suppression now ends after the
+  release or a bounded recovery period, and held contacts no longer keep
+  resetting the display idle timer.
+- Reduced false panel wakes by detecting deliberate scale changes from a short
+  start-to-end weight delta instead of historical min/max noise.
+
 ## [1.5.6] - 2026-08-21
 
 ### Display and screensaver

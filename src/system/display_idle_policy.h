@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cmath>
 
 enum class DisplayIdleState : uint8_t {
     ACTIVE,
@@ -20,4 +21,9 @@ constexpr DisplayIdleState display_idle_state(uint32_t inactive_ms,
         return DisplayIdleState::PANEL_OFF;
     }
     return DisplayIdleState::SCREENSAVER;
+}
+
+inline bool display_weight_activity_detected(float delta_g, float threshold_g) {
+    return std::isfinite(delta_g) && std::isfinite(threshold_g) &&
+           threshold_g > 0.0f && std::fabs(delta_g) >= threshold_g;
 }
