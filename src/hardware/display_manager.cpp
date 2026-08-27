@@ -1,4 +1,5 @@
 #include "display_manager.h"
+#include "touch_wake_policy.h"
 #if HW_DISPLAY_VARIANT_V2
 #include "esp_lcd_sh8601.h"
 #endif
@@ -43,6 +44,7 @@ void DisplayManager::init() {
     g_display_manager = this;
     panel_powered_on = true;
     consume_wake_touch_until_release = false;
+    wake_touch_guard_started_ms = 0;
     
 #if HW_DISPLAY_VARIANT_V2
     // V2 uses an SH8601 panel and GPIO 46 for chip select. The native
@@ -466,7 +468,6 @@ void DisplayManager::set_panel_power(bool powered_on) {
 #endif
 
     panel_powered_on = powered_on;
-    consume_wake_touch_until_release = true;
     if (powered_on && lvgl_display) {
         lv_obj_invalidate(lv_screen_active());
     }
@@ -475,17 +476,35 @@ void DisplayManager::set_panel_power(bool powered_on) {
 
 bool DisplayManager::filter_touch_for_panel_wake(const TouchData& touch) {
     if (!panel_powered_on) {
-        if (touch.pressed) {
+        if (touch.just_pressed) {
             set_panel_power(true);
+            touch_driver.consume_press_event();
+            consume_wake_touch_until_release = true;
+            wake_touch_guard_started_ms = millis();
+            LOG_BLE("[DISPLAY] Panel wake source: touch\n");
         }
         return true;
     }
 
     if (!consume_wake_touch_until_release) {
+        if (touch.just_pressed) {
+            touch_driver.consume_press_event();
+        }
         return false;
     }
     if (!touch.pressed) {
         consume_wake_touch_until_release = false;
+        wake_touch_guard_started_ms = 0;
+        return true;
+    }
+
+    // Do not let a stale controller contact suppress every future gesture.
+    // One second is comfortably longer than a normal wake tap, while keeping
+    // recovery finite if the controller never reports the matching release.
+    if (wake_touch_guard_expired(millis() - wake_touch_guard_started_ms)) {
+        consume_wake_touch_until_release = false;
+        wake_touch_guard_started_ms = 0;
+        LOG_BLE("[DISPLAY] Wake-touch guard recovered after missing release\n");
     }
     return true;
 }

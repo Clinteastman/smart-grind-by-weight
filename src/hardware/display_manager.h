@@ -49,6 +49,7 @@ private:
     bool initialized;
     bool panel_powered_on;
     bool consume_wake_touch_until_release;
+    uint32_t wake_touch_guard_started_ms;
 
     portMUX_TYPE metrics_mux = portMUX_INITIALIZER_UNLOCKED;
     DisplayPerformanceSnapshot metrics_window;
