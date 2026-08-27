@@ -6,6 +6,11 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Grinding and controls
+
+- Fixed **Return when cup is removed** failing after an otherwise completed
+  grind that finished slightly over target or reached its pulse limit.
+
 ## [1.5.6] - 2026-08-21
 
 ### Display and screensaver

@@ -5,6 +5,7 @@
 #include "../logging/grind_logging.h"
 #include "grind_mode.h"
 #include "grind_session.h"
+#include "grind_session_result.h"
 #include "grind_strategy.h"
 #include "net_weight_guard.h"
 #include "weight_grind_strategy.h"
@@ -198,14 +199,7 @@ private:
     uint64_t last_purge_runtime_ms;      // Runtime when last grind completed (persisted)
 
 public:
-    enum class GrindSessionResult {
-        UNKNOWN,
-        SUCCESS,
-        OVERSHOOT,
-        MAX_PULSES,
-        TIMEOUT,
-        ERROR
-    };
+    using GrindSessionResult = ::GrindSessionResult;
 
 private:
     GrindSessionResult last_session_result_ = GrindSessionResult::UNKNOWN;
