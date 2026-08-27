@@ -6,6 +6,8 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-08-27
+
 ### Grinding and controls
 
 - Fixed **Return when cup is removed** failing after an otherwise completed
@@ -267,3 +269,4 @@ fixes described above.
 [1.5.4]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.4
 [1.5.5]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.5
 [1.5.6]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.6
+[1.5.7]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.7
