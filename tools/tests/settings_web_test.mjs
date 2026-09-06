@@ -48,6 +48,7 @@ for (const status of ['saved', 'failed', 'busy']) {
   const pending = h.submit();
   assert.equal(h.get('saveSettings').disabled, true);
   assert.equal(h.get('settingsForm').inert, true, 'prevent edits while reloading saved values');
+  assert.equal(h.get('settingsPending').textContent, 'Saving on the grinder…');
   assert.equal(h.messages.length, 0, 'must not announce success on acceptance');
   await h.submit(); // Duplicate dispatch must not create another POST.
   await pending;
@@ -55,6 +56,7 @@ for (const status of ['saved', 'failed', 'busy']) {
   assert.equal(h.get('saveSettings').disabled, false);
   assert.equal(h.get('reloadSettings').disabled, false);
   assert.equal(h.get('settingsForm').inert, false);
+  assert.equal(h.get('settingsPending').textContent, '');
   assert.equal(h.get('settingsForm').attributes['aria-busy'], undefined);
   assert.equal(h.messages.at(-1).error, status !== 'saved');
   assert.equal(h.reloads(), status === 'busy' ? 0 : 1);

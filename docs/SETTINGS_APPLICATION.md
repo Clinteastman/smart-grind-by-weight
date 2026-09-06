@@ -82,11 +82,15 @@ the confirmed success message, and `?scenario=failed#settings` shows partial-sav
 failure with controls restored. This fixture has no real motor/device connection
 and does not implement WebSocket telemetry. It is single-session test tooling.
 
-The accessibility tree also exposed a remaining issue: making the entire form
-inert hides its pending status from assistive technology. Keep an accessible
-pending announcement outside the inert subtree before claiming UI completion.
-Chrome, explicit mobile/desktop viewports, remaining failure scenarios and
-console/network inspection have not yet been completed.
+The accessibility-tree finding is fixed: a live pending announcement outside
+the inert form remains exposed while saving. In-app checks confirmed that
+announcement, busy refusal and saved-but-reload-failed messaging. At 390x844,
+long save messages now use a separate row above the buttons instead of squeezing
+their labels. Screenshot verification confirmed the revised layout; temporary
+viewport overrides were reset afterwards.
+Chrome, explicit desktop viewport, remaining failure scenarios and console/network
+inspection have not yet been completed. These latest UI edits require fresh
+firmware rebuilds; the earlier build timings do not validate the new edits.
 
 - Test the HTTP request/result lifecycle and the rendered web settings workflow,
   including runtime application failures and settings reload errors.
