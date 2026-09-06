@@ -138,7 +138,7 @@ This document provides comprehensive definitions for all measurements collected 
 - `grind_mode` (uint8_t) – Encoded `GrindMode` enum (`0 = WEIGHT`, `1 = TIME`).  
 - `max_pulse_attempts` (uint8_t) – Copy of `USER_GRIND_MAX_PULSE_ATTEMPTS`.  
 - `pulse_count` (uint8_t) – Actual number of corrective pulses executed.  
-- `termination_reason` (uint8_t) – Encoded `GrindTerminationReason` (COMPLETE / TIMEOUT / OVERSHOOT / MAX_PULSES / UNKNOWN).  
+- `termination_reason` (uint8_t) – Encoded `GrindTerminationReason` (`0 = COMPLETE`, `1 = TIMEOUT`, `2 = OVERSHOOT`, `3 = MAX_PULSES`, `4 = SCALE_ERROR`, `255 = UNKNOWN`). Scale errors identify missing fresh readings during a weight grind; the binary layout is unchanged.
 - `result_status` (char[16]) – Human-readable status string mirrored from the controller (e.g., `"COMPLETE"`, `"TIMEOUT"`, `"STOPPED_BY_USER"`).
 
 ### Predictive & Pulse Configuration Snapshots
