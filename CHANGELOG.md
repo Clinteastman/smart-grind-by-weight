@@ -38,6 +38,12 @@ line. Earlier release history remains available in the original project's
 - Cancelling Pulse Tune immediately stops the motor and closes its log before
   returning to the menu. Success and failure paths also stop any active pulse.
 
+### Web settings
+
+- Accept older settings forms that omit the optional panel-off controls,
+  preserving the grinder's saved panel-off settings instead of rejecting the
+  complete form with a missing-field error.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls

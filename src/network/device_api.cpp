@@ -447,7 +447,7 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
         "purge_amount_g", "freshness_hours", "coast_ratio", "logging_enabled",
         "swipe_enabled", "brightness_percent", "screensaver_brightness_percent",
         "screensaver_startup", "screensaver_sleep", "screensaver_idle_timeout_s",
-        "screensaver_startup_timeout_s", "display_off_enabled", "display_off_delay_s",
+        "screensaver_startup_timeout_s",
         "screensaver_style", "bluetooth_startup"
     };
     for (const char* field : required) {
@@ -492,10 +492,17 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
     settings.screensaver_sleep = form_bool(value("screensaver_sleep"));
     const long screensaver_idle_timeout_s = value("screensaver_idle_timeout_s").toInt();
     const long screensaver_startup_timeout_s = value("screensaver_startup_timeout_s").toInt();
-    const long display_off_delay_s = value("display_off_delay_s").toInt();
+    // Older web pages predate panel-off settings. Preserve the stored values
+    // rather than rejecting the whole form or silently resetting the option.
+    const ScreensaverTimingSettings stored_timing = ScreensaverSettings::load_timing();
+    const long display_off_delay_s = request->hasParam("display_off_delay_s", true)
+                                         ? value("display_off_delay_s").toInt()
+                                         : stored_timing.display_off_delay_s;
     settings.screensaver_idle_timeout_s = static_cast<uint16_t>(screensaver_idle_timeout_s);
     settings.screensaver_startup_timeout_s = static_cast<uint8_t>(screensaver_startup_timeout_s);
-    settings.display_off_enabled = form_bool(value("display_off_enabled"));
+    settings.display_off_enabled = request->hasParam("display_off_enabled", true)
+                                       ? form_bool(value("display_off_enabled"))
+                                       : stored_timing.display_off_enabled;
     settings.display_off_delay_s = static_cast<uint16_t>(display_off_delay_s);
     const String screensaver_style = value("screensaver_style");
     strncpy(settings.screensaver_style, screensaver_style.c_str(), sizeof(settings.screensaver_style) - 1);
