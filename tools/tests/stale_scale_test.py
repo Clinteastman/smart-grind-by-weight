@@ -1,5 +1,6 @@
 """Run production freshness/sampling and stop-guard code with a simulated ADC."""
 from pathlib import Path
+import ast
 import subprocess
 import tempfile
 import unittest
@@ -8,6 +9,43 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class StaleScaleTest(unittest.TestCase):
+    def test_history_consumer_labels(self):
+        expected = {0: "COMPLETE", 1: "TIMEOUT", 2: "OVERSHOOT",
+                    3: "MAX_PULSES", 4: "SCALE_ERROR", 255: "UNKNOWN"}
+        for name in ("grind_report.py", "grind_report_orig.py"):
+            tree = ast.parse((ROOT / "tools/streamlit-reports" / name).read_text())
+            assignment = next(node for node in tree.body if isinstance(node, ast.Assign)
+                              and any(isinstance(target, ast.Name) and
+                                      target.id == "TERMINATION_REASON_MAP"
+                                      for target in node.targets))
+            self.assertEqual(ast.literal_eval(assignment.value), expected, name)
+
+        manager = (ROOT / "src/bluetooth/manager.cpp").read_text()
+        labels = "const char* term_names[]" + manager.split("const char* term_names[]", 1)[1].split(
+            "\n\n", 1)[0]
+        code = r'''
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+const char* label(uint8_t reason) {
+    struct { uint8_t termination_reason; } session{reason};
+''' + labels + r'''
+    return term_name;
+}
+int main() {
+    const char* expected[] = {"COMPLETED", "TIMEOUT", "OVERSHOOT", "MAX_PULSES", "SCALE_ERROR"};
+    for (unsigned reason = 0; reason <= 255; ++reason)
+        assert(std::strcmp(label(reason), reason < 5 ? expected[reason] : "UNKNOWN") == 0);
+}
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            cpp = Path(folder) / "labels.cpp"
+            binary = Path(folder) / "labels"
+            cpp.write_text(code)
+            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra",
+                            "-fsanitize=address,undefined", str(cpp), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_saved_scale_reason_is_not_timeout(self):
         controller = (ROOT / "src/controllers/grind_controller.cpp").read_text()
         logger = (ROOT / "src/logging/grind_logging.cpp").read_text()
