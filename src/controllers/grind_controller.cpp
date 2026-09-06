@@ -18,9 +18,6 @@
 #include "../hardware/mock_hx711_driver.h"
 #endif
 
-// UI event queue size
-#define UI_EVENT_QUEUE_SIZE 10
-
 // Flash operation queue size
 #define FLASH_OP_QUEUE_SIZE 5
 
@@ -83,13 +80,8 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     ui_event_callback = nullptr;
     ui_ready_for_setup = false;
     
-    // Initialize thread-safe UI event queue
-    ui_event_queue = xQueueCreate(UI_EVENT_QUEUE_SIZE, sizeof(GrindEventData));
-    if (!ui_event_queue) {
-        LOG_BLE("ERROR: Failed to create UI event queue\n");
-    } else {
-        LOG_BLE("UI event queue created successfully\n");
-    }
+    // Fixed storage: no allocation failure and no progress-event backlog.
+    ui_events_ = {};
     
     // Initialize thread-safe flash operation queue
     flash_op_queue = xQueueCreate(FLASH_OP_QUEUE_SIZE, sizeof(FlashOpRequest));
@@ -898,7 +890,8 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         if (last_error_message[0] == '\0') {
             set_error_message("Error");
         }
-        event_data.error_message = last_error_message;
+        std::strncpy(event_data.error_message, last_error_message,
+                     sizeof(event_data.error_message) - 1);
         // Use non-blocking high latency weight instead of precision settled weight
         event_data.error_weight = weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f;
         final_weight = event_data.error_weight;
@@ -1017,36 +1010,10 @@ void GrindController::ui_acknowledge_phase_transition() {
 }
 
 void GrindController::emit_ui_event(const GrindEventData& data) {
-    // Thread-safe Core 0 → Core 1 UI event emission using FreeRTOS queue
-    if (ui_event_queue) {
-        BaseType_t result = xQueueSend(ui_event_queue, &data, 0); // 0 = no wait (non-blocking)
-        
-        if (result != pdPASS) {
-            // Queue full - drop event to prevent Core 0 blocking
-            // Only log dropped significant events, not progress updates
-            if (data.event != UIGrindEvent::PROGRESS_UPDATED) {
-                LOG_BLE("WARNING: UI event queue full, dropped event type %d\n", (int)data.event);
-            }
-        } else {
-            // Only log significant queued events, not every progress update
-            if (data.event != UIGrindEvent::PROGRESS_UPDATED) {
-                const char* event_name = "UNKNOWN";
-                switch(data.event) {
-                    case UIGrindEvent::PHASE_CHANGED: event_name = "PHASE_CHANGED"; break;
-                    case UIGrindEvent::PROGRESS_UPDATED: event_name = "PROGRESS_UPDATED"; break;
-                    case UIGrindEvent::COMPLETED: event_name = "COMPLETED"; break;
-                    case UIGrindEvent::TIMEOUT: event_name = "TIMEOUT"; break;
-                    case UIGrindEvent::STOPPED: event_name = "STOPPED"; break;
-                    case UIGrindEvent::BACKGROUND_CHANGE: event_name = "BACKGROUND_CHANGE"; break;
-                    case UIGrindEvent::PULSE_AVAILABLE: event_name = "PULSE_AVAILABLE"; break;
-                    case UIGrindEvent::PULSE_STARTED: event_name = "PULSE_STARTED"; break;
-                    case UIGrindEvent::PULSE_COMPLETED: event_name = "PULSE_COMPLETED"; break;
-                }
-                LOG_BLE("[%lums UI_EVENT] QUEUED %s: phase=%s, weight=%.2fg, progress=%d%%\n", 
-                        millis(), event_name, data.phase_display_text, data.current_weight, data.progress_percent);
-            }
-        }
-    }
+    // Only bounded copies under the cross-core lock; never wait for the UI.
+    portENTER_CRITICAL(&ui_event_lock_);
+    ui_events_.publish(data);
+    portEXIT_CRITICAL(&ui_event_lock_);
 }
 
 void GrindController::emit_progress_update(const GrindLoopData& loop_data) {
@@ -1081,14 +1048,16 @@ bool GrindController::should_log_measurements() const {
 }
 
 void GrindController::process_queued_ui_events() {
-    GrindEventData event;
-    
-    // Process all queued events from Core 0
-    while (xQueueReceive(ui_event_queue, &event, 0) == pdPASS) {
-        if (ui_event_callback) {
-            ui_event_callback(event); // Safe - runs on Core 1
-        }
-    }
+    if (!ui_event_callback) return; // Retain state until the UI is registered.
+    portENTER_CRITICAL(&ui_event_lock_);
+    const auto batch = ui_events_.take();
+    portEXIT_CRITICAL(&ui_event_lock_);
+
+    // Establish the screen first, then newer readings and its background.
+    // A producer can publish during a callback; that stays for the next tick.
+    if (batch.state_pending) ui_event_callback(batch.state);
+    if (batch.progress_pending) ui_event_callback(batch.progress);
+    if (batch.background_pending) ui_event_callback(batch.background);
 }
 
 bool GrindController::queue_terminal_session() {
