@@ -32,8 +32,12 @@ motor off before the target, then uses controlled pulses to finish the dose.
 > [!TIP]
 > **v1.5.8 reliability update:** improved scale-fault handling, motor timing,
 > update recovery, saved history and settings confirmation. Read the
-> [v1.5.8 changelog](CHANGELOG.md#158---2026-09-06). Published builds are available from the
-> [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
+> [v1.5.8 changelog](CHANGELOG.md#158---2026-09-06). **This is release preparation:
+> install 1.5.8 only once it appears in
+> [GitHub Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases).**
+> The [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/)
+> offers it after publication and the subsequent site deployment; until then it
+> may offer only an older version.
 
 See [release validation](docs/RELIABILITY_RELEASE.md) for the tested candidate
 and coverage limits. The release badge above identifies the latest published build.
