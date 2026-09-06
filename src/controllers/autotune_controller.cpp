@@ -394,7 +394,6 @@ void AutoTuneController::update_verification_phase() {
 
                 if (success_rate >= GRIND_AUTOTUNE_SUCCESS_RATE) {
                     // SUCCESS
-                    log_message("\nComplete!");
                     complete_with_success(candidate_ms);
                     return;
                 }
@@ -603,12 +602,15 @@ void AutoTuneController::switch_sub_phase(AutoTuneSubPhase new_sub_phase) {
 
 void AutoTuneController::complete_with_success(float final_latency_ms) {
     if (grinder) grinder->stop();
+    // A measured result is not a successful tune until it is persisted.
+    if (!grind_controller || !grind_controller->save_motor_latency(final_latency_ms)) {
+        complete_with_failure("Could not save latency");
+        return;
+    }
+    log_message("\nComplete!");
     LOG_BLE("=== AutoTune Complete: SUCCESS ===\n");
     LOG_BLE("Final motor latency: %.1fms (previous: %.1fms)\n",
             final_latency_ms, progress.previous_latency_ms);
-
-    // Save to NVS via GrindController
-    grind_controller->save_motor_latency(final_latency_ms);
 
     result.success = true;
     result.latency_ms = final_latency_ms;
@@ -637,10 +639,13 @@ void AutoTuneController::complete_with_failure(const char* error_msg) {
     if (grinder) grinder->stop();
     LOG_BLE("=== AutoTune Complete: FAILURE ===\n");
     LOG_BLE("Error: %s\n", error_msg);
-    LOG_BLE("Using default latency: %.1fms\n", GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS);
+    const float retained_latency_ms = grind_controller
+        ? grind_controller->get_motor_response_latency()
+        : GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS;
+    LOG_BLE("Retaining latency: %.1fms\n", retained_latency_ms);
 
     result.success = false;
-    result.latency_ms = GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS;
+    result.latency_ms = retained_latency_ms;
     result.error_message = error_msg;
 
     current_phase = AutoTunePhase::COMPLETE_FAILURE;
@@ -651,7 +656,7 @@ void AutoTuneController::complete_with_failure(const char* error_msg) {
         autotune_log_file.println();
         autotune_log_file.println("=== Autotune Complete: FAILURE ===");
         autotune_log_file.printf("Error: %s\n", error_msg ? error_msg : "Unknown");
-        autotune_log_file.printf("Using Default Latency: %.1fms\n", GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS);
+        autotune_log_file.printf("Retained Latency: %.1fms\n", retained_latency_ms);
         autotune_log_file.close();
         LOG_BLE("AutoTune: Log file closed\n");
     }

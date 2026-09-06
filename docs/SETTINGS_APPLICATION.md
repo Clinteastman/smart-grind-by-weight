@@ -68,6 +68,12 @@ or hardware verification. The test runs in firmware CI.
 
 No device flashing or physical acceptance test has been performed.
 
+Pulse Tune also checks latency persistence before reporting success. A failed
+write uses the existing failure screen and cleanup path, retains the previous
+active latency, closes the log and releases the operation reservation. The
+terminal-method regression injects this failure and checks that no success
+message or new active latency is reported.
+
 After the web timeout/interaction changes, all 18 host tests passed again
 (17.484 seconds), along with the JavaScript tests including a real abortable
 pending request. Native WSL V1/V2 rebuilds passed in 31.194/29.872 seconds,
