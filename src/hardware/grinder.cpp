@@ -146,7 +146,7 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
     uint32_t remaining = duration_ms * 1000U;
     size_t halves = 0;
     while (remaining > 0) {
-        const uint32_t ticks = std::min(remaining, 32767U);
+        const uint32_t ticks = std::min<uint32_t>(remaining, 32767U);
         auto& symbol = symbols[halves / 2];
         if (halves % 2 == 0) {
             symbol.duration0 = ticks;
