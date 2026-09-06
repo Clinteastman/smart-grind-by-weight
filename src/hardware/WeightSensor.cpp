@@ -76,6 +76,8 @@ WeightSensor::~WeightSensor() {
 }
 
 void WeightSensor::init(Preferences* preferences) {
+    has_sample_.store(false);
+    diagnostic_raw_adc_.store(-1);
     prefs = preferences;
     
     LOG_BLE("Initializing WeightSensor configuration and filters...\n");
@@ -158,6 +160,7 @@ bool WeightSensor::update_async() {
 // conversion_24bit() method removed - now handled by ADC driver
 
 void WeightSensor::power_down() {
+    has_sample_.store(false);
     if (adc_driver) {
         adc_driver->power_down();
     }
@@ -414,15 +417,15 @@ int32_t WeightSensor::get_raw_adc_smoothed(uint32_t window_ms) const {
 }
 
 uint32_t WeightSensor::get_adc_headroom_counts() const {
-    if (get_sample_count() == 0) return 0;
-
-    const int32_t raw = get_raw_adc_instant();
+    const int32_t raw = diagnostic_raw_adc_.load();
     if (raw < 0 || raw > kAdcMaximumRaw) return 0;
     return static_cast<uint32_t>(min(raw, kAdcMaximumRaw - raw));
 }
 
 bool WeightSensor::is_adc_near_saturation() const {
-    return get_sample_count() > 0 && get_adc_headroom_counts() <= kAdcSaturationMargin;
+    const int32_t raw = diagnostic_raw_adc_.load();
+    return raw >= 0 && raw <= kAdcMaximumRaw &&
+           (raw <= kAdcSaturationMargin || raw >= kAdcMaximumRaw - kAdcSaturationMargin);
 }
 
 // Primary weight readings using CircularBufferMath with single conversion point
@@ -731,14 +734,29 @@ bool WeightSensor::sample_and_feed_filter() {
     
     // Non-blocking check for available ADC data
     if (data_waiting_async()) {
-        update_async();
+        if (!update_async()) return false;
         int32_t raw_adc = get_raw_adc_data();  // Get raw ADC data from driver
         uint32_t timestamp = millis();
         
         // Raw ADC validation (24-bit range - valid for all supported ADCs)
         if (raw_adc >= 0 && raw_adc <= 0xFFFFFF) {  // Valid 24-bit range
+            diagnostic_raw_adc_.store(raw_adc);
+            // Responsive ADCs can still return unusable rail readings. Do not
+            // let these refresh freshness, contaminate filters, or complete tare.
+            if (raw_adc <= kAdcSaturationMargin ||
+                raw_adc >= kAdcMaximumRaw - kAdcSaturationMargin) {
+                static uint32_t last_saturation_log_ms = 0;
+                if (last_saturation_log_ms == 0 || timestamp - last_saturation_log_ms >= 5000) {
+                    LOG_BLE("WeightSensor: HX711 input near ADC rail - raw=%ld; check load-cell wiring and preload\n",
+                            (long)raw_adc);
+                    last_saturation_log_ms = timestamp;
+                }
+                return false;
+            }
             // Thread-safe sample feeding (CircularBufferMath is single-producer safe)
             raw_filter.add_sample(raw_adc, timestamp);
+            last_sample_ms_.store(timestamp);
+            has_sample_.store(true);
             
             // Tare logic (hardware-independent)
             if (doTare) {
@@ -759,18 +777,6 @@ bool WeightSensor::sample_and_feed_filter() {
             current_raw_adc = raw_adc;
             current_weight = raw_to_weight(raw_adc);  // Convert using WeightSensor calibration
 
-            if (raw_adc <= kAdcSaturationMargin ||
-                raw_adc >= kAdcMaximumRaw - kAdcSaturationMargin) {
-                static uint32_t last_saturation_log_ms = 0;
-                if (last_saturation_log_ms == 0 || timestamp - last_saturation_log_ms >= 5000) {
-                    const uint32_t headroom = static_cast<uint32_t>(
-                        min(raw_adc, kAdcMaximumRaw - raw_adc));
-                    LOG_BLE("WeightSensor: HX711 input near ADC rail - raw=%ld, headroom=%lu counts; check load-cell wiring and preload\n",
-                            (long)raw_adc, (unsigned long)headroom);
-                    last_saturation_log_ms = timestamp;
-                }
-            }
-            
             // Update temperature if available
             update_temperature_if_available();
             

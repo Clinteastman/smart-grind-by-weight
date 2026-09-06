@@ -1,5 +1,7 @@
 #include "data_stream.h"
 #include "../logging/grind_logging.h"
+#include "../logging/session_file.h"
+#include <algorithm>
 #include "../config/constants.h"
 #include <Arduino.h>
 #include <LittleFS.h>
@@ -36,11 +38,11 @@ void DataStreamManager::close_stream() {
 
 uint32_t DataStreamManager::get_session_list(uint32_t* session_ids, uint32_t max_sessions) {
     uint32_t total_sessions = grind_logger.count_sessions_in_flash();
-    if (total_sessions == 0 || !session_ids) {
+    if (total_sessions == 0 || !session_ids || max_sessions == 0) {
         return 0;
     }
     
-    // Reuse the session list logic from export_sessions_binary_chunk
+    // Collect individual files, then sort only the IDs actually collected.
     uint32_t* session_list = (uint32_t*)heap_caps_malloc(total_sessions * sizeof(uint32_t), MALLOC_CAP_8BIT);
     if (!session_list) {
         LOG_BLE("ERROR: Failed to allocate session list memory\n");
@@ -55,19 +57,10 @@ uint32_t DataStreamManager::get_session_list(uint32_t* session_ids, uint32_t max
         if (dir && dir.isDirectory()) {
             File file = dir.openNextFile();
             while (file && list_count < total_sessions) {
-                String filename = file.name();
-                bool is_session_file = (filename.startsWith("session_") || filename.indexOf("/session_") != -1)
-                                       && filename.endsWith(".bin");
-                if (is_session_file) {
-                    // Extract session ID from filename
-                    int start_pos = filename.indexOf('_') + 1;
-                    int end_pos = filename.lastIndexOf('.');
-                    if (start_pos > 0 && end_pos > start_pos) {
-                        uint32_t session_id = filename.substring(start_pos, end_pos).toInt();
-                        if (session_id > 0) {
-                            session_list[list_count++] = session_id;
-                        }
-                    }
+                uint32_t session_id = 0;
+                if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
+                    grind_logger.validate_stored_session(session_id)) {
+                    session_list[list_count++] = session_id;
                 }
                 file = dir.openNextFile();
             }
@@ -76,15 +69,7 @@ uint32_t DataStreamManager::get_session_list(uint32_t* session_ids, uint32_t max
     }
     
     // Sort session IDs for consistent order
-    for (uint32_t i = 0; i < list_count - 1; i++) {
-        for (uint32_t j = i + 1; j < list_count; j++) {
-            if (session_list[i] > session_list[j]) {
-                uint32_t temp = session_list[i];
-                session_list[i] = session_list[j];
-                session_list[j] = temp;
-            }
-        }
-    }
+    std::sort(session_list, session_list + list_count);
     
     // Copy results to output array
     uint32_t copy_count = (list_count < max_sessions) ? list_count : max_sessions;
@@ -108,8 +93,8 @@ bool DataStreamManager::initialize_file_stream(uint32_t session_id) {
     char filename[64];
     snprintf(filename, sizeof(filename), SESSION_FILE_FORMAT, session_id);
 
-    if (!LittleFS.exists(filename)) {
-        LOG_BLE("ERROR: Session file %s does not exist\n", filename);
+    if (!grind_logger.validate_stored_session(session_id)) {
+        LOG_BLE("ERROR: Session file %s is missing or invalid\n", filename);
         return false;
     }
 
@@ -126,6 +111,7 @@ bool DataStreamManager::initialize_file_stream(uint32_t session_id) {
 }
 
 bool DataStreamManager::read_file_chunk(uint8_t* buffer, size_t buffer_size, size_t* actual_size) {
+    if (actual_size) *actual_size = 0;
     if (!file_stream_active || !buffer || !actual_size) {
         return false;
     }

@@ -49,6 +49,10 @@ private:
     float cal_factor;
     int32_t tare_offset;
     std::atomic<bool> tare_initialized_{false};
+    std::atomic<bool> has_sample_{false};
+    std::atomic<uint32_t> last_sample_ms_{0};
+    // Last observed conversion, including rejected rails; -1 means no reading.
+    std::atomic<int32_t> diagnostic_raw_adc_{-1};
     
     // Current readings (cached)
     float current_weight;
@@ -184,6 +188,13 @@ public:
     
     // Status and information methods
     int get_sample_count() const;                            // Returns filter sample count
+    // Five missed samples at 10 SPS; independent of optional SPS diagnostics.
+    bool has_recent_sample() const {
+        if (!has_sample_.load()) return false;
+        const uint32_t last_sample = last_sample_ms_.load();
+        const uint32_t now = millis();
+        return static_cast<uint32_t>(now - last_sample) < 500U;
+    }
     float get_calibration_factor();                          
     int32_t get_zero_offset() const { return tare_offset; }
     bool is_initialized();                                   

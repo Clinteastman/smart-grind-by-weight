@@ -12,6 +12,7 @@
 #include "time_grind_strategy.h"
 #include <Preferences.h>
 #include <LittleFS.h>
+#include <mutex>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
@@ -35,6 +36,7 @@ struct FlashOpRequest {
     float start_weight;      // For START_GRIND_SESSION (pre-tare snapshot)
     float final_weight;      // For END_GRIND_SESSION
     uint8_t pulse_count;     // For END_GRIND_SESSION
+    uint32_t completed_at_ms; // Absolute clock at terminal phase entry, not save time
     uint32_t motor_runtime_ms; // For UPDATE_MANUAL_RUNTIME
 };
 
@@ -89,6 +91,9 @@ struct PulseReport {
 // Controls the grinding process with predictive weight stopping and precision pulse corrections
 class GrindController {
 private:
+    // Serialize complete state transitions, not just individual field writes.
+    // Recursive because strategies/getters call back into the same controller.
+    mutable std::recursive_mutex control_mutex_;
     friend class WeightGrindStrategy;
     friend class TimeGrindStrategy;
 
@@ -205,8 +210,14 @@ private:
     GrindSessionResult last_session_result_ = GrindSessionResult::UNKNOWN;
 
 public:
+    // For compound callers and task suspension. Never hold this while waiting
+    // for a UI acknowledgement or invoking UI callbacks.
+    std::unique_lock<std::recursive_mutex> lock_control() const {
+        return std::unique_lock<std::recursive_mutex>(control_mutex_);
+    }
+
     void init(WeightSensor* lc, Grinder* gr, Preferences* prefs);
-    void start_grind(float target_weight, uint32_t target_time_ms, GrindMode grind_mode);
+    bool start_grind(float target_weight, uint32_t target_time_ms, GrindMode grind_mode);
     void user_tare_request();
     void return_to_idle(); // Called by UI to acknowledge completion/timeout
     void stop_grind();
@@ -216,35 +227,35 @@ public:
     // Time mode pulse functionality
     void start_additional_pulse(); // Start an additional 100ms pulse in time mode
     bool can_pulse() const; // Check if additional pulses are allowed
-    int get_additional_pulse_count() const { return additional_pulse_count; }
+    int get_additional_pulse_count() const { const auto control_lock = lock_control(); return additional_pulse_count; }
 
     // Time mode pause/resume
     void pause_grind();
     void resume_grind();
-    bool is_grind_paused() const { return grind_paused_; }
+    bool is_grind_paused() const { const auto control_lock = lock_control(); return grind_paused_; }
     
     // UI event system
     void set_ui_event_callback(void (*callback)(const GrindEventData&));
-    GrindSessionResult get_last_session_result() const { return last_session_result_; }
+    GrindSessionResult get_last_session_result() const { const auto control_lock = lock_control(); return last_session_result_; }
     void ui_acknowledge_phase_transition(); // Called by UI to confirm phase transition
     void process_queued_ui_events(); // Core 1: Process events from Core 0 queue
     QueueHandle_t get_ui_event_queue() const { return ui_event_queue; }
     
     // Flash operation system
     void process_queued_flash_operations(); // Core 1: Process flash ops from Core 0 queue
-    void queue_flash_operation(const FlashOpRequest& request); // Core 0: Queue flash operation
+    bool queue_flash_operation(const FlashOpRequest& request); // Core 0: Queue flash operation
     
     // Log message system
     void process_queued_log_messages(); // Core 1: Process log messages from Core 0 queue
     void queue_log_message(const char* format, ...); // Core 0: Queue formatted log message
     
     bool is_active() const;
-    bool is_control_loop_paused() const { return control_loop_paused_; }
-    GrindPhase get_phase() const { return phase; }
-    const char* get_current_phase_name() const { return get_phase_name(phase); }
-    int get_current_progress_percent() const { return get_progress_percent(); }
-    float get_target_weight() const { return target_weight; }
-    uint32_t get_target_time_ms() const { return target_time_ms; }
+    bool is_control_loop_paused() const { const auto control_lock = lock_control(); return control_loop_paused_; }
+    GrindPhase get_phase() const { const auto control_lock = lock_control(); return phase; }
+    const char* get_current_phase_name() const { const auto control_lock = lock_control(); return get_phase_name(phase); }
+    int get_current_progress_percent() const { const auto control_lock = lock_control(); return get_progress_percent(); }
+    float get_target_weight() const { const auto control_lock = lock_control(); return target_weight; }
+    uint32_t get_target_time_ms() const { const auto control_lock = lock_control(); return target_time_ms; }
     uint32_t get_elapsed_grind_ms() const;
     static constexpr const char* PREF_KEY_PRIME_ENABLED = "prime_enabled";
     static constexpr const char* PREF_KEY_GRINDER_MODE = "grinder_mode";
@@ -256,47 +267,48 @@ public:
     static constexpr const char* PREF_KEY_GRIND_FRESHNESS_HOURS = "freshness_hrs";
     static constexpr const char* PREF_KEY_COAST_RATIO = "coast_ratio";
     static constexpr const char* PREF_KEY_LAST_GRIND_RUNTIME = "last_grind_ms";
-    GrindMode get_mode() const { return mode; }
-    const GrindSessionDescriptor& get_session_descriptor() const { return session_descriptor; }
+    GrindMode get_mode() const { const auto control_lock = lock_control(); return mode; }
+    GrindSessionDescriptor get_session_descriptor() const { const auto control_lock = lock_control(); return session_descriptor; }
     
     // Grind logging functions
-    void set_grind_profile_id(uint8_t profile_id) { current_profile_id = profile_id; session_descriptor.profile_id = profile_id; }
+    void set_grind_profile_id(uint8_t profile_id) { const auto control_lock = lock_control(); if (phase != GrindPhase::IDLE) return; current_profile_id = profile_id; session_descriptor.profile_id = profile_id; }
     void send_measurements_data();           // Send structured measurement data via serial
     
     // Getter methods for logger (to eliminate calculations in logger)
     float get_current_flow_rate() const;
-    float get_motor_stop_target_weight() const { return motor_stop_target_weight; }
-    float get_grind_latency_ms() const { return grind_latency_ms; }
-    float get_last_logged_weight() const { return last_logged_weight; }
-    void set_last_logged_weight(float weight) { last_logged_weight = weight; } // Thread-safe setter
+    float get_motor_stop_target_weight() const { const auto control_lock = lock_control(); return motor_stop_target_weight; }
+    float get_grind_latency_ms() const { const auto control_lock = lock_control(); return grind_latency_ms; }
+    float get_last_logged_weight() const { const auto control_lock = lock_control(); return last_logged_weight; }
+    void set_last_logged_weight(float weight) { const auto control_lock = lock_control(); last_logged_weight = weight; } // Thread-safe setter
 
-    int get_mechanical_anomaly_count() const { return mechanical_anomaly_count_; }
+    int get_mechanical_anomaly_count() const { const auto control_lock = lock_control(); return mechanical_anomaly_count_; }
     void reset_mechanical_anomaly_count();
 
-    void set_diagnostics_controller(DiagnosticsController* diagnostics) { diagnostics_controller_ = diagnostics; }
+    void set_diagnostics_controller(DiagnosticsController* diagnostics) { const auto control_lock = lock_control(); diagnostics_controller_ = diagnostics; }
 
     // Motor response latency accessors
-    float get_motor_response_latency() const { return motor_response_latency_ms; }
+    float get_motor_response_latency() const { const auto control_lock = lock_control(); return motor_response_latency_ms; }
     void set_motor_response_latency(float value);
-    float get_min_pulse_duration() const { return motor_response_latency_ms; }
-    float get_max_pulse_duration() const { return motor_response_latency_ms + GRIND_MOTOR_MAX_PULSE_DURATION_MS; }
+    float get_min_pulse_duration() const { const auto control_lock = lock_control(); return motor_response_latency_ms; }
+    float get_max_pulse_duration() const { const auto control_lock = lock_control(); return motor_response_latency_ms + GRIND_MOTOR_MAX_PULSE_DURATION_MS; }
     void load_motor_latency();
     void save_motor_latency(float value);
 
     // Coast ratio accessors
-    float get_coast_ratio() const { return coast_ratio_; }
+    float get_coast_ratio() const { const auto control_lock = lock_control(); return coast_ratio_; }
     void set_coast_ratio(float value);
     void load_coast_ratio();
     void save_coast_ratio(float value);
 
     // Grind freshness accessors
-    bool get_grinder_purged_since_boot() const { return grinder_purged_since_boot; }
-    uint64_t get_last_purge_runtime_ms() const { return last_purge_runtime_ms; }
+    bool get_grinder_purged_since_boot() const { const auto control_lock = lock_control(); return grinder_purged_since_boot; }
+    uint64_t get_last_purge_runtime_ms() const { const auto control_lock = lock_control(); return last_purge_runtime_ms; }
     
     // Removed - predictive logic now inline in update_realtime()
     
     
 private:
+    bool queue_terminal_session();
     void switch_phase(GrindPhase new_phase, const GrindLoopData& loop_data = {});
     void final_measurement(const GrindLoopData& loop_data);
     void monitor_mechanical_instability(const GrindLoopData& loop_data);

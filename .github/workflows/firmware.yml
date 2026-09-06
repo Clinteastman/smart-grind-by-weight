@@ -66,6 +66,9 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio==6.1.19
 
+      - name: Run firmware host regression tests
+        run: python -m unittest discover -s tools/tests -p '*_test.py'
+
       - name: Build firmware
         env:
           PLATFORMIO_BUILD_CACHE_DIR: .pio/build-cache/${{ matrix.environment }}

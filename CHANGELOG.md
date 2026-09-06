@@ -6,6 +6,49 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+- Cancelling Pulse Tune immediately stops the motor and closes its log before
+  returning to the menu. Success and failure paths also stop any active pulse.
+
+### Bluetooth updates
+
+- Restore the normal watchdog policy, touch input and suspended tasks after a
+  failed or cancelled update. Reject empty/oversized transfers and recover
+  immediately from flash write errors. If watchdog recovery fails, restart
+  instead of continuing with weakened protection.
+
+### Scale reliability
+
+- Stop weight-mode grinding if no valid scale reading arrives for 500 ms,
+  including during purge and settling. Show a scale-disconnected error and
+  require the user to dismiss it; reconnecting does not restart the motor.
+- Refuse weight-mode starts against stale readings. Time and Manual modes
+  remain independent of scale availability. Failed ADC reads no longer refresh
+  sample freshness using the previous reading.
+
+### Controller and history
+
+- Serialized grind-controller updates, commands and state reads across tasks,
+  preventing an in-flight update from restarting the motor after stop returns.
+  Web start acknowledgements now reflect whether the controller accepted the
+  start, and firmware-update task suspension waits for controller access to end.
+- Finished and timed-out grinds queue their history record before notifying the
+  UI. Immediate dismissal, stop or an extra time-mode pulse preserves that
+  record; a full save queue is retried instead of silently losing completion.
+- Live web status and settings read a coherent profile snapshot while profiles
+  are edited. Active grind status reports the session's own profile.
+- Hardened grind history against allocation failures, incomplete session files
+  and malformed filenames. Bluetooth export no longer hangs when its file list
+  contains no usable sessions, and retention sorts only verified file IDs.
+- Failed history writes are now reported as not saved. Removed unused legacy
+  logging/export code; existing schema-2 files keep their unchanged layout and
+  zero reserved checksum field (no new checksum or data migration).
+
+### Development
+
+- Run simulator checks for controller and system changes as well as UI changes.
+  Standalone policy tests also run on Linux, independently of the desktop
+  rendering test.
+
 ### Wi-Fi and web interface
 
 - Serve the embedded setup and grinder pages directly from flash instead of
