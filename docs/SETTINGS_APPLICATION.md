@@ -76,6 +76,14 @@ message or new active latency is reported.
 The touchscreen latency and coast sliders also revert to their active values
 when persistence fails, instead of displaying a value the controller rejected.
 
+Post-save automation and display-timing reloads use checked reads. Missing,
+invalid or unreadable required values fail the reload without replacing the
+previous running values with defaults. Their combined outcome is passed to
+settings completion, so successful writes followed by a failed runtime reload
+are reported as failed, not saved. Boot and older menu paths retain their
+default-compatible reads. Regression tests inject namespace-open and per-field
+read failures, then verify retained values and a successful subsequent reload.
+
 After the web timeout/interaction changes, all 18 host tests passed again
 (17.484 seconds), along with the JavaScript tests including a real abortable
 pending request. Native WSL V1/V2 rebuilds passed in 31.194/29.872 seconds,

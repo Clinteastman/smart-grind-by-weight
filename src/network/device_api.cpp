@@ -333,10 +333,10 @@ const char* DeviceApi::settings_result(uint32_t id) {
     return status; // All statuses are static literals, not pointers into a slot.
 }
 
-void DeviceApi::complete_settings_application() {
+void DeviceApi::complete_settings_application(bool runtime_applied) {
     if (!applying_settings_id_) return;
     // Keep other operations excluded through persistence, cache and UI refresh.
-    set_settings_result(applying_settings_id_, settings_persisted_ ? "saved" : "failed");
+    set_settings_result(applying_settings_id_, settings_persisted_ && runtime_applied ? "saved" : "failed");
     operation_interlock().release(settings_operation_token_);
     settings_operation_token_ = 0;
     applying_settings_id_ = 0;

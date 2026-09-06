@@ -19,7 +19,7 @@ public:
     // Apply web/menu preference changes immediately and begin a fresh idle
     // interval so activity recorded before the save cannot postpone the new
     // timeout.
-    void apply_runtime_settings();
+    bool apply_runtime_settings(bool verify_storage = false);
 
     void set_screensaver_controller(ScreensaverController* controller) {
         screensaver_controller_ = controller;
