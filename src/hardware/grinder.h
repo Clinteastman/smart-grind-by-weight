@@ -13,13 +13,16 @@ class Grinder {
 private:
     int motor_pin;
     bool grinding;
-    bool initialized;
+    bool initialized = false;
 
     // RMT pulse control
     rmt_channel_handle_t rmt_channel;
     rmt_encoder_handle_t current_encoder;
     bool pulse_active;
     bool rmt_initialized;
+    // The asynchronous encoder reads this storage until completion or stop.
+    static constexpr size_t kSymbolCount = 32;
+    rmt_symbol_word_t symbols[kSymbolCount]{};
 
     // Motor settling tracking
     unsigned long motor_start_time;
