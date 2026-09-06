@@ -83,6 +83,9 @@ settings completion, so successful writes followed by a failed runtime reload
 are reported as failed, not saved. Boot and older menu paths retain their
 default-compatible reads. Regression tests inject namespace-open and per-field
 read failures, then verify retained values and a successful subsequent reload.
+The post-save screensaver-style read also rejects missing or invalid values.
+An unreadable style reports failure and leaves the running GaggiMate status
+client unchanged; it is not treated as a request to disable the client.
 
 After the web timeout/interaction changes, all 18 host tests passed again
 (17.484 seconds), along with the JavaScript tests including a real abortable

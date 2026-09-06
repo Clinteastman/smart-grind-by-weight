@@ -727,10 +727,18 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     if (screensaver.begin("screensaver", false)) {
         const bool style_saved = screensaver.putString("style", settings.screensaver_style) == strlen(settings.screensaver_style);
         saved = style_saved && saved;
-        const String stored_style = screensaver.getString("style", "minimal");
+        const String stored_style = screensaver.getString("style", "");
         screensaver.end();
-        saved = gaggimate_status_client.configure(stored_style == "gaggimate",
-                                                  settings.gaggimate_host) && saved;
+        const bool style_read = stored_style == "minimal" || stored_style == "orbit" ||
+                                stored_style == "blank" || stored_style == "custom" ||
+                                stored_style == "gaggimate";
+        if (style_read) {
+            saved = gaggimate_status_client.configure(stored_style == "gaggimate",
+                                                      settings.gaggimate_host) && saved;
+        } else {
+            // Keep the active client unchanged when stored style is unreadable.
+            saved = false;
+        }
     } else {
         saved = false;
     }

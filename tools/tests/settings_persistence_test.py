@@ -43,6 +43,7 @@ using String = std::string;
 constexpr float GRIND_AUTOTUNE_LATENCY_MIN_MS = 30, GRIND_AUTOTUNE_LATENCY_MAX_MS = 300;
 constexpr float GRIND_LATENCY_TO_COAST_RATIO_MIN = 0.1f, GRIND_LATENCY_TO_COAST_RATIO_MAX = 3;
 struct Preferences {
+    inline static bool fail_read = false;
     inline static int writes = 0, fail_write = -1, opens = 0, fail_open = -1;
     inline static std::map<String, String> strings;
     String ns = "grinder";
@@ -56,10 +57,11 @@ struct Preferences {
         strings[ns + "/" + key] = value; return strlen(value);
     }
     String getString(const char* key, const char* fallback) {
+        if (fail_read) return fallback;
         const auto it = strings.find(ns + "/" + key);
         return it == strings.end() ? fallback : it->second;
     }
-    static void reset() { writes = opens = 0; fail_write = fail_open = -1; strings.clear(); }
+    static void reset() { writes = opens = 0; fail_write = fail_open = -1; fail_read = false; strings.clear(); }
 };
 enum class GrindMode { WEIGHT, TIME };
 struct GrindController {
@@ -101,7 +103,8 @@ bool save_timing(uint16_t, uint8_t, bool enabled, uint16_t delay) {
 }
 struct StatusClient {
     bool succeed = true, enabled = false;
-    bool configure(bool next_enabled, const char*) { enabled = next_enabled; return succeed; }
+    int calls = 0;
+    bool configure(bool next_enabled, const char*) { ++calls; enabled = next_enabled; return succeed; }
 } gaggimate_status_client;
 ''' + settings + r'''
 struct DeviceApi {
@@ -141,13 +144,30 @@ int main() {
         if (failure == 4) assert(control.coast_ratio_ == 1);
         if (failure == 5) assert(control.motor_response_latency_ms == 50);
         if (failure == 14) assert(hw.display.brightness == 0.5f);
-        if (failure == 16) assert(!gaggimate_status_client.enabled);
+        if (failure == 16) assert(gaggimate_status_client.enabled);
     }
     for (int failure = 1; failure <= total_opens; ++failure) {
         Preferences::reset(); Preferences::fail_open = failure;
         assert(!api.apply_settings(update));
     }
     Preferences::reset();
+    // Failed post-save reads must not disable the running GaggiMate client or
+    // report success. Also preserve a disabled client rather than enabling it.
+    for (bool previous : {false, true}) {
+        Preferences::reset(); Preferences::fail_read = true;
+        gaggimate_status_client.enabled = previous;
+        const int calls = gaggimate_status_client.calls;
+        assert(!api.apply_settings(update));
+        assert(gaggimate_status_client.enabled == previous);
+        assert(gaggimate_status_client.calls == calls);
+        Preferences::fail_read = false;
+        assert(api.apply_settings(update));
+        assert(gaggimate_status_client.enabled);
+    }
+    strcpy(update.screensaver_style, "minimal");
+    assert(api.apply_settings(update));
+    assert(!gaggimate_status_client.enabled);
+    strcpy(update.screensaver_style, "gaggimate");
     profiles.succeed = false; assert(!api.apply_settings(update)); profiles.succeed = true;
     ScreensaverSettings::succeed = false; assert(!api.apply_settings(update));
     ScreensaverSettings::succeed = true;
