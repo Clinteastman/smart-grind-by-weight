@@ -20,6 +20,8 @@ class SessionCompletionTest(unittest.TestCase):
             "void GrindController::start_additional_pulse()",
             "bool GrindController::can_pulse() const",
         ))
+        methods += "\n" + function((ROOT / "src/tasks/file_io_task.cpp").read_text(),
+                                    "void FileIOTask::process_flash_operation(")
         harness = r'''
 #include <cassert>
 #include <cstdint>
@@ -76,6 +78,10 @@ struct Logger {
     void discard_current_session() { active = false; ++discards; }
 } grind_logger;
 struct Statistics { void update_manual_grind(uint32_t) {} void update_time_pulse() {} } statistics_manager;
+struct FileIOTask {
+    unsigned failed_operations_count = 0;
+    void process_flash_operation(const FlashOpRequest&);
+};
 struct Grinder {
     bool motor = false;
     void stop() { motor = false; }
@@ -161,6 +167,16 @@ int main() {
     c.start_additional_pulse(); assert(!motor.motor);
     // Logging disabled: no record to preserve and no queue required.
     grind_logger.active = false; c.return_to_idle(); assert(c.phase == GrindPhase::IDLE);
+    // The alternate FileIO dispatcher must carry the same captured timestamp.
+    grind_logger.start_grind_session({}, 0);
+    FileIOTask io;
+    FlashOpRequest completed{};
+    completed.operation_type = FlashOpRequest::END_GRIND_SESSION;
+    completed.completed_at_ms = 42;
+    std::strcpy(completed.result_string, "COMPLETE");
+    clock_ms = 60000;
+    io.process_flash_operation(completed);
+    assert(grind_logger.completed_at_ms == 42 && !grind_logger.active);
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:
