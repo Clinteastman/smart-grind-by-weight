@@ -6,6 +6,17 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Scale reliability
+
+- Stop weight-mode grinding if no valid scale reading arrives for 500 ms,
+  including during purge and settling. Show a scale-disconnected error and
+  require the user to dismiss it; reconnecting does not restart the motor.
+- Refuse weight-mode starts against stale readings. Time and Manual modes
+  remain independent of scale availability. Failed ADC reads no longer refresh
+  sample freshness using the previous reading.
+
+### Controller and history
+
 - Serialized grind-controller updates, commands and state reads across tasks,
   preventing an in-flight update from restarting the motor after stop returns.
   Web start acknowledgements now reflect whether the controller accepted the
