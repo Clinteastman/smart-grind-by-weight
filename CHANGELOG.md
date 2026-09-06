@@ -6,6 +6,12 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Web settings
+
+- Accept older settings forms that omit the optional panel-off controls,
+  preserving the grinder's saved panel-off settings instead of rejecting the
+  complete form with a missing-field error.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
