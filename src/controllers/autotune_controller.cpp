@@ -108,8 +108,11 @@ bool AutoTuneController::start() {
 }
 
 void AutoTuneController::cancel() {
-    LOG_BLE("AutoTune: User cancel requested\n");
+    if (!is_running) return;
     cancel_requested = true;
+    // The UI leaves the tuning screen immediately. Do not depend on another
+    // update tick to stop the motor, close the log and finish cancellation.
+    complete_with_failure("Cancelled by user");
 }
 
 void AutoTuneController::update() {
@@ -595,6 +598,7 @@ void AutoTuneController::switch_sub_phase(AutoTuneSubPhase new_sub_phase) {
 //==============================================================================
 
 void AutoTuneController::complete_with_success(float final_latency_ms) {
+    if (grinder) grinder->stop();
     LOG_BLE("=== AutoTune Complete: SUCCESS ===\n");
     LOG_BLE("Final motor latency: %.1fms (previous: %.1fms)\n",
             final_latency_ms, progress.previous_latency_ms);
@@ -624,6 +628,7 @@ void AutoTuneController::complete_with_success(float final_latency_ms) {
 }
 
 void AutoTuneController::complete_with_failure(const char* error_msg) {
+    if (grinder) grinder->stop();
     LOG_BLE("=== AutoTune Complete: FAILURE ===\n");
     LOG_BLE("Error: %s\n", error_msg);
     LOG_BLE("Using default latency: %.1fms\n", GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS);
