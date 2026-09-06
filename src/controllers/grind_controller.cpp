@@ -47,6 +47,7 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     last_mechanical_event_ms_ = 0;
     last_mechanical_weight_ = 0.0f;
     mechanical_monitor_initialized_ = false;
+    net_weight_removal_guard_.reset(0.0f);
 
     // Initialize grind freshness tracking
     grinder_purged_since_boot = false;
@@ -205,6 +206,7 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     control_loop_paused_ = false;
 
     reset_mechanical_anomaly_count();
+    net_weight_removal_guard_.reset(0.0f);
 
     if (diagnostics_controller_) {
         diagnostics_controller_->reset_diagnostic(DiagnosticCode::MECHANICAL_INSTABILITY);
@@ -387,6 +389,16 @@ void GrindController::update() {
             // time-mode session against an undefined zero reference.
             if (mode != GrindMode::MANUAL && weight_sensor && weight_sensor->is_tare_in_progress()) break;
             float pre_tare_weight = weight_sensor ? weight_sensor->get_weight_low_latency() : 0.0f;
+            if (mode == GrindMode::WEIGHT) {
+                net_weight_removal_guard_.reset(pre_tare_weight);
+                if (net_weight_removal_guard_.has_reference()) {
+                    queue_log_message("[SCALE] Pre-tare vessel reference: %.2fg; removal threshold: %.2fg\n",
+                                      net_weight_removal_guard_.reference_weight_g(),
+                                      net_weight_removal_guard_.removal_threshold_g());
+                } else {
+                    queue_log_message("[SCALE] No vessel reference; removal guard disabled for this grind\n");
+                }
+            }
             if (mode == GrindMode::MANUAL) {
                 if (!grinder->is_grinding()) grinder->start();
                 time_grind_start_ms = loop_data.now;
@@ -620,21 +632,33 @@ void GrindController::update() {
     // Emit progress update events every cycle for responsive UI
     emit_progress_update(loop_data);
 
-    // Check for negative weight failsafe after TARE_CONFIRM phase during active grinding
-    // Only check after motor has settled to avoid false positives from startup transients
-    if (mode == GrindMode::WEIGHT &&
+    // Detect a removed cup/portafilter relative to its measured pre-tare
+    // weight. Multiple consecutive samples are required so an isolated ADC
+    // spike cannot stop the grind.
+    const bool net_weight_guard_active =
+        mode == GrindMode::WEIGHT &&
         phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT &&
         phase != GrindPhase::IDLE && phase != GrindPhase::INITIALIZING &&
         phase != GrindPhase::SETUP && phase != GrindPhase::TARING &&
         phase != GrindPhase::TARE_CONFIRM &&
-        grinder->is_motor_settled() &&
-        loop_data.current_weight < -1.0f) {
+        grinder->is_motor_settled();
+    bool vessel_removed = false;
+    if (net_weight_guard_active) {
+        vessel_removed = net_weight_removal_guard_.update(loop_data.current_weight);
+    } else {
+        net_weight_removal_guard_.cancel_pending();
+    }
+
+    if (vessel_removed) {
         timeout_phase = phase;
         grinder->stop();
         last_session_result_ = GrindSessionResult::ERROR;
 
-        queue_log_message("--- NEGATIVE WEIGHT FAILSAFE TRIGGERED: %.2fg in phase %s ---\n",
-                         loop_data.current_weight, get_phase_name(timeout_phase));
+        queue_log_message("--- VESSEL REMOVAL FAILSAFE: %.2fg <= %.2fg (pre-tare %.2fg) in phase %s ---\n",
+                          loop_data.current_weight,
+                          net_weight_removal_guard_.removal_threshold_g(),
+                          net_weight_removal_guard_.reference_weight_g(),
+                          get_phase_name(timeout_phase));
         set_error_message("Err: neg wt");
         switch_phase(GrindPhase::TIMEOUT, loop_data);
     }

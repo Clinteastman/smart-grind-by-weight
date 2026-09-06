@@ -6,13 +6,15 @@ struct TouchData {
     uint16_t x;
     uint16_t y;
     bool pressed;
+    bool just_pressed;
 };
 
 class TouchDriver {
 private:
-    TouchData last_touch{0, 0, false};
+    TouchData last_touch{0, 0, false, false};
     bool initialized = false;
     bool disabled = false;
+    bool press_event_pending = false;
     
     // Touch activity tracking
     uint32_t last_touch_time = 0;
@@ -24,6 +26,7 @@ public:
     void enable();
     TouchData get_touch_data() const { return last_touch; }
     bool is_pressed() const { return last_touch.pressed; }
+    void consume_press_event();
     
     // Touch activity timing
     uint32_t get_ms_since_last_touch() const;

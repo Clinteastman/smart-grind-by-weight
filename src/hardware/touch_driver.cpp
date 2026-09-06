@@ -68,7 +68,8 @@ void TouchDriver::init() {
         }
     }
     
-    last_touch = {0, 0, false};
+    last_touch = {0, 0, false, false};
+    press_event_pending = false;
     initialized = true;
     disabled = false;
     
@@ -81,6 +82,9 @@ void TouchDriver::update() {
         return;
     }
     
+    const bool was_pressed = last_touch.pressed;
+    last_touch.just_pressed = press_event_pending;
+
     uint8_t buf[5] = {0};
     uint8_t reg = 0x02; // FT3168_REG_NUM_TOUCHES
     esp_err_t err = i2c_master_transmit_receive(device_handle, &reg, sizeof(reg), buf, sizeof(buf), kTouchI2CTimeoutMs);
@@ -98,21 +102,40 @@ void TouchDriver::update() {
         last_touch.x = ((buf[1] & 0x0F) << 8) | buf[2];
         last_touch.y = ((buf[3] & 0x0F) << 8) | buf[4];
         last_touch.pressed = true;
+        if (!was_pressed) {
+            press_event_pending = true;
+        }
+        last_touch.just_pressed = press_event_pending;
 
-        // Update last touch time
-        last_touch_time = millis();
+        // A held or stale controller contact is not new user activity. Only a
+        // fresh press resets the display idle timer.
+        if (!was_pressed) {
+            last_touch_time = millis();
+        }
     } else {
+        if (was_pressed) {
+            last_touch_time = millis();
+        }
+        press_event_pending = false;
         last_touch.pressed = false;
+        last_touch.just_pressed = false;
     }
 }
 
 void TouchDriver::disable() {
     disabled = true;
     last_touch.pressed = false;  // Clear any active touch state
+    last_touch.just_pressed = false;
+    press_event_pending = false;
 }
 
 void TouchDriver::enable() {
     disabled = false;
+}
+
+void TouchDriver::consume_press_event() {
+    press_event_pending = false;
+    last_touch.just_pressed = false;
 }
 
 uint32_t TouchDriver::get_ms_since_last_touch() const {

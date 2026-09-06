@@ -5,7 +5,9 @@
 #include "../logging/grind_logging.h"
 #include "grind_mode.h"
 #include "grind_session.h"
+#include "grind_session_result.h"
 #include "grind_strategy.h"
+#include "net_weight_guard.h"
 #include "weight_grind_strategy.h"
 #include "time_grind_strategy.h"
 #include <Preferences.h>
@@ -180,6 +182,10 @@ private:
     float last_mechanical_weight_ = 0.0f;
     bool mechanical_monitor_initialized_ = false;
 
+    // Detect actual cup/portafilter removal without reacting to isolated
+    // negative load-cell spikes.
+    NetWeightRemovalGuard net_weight_removal_guard_;
+
     DiagnosticsController* diagnostics_controller_ = nullptr;
 
     // Motor response latency - runtime configurable
@@ -193,14 +199,7 @@ private:
     uint64_t last_purge_runtime_ms;      // Runtime when last grind completed (persisted)
 
 public:
-    enum class GrindSessionResult {
-        UNKNOWN,
-        SUCCESS,
-        OVERSHOOT,
-        MAX_PULSES,
-        TIMEOUT,
-        ERROR
-    };
+    using GrindSessionResult = ::GrindSessionResult;
 
 private:
     GrindSessionResult last_session_result_ = GrindSessionResult::UNKNOWN;

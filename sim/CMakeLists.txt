@@ -37,6 +37,13 @@ add_executable(smart-grind-sim
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_60.c"
 )
 
+add_executable(net-weight-guard-test
+    net_weight_guard_test.cpp
+)
+target_include_directories(net-weight-guard-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
 target_compile_definitions(smart-grind-sim PRIVATE
     SMART_GRIND_SIM
     NOMINMAX
@@ -48,6 +55,20 @@ target_include_directories(smart-grind-sim PRIVATE
     "${lvgl_SOURCE_DIR}/src"
 )
 target_link_libraries(smart-grind-sim PRIVATE lvgl user32 gdi32 shell32)
+
+add_executable(display-idle-policy-test
+    display_idle_policy_test.cpp
+)
+target_include_directories(display-idle-policy-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
+add_executable(grind-session-result-test
+    grind_session_result_test.cpp
+)
+target_include_directories(grind-session-result-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
 
 if(MSVC)
     target_compile_options(smart-grind-sim PRIVATE /W4 /permissive-)
@@ -62,4 +83,10 @@ if(BUILD_TESTING)
     set_tests_properties(simulator_swipe_budget PROPERTIES TIMEOUT 10)
     add_test(NAME simulator_manual_smoke COMMAND smart-grind-sim --manual-smoke)
     set_tests_properties(simulator_manual_smoke PROPERTIES TIMEOUT 15)
+    add_test(NAME display_idle_policy COMMAND display-idle-policy-test)
+    set_tests_properties(display_idle_policy PROPERTIES TIMEOUT 5)
+    add_test(NAME net_weight_guard COMMAND net-weight-guard-test)
+    set_tests_properties(net_weight_guard PROPERTIES TIMEOUT 5)
+    add_test(NAME grind_session_result COMMAND grind-session-result-test)
+    set_tests_properties(grind_session_result PROPERTIES TIMEOUT 5)
 endif()

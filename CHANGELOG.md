@@ -10,8 +10,41 @@ line. Earlier release history remains available in the original project's
 
 - Serve the embedded setup and grinder pages directly from flash instead of
   copying the full page into scarce internal RAM when a browser connects.
-  This avoids a roughly 50 KB allocation that can restart memory-constrained
-  controllers.
+  This removes an avoidable roughly 50 KB allocation when opening the web UI.
+- Prevent browsers retaining an outdated settings page across firmware updates.
+
+## [1.5.7] - 2026-08-27
+
+### Grinding and controls
+
+- Fixed **Return when cup is removed** failing after an otherwise completed
+  grind that finished slightly over target or reached its pulse limit.
+
+### Display and screensaver
+
+- Fixed the first touch after AMOLED panel wake being able to leave touch
+  input suppressed until reboot. Wake-touch suppression now ends after the
+  release or a bounded recovery period, and held contacts no longer keep
+  resetting the display idle timer.
+- Reduced false panel wakes by detecting deliberate scale changes from a short
+  start-to-end weight delta instead of historical min/max noise.
+
+## [1.5.6] - 2026-08-21
+
+### Display and screensaver
+
+- Separated the idle screensaver from an optional later AMOLED panel-off
+  stage. The screensaver can remain visible indefinitely as before, or the
+  panel can switch fully off after a configurable additional delay and wake on
+  touch, scale activity or grinding. The first wake touch is consumed to avoid
+  accidental controls, and panel-off remains disabled by default.
+
+### Grinding and safety
+
+- Fixed isolated negative load-cell readings incorrectly stopping a weight
+  grind. Cup or portafilter removal is now checked against its measured
+  pre-tare weight and must persist across multiple samples before stopping the
+  motor.
 
 ## [1.5.5] - 2026-08-20
 
@@ -242,3 +275,5 @@ fixes described above.
 [1.5.3]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.3
 [1.5.4]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.4
 [1.5.5]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.5
+[1.5.6]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.6
+[1.5.7]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.7

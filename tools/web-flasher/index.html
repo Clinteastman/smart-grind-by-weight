@@ -365,7 +365,7 @@
 
             <div class="section">
                 <h3>⏱️ Screensaver Timing</h3>
-                <p>Set the idle timeout and startup image duration. Screensaver brightness remains configurable on the grinder.</p>
+                <p>Set when the screensaver starts and optionally turn the AMOLED panel fully off after an additional delay. Screensaver brightness remains configurable on the grinder.</p>
             </div>
 
             <div class="form-group">
@@ -376,6 +376,15 @@
             <div class="form-group">
                 <label for="screensaverStartupTimeout">Startup Timeout (seconds)</label>
                 <input type="number" id="screensaverStartupTimeout" min="1" max="30" step="1" value="3">
+            </div>
+
+            <div class="form-group">
+                <label><input type="checkbox" id="displayOffEnabled" onchange="document.getElementById('displayOffDelay').disabled = !this.checked"> Turn the AMOLED display fully off</label>
+            </div>
+
+            <div class="form-group">
+                <label for="displayOffDelay">Additional delay after screensaver (seconds)</label>
+                <input type="number" id="displayOffDelay" min="30" max="43200" step="1" value="3600" disabled>
             </div>
 
             <div class="button-row">

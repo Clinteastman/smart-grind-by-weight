@@ -75,7 +75,8 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   behaviour retained by default.
 - **Built-in screensavers** plus custom RGB565 image upload and an optional
   live GaggiMate status view, with configurable brightness, startup display
-  and idle timeout.
+  and idle timeout. An optional second delay can turn the AMOLED panel fully
+  off; leaving it disabled keeps the screensaver visible indefinitely.
 - **Local Wi-Fi web app** with light/dark themes, live weight and flow, saved
   dose selection, round start/stop control, settings, grind history, analytics
   and data downloads.

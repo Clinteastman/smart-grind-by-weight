@@ -88,7 +88,9 @@ Need a simple live readout? Open **Menu → Scale** to jump into a full-screen w
 - **Arc Layout**: Clean, minimal arc-based interface
 - **Nerdy Layout**: Detailed charts showing flow rates and real-time grinding analytics
 - **Switching**: Tap anywhere on grind screen to switch between layouts during grinding
-- **Screensaver**: Custom image can show on startup or when the display dims.
+- **Screensaver**: A custom or built-in design can show on startup or when the
+  display dims. An optional later panel-off stage protects the AMOLED during
+  long idle periods.
 
 ---
 
@@ -132,7 +134,8 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
 	    |   +-- Display
 	    |   |   |-- Normal brightness slider
 	    |   |   |-- Screensaver brightness slider
-	    |   |   \-- Screensaver startup/sleep toggles
+	    |   |   |-- Screensaver startup/idle toggles
+	    |   |   \-- Optional Turn Display Off toggle
     |   |
     |   \-- Grind Settings
     |       |-- Swipe Gestures toggle (enable/disable vertical swipes)
@@ -215,8 +218,17 @@ grinder.
   shot time, phase, pressure and flow during an extraction. It uses
   GaggiMate's existing WebSocket API and falls back to its compact HTTP status
   endpoint, so no modified GaggiMate firmware is required.
-- **Timing settings**: Configure idle timeout and startup duration in the local web app.
-- **Device settings**: Brightness and startup/sleep toggles remain available under **Menu → Display** and are synchronized with the web settings.
+- **Timing settings**: Configure when the screensaver starts and its startup
+  duration in the local web app. You can optionally turn the panel fully off
+  after a second delay; this is disabled by default, so the current
+  always-visible screensaver behaviour is preserved after updating.
+- **Device settings**: Brightness, startup/idle screensaver and **Turn Display
+  Off** toggles remain available under **Menu → Display** and are synchronized
+  with the web settings. The web app controls the additional off delay.
+- **Wake behaviour**: Touching the dark panel, changing the scale load or
+  starting a grind wakes it. The first wake touch is consumed so it cannot
+  accidentally press the control underneath. Lift your finger after waking
+  the panel, then use the next touch normally.
 - **Startup behavior**: On normal Ready boots, the image is drawn early while the full UI initializes, then the regular timed screensaver overlay takes over.
 - **OTA behavior**: During BLE OTA updates and OTA failure warnings, the screensaver is disabled so progress and recovery prompts stay visible.
 

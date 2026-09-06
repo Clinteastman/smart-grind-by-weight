@@ -1,4 +1,5 @@
 #include "display_manager.h"
+#include "touch_wake_policy.h"
 #if HW_DISPLAY_VARIANT_V2
 #include "esp_lcd_sh8601.h"
 #endif
@@ -41,6 +42,9 @@ static const sh8601_lcd_init_cmd_t kV2InitCommands[] = {
 
 void DisplayManager::init() {
     g_display_manager = this;
+    panel_powered_on = true;
+    consume_wake_touch_until_release = false;
+    wake_touch_guard_started_ms = 0;
     
 #if HW_DISPLAY_VARIANT_V2
     // V2 uses an SH8601 panel and GPIO 46 for chip select. The native
@@ -400,6 +404,11 @@ void DisplayManager::touchpad_read_cb(lv_indev_t* indev, lv_indev_data_t* data) 
     if (!g_display_manager) return;
     
     TouchData touch = g_display_manager->touch_driver.get_touch_data();
+
+    if (g_display_manager->filter_touch_for_panel_wake(touch)) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
     
     if (touch.pressed) {
         data->state = LV_INDEV_STATE_PRESSED;
@@ -435,4 +444,67 @@ void DisplayManager::set_brightness(float brightness) {
     Arduino_CO5300* display = static_cast<Arduino_CO5300*>(gfx_device);
     display->setBrightness(brightness_value);
 #endif
+}
+
+void DisplayManager::set_panel_power(bool powered_on) {
+#if HW_DISPLAY_VARIANT_V2
+    if (!initialized || !panel_handle) return;
+#else
+    if (!initialized || !gfx_device) return;
+#endif
+    if (panel_powered_on == powered_on) return;
+
+#if HW_DISPLAY_VARIANT_V2
+    if (esp_lcd_panel_disp_on_off(panel_handle, powered_on) != ESP_OK) {
+        LOG_BLE("[DISPLAY] Failed to turn panel %s\n", powered_on ? "on" : "off");
+        return;
+    }
+#else
+    if (powered_on) {
+        gfx_device->displayOn();
+    } else {
+        gfx_device->displayOff();
+    }
+#endif
+
+    panel_powered_on = powered_on;
+    if (powered_on && lvgl_display) {
+        lv_obj_invalidate(lv_screen_active());
+    }
+    LOG_BLE("[DISPLAY] Panel %s\n", powered_on ? "on" : "off");
+}
+
+bool DisplayManager::filter_touch_for_panel_wake(const TouchData& touch) {
+    if (!panel_powered_on) {
+        if (touch.just_pressed) {
+            set_panel_power(true);
+            touch_driver.consume_press_event();
+            consume_wake_touch_until_release = true;
+            wake_touch_guard_started_ms = millis();
+            LOG_BLE("[DISPLAY] Panel wake source: touch\n");
+        }
+        return true;
+    }
+
+    if (!consume_wake_touch_until_release) {
+        if (touch.just_pressed) {
+            touch_driver.consume_press_event();
+        }
+        return false;
+    }
+    if (!touch.pressed) {
+        consume_wake_touch_until_release = false;
+        wake_touch_guard_started_ms = 0;
+        return true;
+    }
+
+    // Do not let a stale controller contact suppress every future gesture.
+    // One second is comfortably longer than a normal wake tap, while keeping
+    // recovery finite if the controller never reports the matching release.
+    if (wake_touch_guard_expired(millis() - wake_touch_guard_started_ms)) {
+        consume_wake_touch_until_release = false;
+        wake_touch_guard_started_ms = 0;
+        LOG_BLE("[DISPLAY] Wake-touch guard recovered after missing release\n");
+    }
+    return true;
 }
