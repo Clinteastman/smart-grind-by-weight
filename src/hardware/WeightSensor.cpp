@@ -77,6 +77,7 @@ WeightSensor::~WeightSensor() {
 
 void WeightSensor::init(Preferences* preferences) {
     has_sample_.store(false);
+    diagnostic_raw_adc_.store(-1);
     prefs = preferences;
     
     LOG_BLE("Initializing WeightSensor configuration and filters...\n");
@@ -416,15 +417,15 @@ int32_t WeightSensor::get_raw_adc_smoothed(uint32_t window_ms) const {
 }
 
 uint32_t WeightSensor::get_adc_headroom_counts() const {
-    if (get_sample_count() == 0) return 0;
-
-    const int32_t raw = get_raw_adc_instant();
+    const int32_t raw = diagnostic_raw_adc_.load();
     if (raw < 0 || raw > kAdcMaximumRaw) return 0;
     return static_cast<uint32_t>(min(raw, kAdcMaximumRaw - raw));
 }
 
 bool WeightSensor::is_adc_near_saturation() const {
-    return get_sample_count() > 0 && get_adc_headroom_counts() <= kAdcSaturationMargin;
+    const int32_t raw = diagnostic_raw_adc_.load();
+    return raw >= 0 && raw <= kAdcMaximumRaw &&
+           (raw <= kAdcSaturationMargin || raw >= kAdcMaximumRaw - kAdcSaturationMargin);
 }
 
 // Primary weight readings using CircularBufferMath with single conversion point
@@ -739,6 +740,7 @@ bool WeightSensor::sample_and_feed_filter() {
         
         // Raw ADC validation (24-bit range - valid for all supported ADCs)
         if (raw_adc >= 0 && raw_adc <= 0xFFFFFF) {  // Valid 24-bit range
+            diagnostic_raw_adc_.store(raw_adc);
             // Responsive ADCs can still return unusable rail readings. Do not
             // let these refresh freshness, contaminate filters, or complete tare.
             if (raw_adc <= kAdcSaturationMargin ||

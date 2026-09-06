@@ -51,6 +51,8 @@ private:
     std::atomic<bool> tare_initialized_{false};
     std::atomic<bool> has_sample_{false};
     std::atomic<uint32_t> last_sample_ms_{0};
+    // Last observed conversion, including rejected rails; -1 means no reading.
+    std::atomic<int32_t> diagnostic_raw_adc_{-1};
     
     // Current readings (cached)
     float current_weight;
