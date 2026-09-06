@@ -155,6 +155,7 @@ void UIManager::update() {
             menu_screen.update_grind_mode_toggles();
             menu_screen.update_screensaver_toggles();
         }
+        device_api.complete_settings_application();
     }
 #endif
 

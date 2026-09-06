@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstring>
 #include <LittleFS.h>
+#include <esp_random.h>
 
 #include "../controllers/grind_controller.h"
 #include "../controllers/profile_controller.h"
@@ -13,6 +14,7 @@
 #include "../hardware/grinder.h"
 #include "../hardware/hardware_manager.h"
 #include "../system/screensaver_settings.h"
+#include "../system/operation_interlock.h"
 #include "device_web_server.h"
 #include "gaggimate_status_client.h"
 
@@ -130,6 +132,8 @@ void DeviceApi::init(AsyncWebServer* server, HardwareManager* hardware,
     websocket_.handleHandshake(websocket_origin_allowed);
     server->addHandler(&websocket_);
     configure_settings_routes(server);
+    // Avoid mistaking a previous boot's result for a newly queued request.
+    next_settings_id_ = esp_random();
     refresh_settings_cache();
     initialized_ = true;
 }
@@ -179,6 +183,7 @@ void DeviceApi::update() {
 
 bool DeviceApi::process_commands() {
     if (!initialized_) return false;
+    if (applying_settings_id_) return true;
     bool settings_changed = false;
     Command command{};
     while (xQueueReceive(command_queue_, &command, 0) == pdTRUE) {
@@ -275,15 +280,66 @@ bool DeviceApi::process_commands() {
                 settings_changed = true;
                 send_ack(command, "set_mode", true, "grind mode selected");
                 break;
-            case CommandAction::APPLY_SETTINGS:
-                if (apply_settings(command.settings)) {
-                    settings_changed = true;
+            case CommandAction::APPLY_SETTINGS: {
+                settings_operation_token_ = operation_interlock().try_acquire();
+                if (!settings_operation_token_) {
+                    set_settings_result(command.request_id, "busy");
+                    break;
                 }
-                break;
+                applying_settings_id_ = command.request_id;
+                settings_persisted_ = apply_settings(command.settings);
+                // Even a failed multi-key save can change stored values. Return
+                // now so UI runtime refresh finishes before any later command.
+                refresh_settings_cache();
+                return true;
+            }
         }
     }
     if (settings_changed) refresh_settings_cache();
     return settings_changed;
+}
+
+uint32_t DeviceApi::reserve_settings_result() {
+    xSemaphoreTake(settings_mutex_, portMAX_DELAY);
+    for (const auto& result : settings_results_) {
+        if (strcmp(result.status, "pending") == 0) {
+            xSemaphoreGive(settings_mutex_);
+            return 0;
+        }
+    }
+    if (++next_settings_id_ == 0) ++next_settings_id_;
+    const uint32_t id = next_settings_id_;
+    settings_results_[next_settings_result_] = {id, "pending"};
+    next_settings_result_ = (next_settings_result_ + 1) % 4;
+    xSemaphoreGive(settings_mutex_);
+    return id;
+}
+
+void DeviceApi::set_settings_result(uint32_t id, const char* status) {
+    xSemaphoreTake(settings_mutex_, portMAX_DELAY);
+    for (auto& result : settings_results_) {
+        if (result.id == id) { result.status = status; break; }
+    }
+    xSemaphoreGive(settings_mutex_);
+}
+
+const char* DeviceApi::settings_result(uint32_t id) {
+    const char* status = "unknown";
+    xSemaphoreTake(settings_mutex_, portMAX_DELAY);
+    for (const auto& result : settings_results_) {
+        if (id && result.id == id) { status = result.status; break; }
+    }
+    xSemaphoreGive(settings_mutex_);
+    return status; // All statuses are static literals, not pointers into a slot.
+}
+
+void DeviceApi::complete_settings_application() {
+    if (!applying_settings_id_) return;
+    // Keep other operations excluded through persistence, cache and UI refresh.
+    set_settings_result(applying_settings_id_, settings_persisted_ ? "saved" : "failed");
+    operation_interlock().release(settings_operation_token_);
+    settings_operation_token_ = 0;
+    applying_settings_id_ = 0;
 }
 
 void DeviceApi::handle_event(AsyncWebSocket*, AsyncWebSocketClient* client,
@@ -393,6 +449,33 @@ void DeviceApi::queue_command(uint32_t client_id, const uint8_t* data, size_t le
 }
 
 void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
+    server->on(AsyncURIMatcher::exact("/api/v1/settings/result"), HTTP_GET, [this](AsyncWebServerRequest* request) {
+        uint32_t id = 0;
+        bool valid = request->hasParam("id");
+        if (valid) {
+            const String value = request->getParam("id")->value();
+            valid = !value.isEmpty() && value.length() <= 10;
+            uint64_t parsed = 0;
+            for (size_t i = 0; valid && i < value.length(); ++i) {
+                valid = value[i] >= '0' && value[i] <= '9';
+                if (valid) parsed = parsed * 10 + (value[i] - '0');
+            }
+            valid = valid && parsed > 0 && parsed <= UINT32_MAX;
+            if (valid) id = static_cast<uint32_t>(parsed);
+        }
+        if (!valid) {
+            request->send(400, "application/json", "{\"error\":\"Invalid settings request ID\"}");
+            return;
+        }
+        const char* status = settings_result(id);
+        char body[96];
+        snprintf(body, sizeof(body), "{\"request_id\":%lu,\"status\":\"%s\"}",
+                 static_cast<unsigned long>(id), status);
+        auto* response = request->beginResponse(strcmp(status, "unknown") == 0 ? 404 : 200,
+                                                "application/json", body);
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
     server->on(AsyncURIMatcher::exact("/api/v1/profile"), HTTP_POST, [this](AsyncWebServerRequest* request) {
         if (!websocket_origin_allowed(request)) {
             request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
@@ -563,75 +646,88 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
     Command command{};
     command.action = CommandAction::APPLY_SETTINGS;
     command.settings = settings;
+    command.request_id = reserve_settings_result();
+    if (!command.request_id) {
+        request->send(409, "application/json", "{\"error\":\"A settings save is still pending\"}");
+        return false;
+    }
     if (xQueueSend(command_queue_, &command, 0) != pdTRUE) {
+        set_settings_result(command.request_id, "failed");
         request->send(503, "application/json", "{\"error\":\"Settings queue is busy; try again\"}");
         return false;
     }
-    request->send(202, "application/json", "{\"accepted\":true}");
+    request->send(202, "application/json", String("{\"accepted\":true,\"request_id\":") + command.request_id + "}");
     return true;
 }
 
 bool DeviceApi::apply_settings(const DeviceSettingsUpdate& settings) {
     if (!hardware_ || !profile_controller_ || !grind_controller_ || grind_controller_->is_active()) return false;
-    if (!profile_controller_->apply_web_settings(
-            settings.current_profile,
-            settings.grind_mode == 0 ? GrindMode::WEIGHT : GrindMode::TIME,
-            settings.profile_weights, settings.profile_times)) {
-        return false;
-    }
-
     Preferences* grinder = hardware_->get_preferences();
     if (!grinder) return false;
-    grinder->putInt(GrindController::PREF_KEY_GRINDER_MODE, settings.purge_mode);
-    grinder->putFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, settings.purge_amount_g);
-    grinder->putFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, settings.freshness_hours);
-    grind_controller_->save_coast_ratio(settings.coast_ratio);
-    grind_controller_->save_motor_latency(settings.motor_latency_ms);
+    bool saved = profile_controller_->apply_web_settings(
+            settings.current_profile,
+            settings.grind_mode == 0 ? GrindMode::WEIGHT : GrindMode::TIME,
+            settings.profile_weights, settings.profile_times);
+
+    saved = (grinder->putInt(GrindController::PREF_KEY_GRINDER_MODE, settings.purge_mode) == sizeof(int32_t)) && saved;
+    saved = (grinder->putFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, settings.purge_amount_g) == sizeof(float)) && saved;
+    saved = (grinder->putFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, settings.freshness_hours) == sizeof(float)) && saved;
+    saved = grind_controller_->save_coast_ratio(settings.coast_ratio) && saved;
+    saved = grind_controller_->save_motor_latency(settings.motor_latency_ms) && saved;
 
     auto put_bool = [](const char* name_space, const char* key, bool value) {
         Preferences preferences;
-        if (!preferences.begin(name_space, false)) return;
-        preferences.putBool(key, value);
+        if (!preferences.begin(name_space, false)) return false;
+        const bool stored = preferences.putBool(key, value) == sizeof(bool);
         preferences.end();
+        return stored;
     };
-    put_bool("autogrind", "auto_start", settings.auto_start);
-    put_bool("autogrind", "auto_return", settings.auto_return);
+    saved = put_bool("autogrind", "auto_start", settings.auto_start) && saved;
+    saved = put_bool("autogrind", "auto_return", settings.auto_return) && saved;
     Preferences auto_preferences;
     if (auto_preferences.begin("autogrind", false)) {
-        auto_preferences.putFloat("start_delta_g", settings.auto_start_threshold_g);
+        saved = (auto_preferences.putFloat("start_delta_g", settings.auto_start_threshold_g) == sizeof(float)) && saved;
         auto_preferences.end();
+    } else {
+        saved = false;
     }
-    put_bool("logging", "enabled", settings.logging_enabled);
-    put_bool("swipe", "enabled", settings.swipe_enabled);
-    put_bool("screensaver", "startup", settings.screensaver_startup);
-    put_bool("screensaver", "sleep", settings.screensaver_sleep);
-    put_bool("bluetooth", "startup", settings.bluetooth_startup);
+    saved = put_bool("logging", "enabled", settings.logging_enabled) && saved;
+    saved = put_bool("swipe", "enabled", settings.swipe_enabled) && saved;
+    saved = put_bool("screensaver", "startup", settings.screensaver_startup) && saved;
+    saved = put_bool("screensaver", "sleep", settings.screensaver_sleep) && saved;
+    saved = put_bool("bluetooth", "startup", settings.bluetooth_startup) && saved;
 
     Preferences brightness;
     if (brightness.begin("brightness", false)) {
-        brightness.putFloat("normal", settings.brightness_percent / 100.0f);
-        brightness.putFloat("screensaver", settings.screensaver_brightness_percent / 100.0f);
+        const bool normal_saved = brightness.putFloat("normal", settings.brightness_percent / 100.0f) == sizeof(float);
+        saved = normal_saved && saved;
+        saved = (brightness.putFloat("screensaver", settings.screensaver_brightness_percent / 100.0f) == sizeof(float)) && saved;
         brightness.end();
+        if (normal_saved && hardware_->get_display()) {
+            hardware_->get_display()->set_brightness(settings.brightness_percent / 100.0f);
+        }
+    } else {
+        saved = false;
     }
     if (!ScreensaverSettings::save_timing(settings.screensaver_idle_timeout_s,
                                           settings.screensaver_startup_timeout_s,
                                           settings.display_off_enabled,
                                           settings.display_off_delay_s)) {
-        return false;
+        saved = false;
     }
     Preferences screensaver;
     if (screensaver.begin("screensaver", false)) {
-        screensaver.putString("style", settings.screensaver_style);
+        const bool style_saved = screensaver.putString("style", settings.screensaver_style) == strlen(settings.screensaver_style);
+        saved = style_saved && saved;
+        const String stored_style = screensaver.getString("style", "minimal");
         screensaver.end();
+        saved = gaggimate_status_client.configure(stored_style == "gaggimate",
+                                                  settings.gaggimate_host) && saved;
+    } else {
+        saved = false;
     }
-    if (!gaggimate_status_client.configure(
-            strcmp(settings.screensaver_style, "gaggimate") == 0,
-            settings.gaggimate_host)) {
-        return false;
-    }
-    hardware_->get_display()->set_brightness(settings.brightness_percent / 100.0f);
-    LOG_BLE("[WEB] Grinder settings updated\n");
-    return true;
+    LOG_BLE("[WEB] Grinder settings %s\n", saved ? "updated" : "partly saved; storage or runtime setup failed");
+    return saved;
 }
 
 String DeviceApi::settings_json() {

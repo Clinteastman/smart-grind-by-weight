@@ -45,6 +45,8 @@ public:
               GrindController* grind_controller, ProfileController* profile_controller);
     void update();
     bool process_commands();
+    // UI task calls this only after reloading runtime settings.
+    void complete_settings_application();
     String settings_json();
     void mark_settings_dirty() { settings_cache_dirty_.store(true); }
 
@@ -80,6 +82,16 @@ private:
     QueueHandle_t command_queue_ = nullptr;
     SemaphoreHandle_t settings_mutex_ = nullptr;
     String settings_json_cache_;
+    struct SettingsResult {
+        uint32_t id = 0;
+        const char* status = "unknown";
+    };
+    SettingsResult settings_results_[4]{}; // Protected by settings_mutex_.
+    uint32_t next_settings_id_ = 0;
+    size_t next_settings_result_ = 0;
+    uint32_t applying_settings_id_ = 0; // UI task only.
+    uint32_t settings_operation_token_ = 0;
+    bool settings_persisted_ = false;
     std::atomic<uint32_t> client_ids_[MAX_CLIENTS]{};
     std::atomic<uint8_t> backpressure_skips_[MAX_CLIENTS]{};
     uint32_t last_publish_ms_ = 0;
@@ -100,6 +112,9 @@ private:
     bool queue_profile_selection(AsyncWebServerRequest* request);
     bool queue_settings_update(AsyncWebServerRequest* request);
     bool apply_settings(const DeviceSettingsUpdate& settings);
+    uint32_t reserve_settings_result();
+    void set_settings_result(uint32_t id, const char* status);
+    const char* settings_result(uint32_t id);
     void refresh_settings_cache();
     String build_state_message();
 };

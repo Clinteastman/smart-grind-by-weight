@@ -1263,27 +1263,28 @@ void GrindController::load_motor_latency() {
     }
 }
 
-void GrindController::save_motor_latency(float value) {
+bool GrindController::save_motor_latency(float value) {
     const auto control_lock = lock_control();
     if (!preferences) {
         LOG_BLE("ERROR: Cannot save motor latency - no preferences available\n");
-        return;
+        return false;
     }
 
     // Validate value
-    if (value < GRIND_AUTOTUNE_LATENCY_MIN_MS || value > GRIND_AUTOTUNE_LATENCY_MAX_MS) {
+    if (!std::isfinite(value) || value < GRIND_AUTOTUNE_LATENCY_MIN_MS || value > GRIND_AUTOTUNE_LATENCY_MAX_MS) {
         LOG_BLE("ERROR: Cannot save invalid motor latency %.1fms (range: %.1f-%.1fms)\n",
                 value, GRIND_AUTOTUNE_LATENCY_MIN_MS, GRIND_AUTOTUNE_LATENCY_MAX_MS);
-        return;
+        return false;
     }
 
-    motor_response_latency_ms = value;
     size_t written = preferences->putFloat("motor_lat_ms", value);
-    if (written == 0) {
+    if (written != sizeof(float)) {
         LOG_BLE("ERROR: Failed to save motor latency to NVS\n");
-    } else {
-        LOG_BLE("Motor latency: Saved %.1fms to preferences\n", value);
+        return false;
     }
+    motor_response_latency_ms = value;
+    LOG_BLE("Motor latency: Saved %.1fms to preferences\n", value);
+    return true;
 }
 
 void GrindController::set_motor_response_latency(float value) {
@@ -1324,26 +1325,27 @@ void GrindController::load_coast_ratio() {
     }
 }
 
-void GrindController::save_coast_ratio(float value) {
+bool GrindController::save_coast_ratio(float value) {
     const auto control_lock = lock_control();
     if (!preferences) {
         LOG_BLE("ERROR: Cannot save coast ratio - no preferences available\n");
-        return;
+        return false;
     }
 
-    if (value < GRIND_LATENCY_TO_COAST_RATIO_MIN || value > GRIND_LATENCY_TO_COAST_RATIO_MAX) {
+    if (!std::isfinite(value) || value < GRIND_LATENCY_TO_COAST_RATIO_MIN || value > GRIND_LATENCY_TO_COAST_RATIO_MAX) {
         LOG_BLE("ERROR: Cannot save invalid coast ratio %.2f (range: %.2f-%.2f)\n",
                 value, GRIND_LATENCY_TO_COAST_RATIO_MIN, GRIND_LATENCY_TO_COAST_RATIO_MAX);
-        return;
+        return false;
     }
 
-    coast_ratio_ = value;
     size_t written = preferences->putFloat(PREF_KEY_COAST_RATIO, value);
-    if (written == 0) {
+    if (written != sizeof(float)) {
         LOG_BLE("ERROR: Failed to save coast ratio to NVS\n");
-    } else {
-        LOG_BLE("Coast ratio: Saved %.2f to preferences\n", value);
+        return false;
     }
+    coast_ratio_ = value;
+    LOG_BLE("Coast ratio: Saved %.2f to preferences\n", value);
+    return true;
 }
 
 void GrindController::set_coast_ratio(float value) {

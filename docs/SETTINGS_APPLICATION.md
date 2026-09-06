@@ -17,19 +17,46 @@ controller loaded from the resulting store, checks a subsequent successful
 retry, and verifies that invalid requests do not write anything. Concurrent
 snapshot tests also remain enabled.
 
-Checkpoint validation: all 16 host tests and three standalone simulator policy
-tests passed. Native WSL V1 and V2 firmware builds passed (local build 1).
-No device flashing or physical acceptance test has been performed.
+The web settings path also checks namespace opens and individual writes for
+purging, automation, logging, swipe, Bluetooth startup, brightness and screensaver
+settings. It retains the timing/settings-service failure results. Motor latency
+and coast ratio only change their running value after a successful storage write.
+The cached settings and touchscreen runtime refresh run even after partial writes.
+
+## Save completion API
+
+`POST /api/v1/settings` still returns HTTP 202 for a queued save, now with
+`request_id` alongside `accepted`. Acceptance is not completion.
+
+Poll `GET /api/v1/settings/result?id=<request_id>` for `status`:
+
+- `pending`: queued, being saved, or waiting for UI runtime refresh.
+- `saved`: all checked writes/setup succeeded and UI refresh has finished.
+- `failed`: storage or runtime setup failed; some values may have changed.
+- `busy`: another motor/update operation prevented application; retry when idle.
+- `unknown` (HTTP 404): result is no longer available; do not infer success.
+
+Only one save may be pending at once. The last four results are retained in RAM;
+IDs start from a random value on boot. Responses are not cached. A full command
+queue fails the reservation and returns HTTP 503, rather than leaving it pending.
+The shared operation reservation excludes motor tests, tuning, grinding and OTA
+through persistence, cached-state refresh and the UI refresh completion callback.
+
+Validation includes production persistence methods with each direct write/open
+failure injected, plus dependency failures. Result tests execute the production
+result methods and APPLY_SETTINGS dispatch branch with peripheral stubs. They
+check busy/refused saves, partial-save refresh, completion ordering, bounded result
+retention, ID wrap and concurrent requests. They do not exercise a real HTTP
+server or rendered UI. All 18 host tests and three standalone policies pass.
+Native WSL V1/V2 builds passed in 39.128s/39.734s (local build 1).
+Browser-side integration is still required. No device flashing or
+physical acceptance test has been performed.
 
 ## Remaining before this fix can ship
 
-- Check the other settings persistence paths, not just profiles.
-- Refresh runtime settings and the cached web values after partial failures.
-- Give each accepted settings request a result that can be checked after the
-  queued work and touchscreen runtime refresh finish.
 - Replace the web page's fixed 250 ms delay and unconditional success message
   with that actual result; report failures without claiming a rollback.
-- Prevent settings application from overlapping a motor operation or update.
-- Test the request/result lifecycle and the rendered web settings workflow.
+- Test the HTTP request/result lifecycle and the rendered web settings workflow,
+  including runtime application failures and settings reload errors.
 - Complete V1/V2 builds, PR review and appropriate device acceptance before
   merge/release.
