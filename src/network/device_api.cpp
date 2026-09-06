@@ -182,6 +182,8 @@ bool DeviceApi::process_commands() {
     bool settings_changed = false;
     Command command{};
     while (xQueueReceive(command_queue_, &command, 0) == pdTRUE) {
+        // Keep the idle check and its action together with controller updates.
+        const auto control_lock = grind_controller_->lock_control();
         switch (command.action) {
             case CommandAction::START: {
                 if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
@@ -203,8 +205,8 @@ bool DeviceApi::process_commands() {
                 const float target_weight = profile_controller_->get_current_weight();
                 const uint32_t target_time_ms = static_cast<uint32_t>(
                     profile_controller_->get_current_time() * 1000.0f + 0.5f);
-                grind_controller_->start_grind(target_weight, target_time_ms, mode);
-                send_ack(command, "start", true, "grind started");
+                const bool started = grind_controller_->start_grind(target_weight, target_time_ms, mode);
+                send_ack(command, "start", started, started ? "grind started" : "grind could not start");
                 break;
             }
             case CommandAction::START_MANUAL:
@@ -213,8 +215,9 @@ bool DeviceApi::process_commands() {
                 } else if (grind_controller_->get_phase() != GrindPhase::IDLE) {
                     send_ack(command, "start_manual", false, "grinder is not idle");
                 } else {
-                    grind_controller_->start_grind(0.0f, 0, GrindMode::MANUAL);
-                    send_ack(command, "start_manual", true, "manual grind started");
+                    const bool started = grind_controller_->start_grind(0.0f, 0, GrindMode::MANUAL);
+                    send_ack(command, "start_manual", started,
+                             started ? "manual grind started" : "grind could not start");
                 }
                 break;
             case CommandAction::STOP:
@@ -735,6 +738,7 @@ void DeviceApi::send_ack(const Command& command, const char* action, bool accept
 }
 
 String DeviceApi::build_state_message() {
+    const auto control_lock = grind_controller_->lock_control();
     WeightSensor* sensor = hardware_->get_weight_sensor();
     Grinder* grinder = hardware_->get_grinder();
     const bool idle = grind_controller_->get_phase() == GrindPhase::IDLE;

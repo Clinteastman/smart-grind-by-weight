@@ -6,6 +6,11 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+- Serialized grind-controller updates, commands and state reads across tasks,
+  preventing an in-flight update from restarting the motor after stop returns.
+  Web start acknowledgements now reflect whether the controller accepted the
+  start, and firmware-update task suspension waits for controller access to end.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
