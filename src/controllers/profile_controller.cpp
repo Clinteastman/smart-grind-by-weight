@@ -133,15 +133,28 @@ bool ProfileController::apply_web_settings(int current_profile_index, GrindMode 
         if (!is_weight_valid(weights[i]) || !is_time_valid(times[i])) return false;
     }
 
+    // NVS writes are separate commits: a failure can leave a partial update.
+    // Check every write and reload that stored state on failure rather than
+    // claiming success or keeping RAM values that disappear after a reboot.
+    bool saved = preferences->putInt("profile", current_profile_index) == sizeof(int32_t);
+    saved = (preferences->putInt("grind_mode", static_cast<int>(mode)) == sizeof(int32_t)) && saved;
+    static const char* weight_keys[] = {"weight0", "weight1", "weight2"};
+    static const char* time_keys[] = {"time0", "time1", "time2"};
+    for (int i = 0; i < USER_PROFILE_COUNT; ++i) {
+        saved = (preferences->putFloat(weight_keys[i], weights[i]) == sizeof(float)) && saved;
+        saved = (preferences->putFloat(time_keys[i], times[i]) == sizeof(float)) && saved;
+    }
+    if (!saved) {
+        load_profiles();
+        return false;
+    }
+
     current_profile = current_profile_index;
     current_grind_mode = mode;
     for (int i = 0; i < USER_PROFILE_COUNT; ++i) {
         profiles[i].weight = weights[i];
         profiles[i].time_seconds = times[i];
     }
-    preferences->putInt("profile", current_profile);
-    preferences->putInt("grind_mode", static_cast<int>(current_grind_mode));
-    save_profiles();
     return true;
 }
 
