@@ -75,6 +75,13 @@ local build 1. These remain local validation results, not device acceptance.
 
 ## Remaining before this fix can ship
 
+The production `configure_settings_routes` method now has a host regression test
+using HTTP request/response doubles. It checks route registration, missing,
+malformed and overflowing request IDs, the maximum valid ID, result JSON and
+status codes, no-store headers, expired results, and denied-origin POSTs that
+must not reach the queue. This test passes under ASan/UBSan. It deliberately
+stubs persistence/queue operations: it is not an end-to-end socket server test.
+
 Local browser checks started with `node tools/tests/settings_browser_server.mjs`
 and the actual embedded page at `http://127.0.0.1:8765/#settings`. In-app browser
 click-through confirmed pending saves block interaction, successful saves show
