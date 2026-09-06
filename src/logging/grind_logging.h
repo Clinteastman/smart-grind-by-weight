@@ -173,7 +173,8 @@ public:
     
     // Session management
     void start_grind_session(const GrindSessionDescriptor& descriptor, float start_weight);
-    void end_grind_session(const char* final_result, float final_weight, uint8_t pulse_count);
+    void end_grind_session(const char* final_result, float final_weight, uint8_t pulse_count,
+                           uint32_t completed_at_ms);
     void discard_current_session();         // Discard current session without saving
     
     // Logging methods

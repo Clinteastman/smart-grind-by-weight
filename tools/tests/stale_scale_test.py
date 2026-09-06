@@ -66,6 +66,7 @@ int main() {
 struct FlashOpRequest {
  enum { END_GRIND_SESSION }; int operation_type;
  char result_string[32]; float final_weight; uint8_t pulse_count;
+ uint32_t completed_at_ms;
 };
 struct Logger { bool is_logging_active() { return true; } } grind_logger;
 enum class GrindPhase { COMPLETED, TIMEOUT };
@@ -74,6 +75,7 @@ struct Controller {
  GrindPhase phase=GrindPhase::TIMEOUT;
  bool accept=false;
  bool session_end_flash_queued=false;
+ uint32_t phase_start_time=1234;
  float final_weight=12; uint8_t pulse_attempts=2;
  FlashOpRequest stored{};
  bool queue_flash_operation(const FlashOpRequest& request) { stored=request; return accept; }
@@ -91,8 +93,10 @@ int main() {
  assert(static_cast<uint8_t>(GrindTerminationReason::SCALE_ERROR)==4);
  assert(!is_completed_grind_result(GrindSessionResult::SCALE_ERROR));
  assert(!scale.session_end_flash_queued);
+ assert(scale.stored.completed_at_ms==1234);
  scale.accept=true;
  assert(scale.terminal());
+ assert(scale.stored.completed_at_ms==1234);
  assert(std::strcmp(scale.stored.result_string,"SCALE_ERROR")==0);
 }
 '''
