@@ -1,11 +1,15 @@
 #include "grinder.h"
 #include "../controllers/grind_events.h"
 #include "../config/constants.h"
+#include <driver/gpio.h>
+#include <algorithm>
+#include <iterator>
 #if DEBUG_ENABLE_LOADCELL_MOCK
 #include "mock_hx711_driver.h"
 #endif
 
 void Grinder::init(int pin) {
+    if (initialized) return;
     motor_pin = pin;
     grinding = false;
     pulse_active = false;
@@ -31,11 +35,23 @@ void Grinder::init(int pin) {
         .trans_queue_depth = 4,
     };
     
-    if (rmt_new_tx_channel(&tx_chan_config, &rmt_channel) == ESP_OK) {
-        rmt_enable(rmt_channel);
-        rmt_initialized = true;
-        initialized = true;
+    gpio_reset_pin(static_cast<gpio_num_t>(motor_pin));
+    gpio_set_direction(static_cast<gpio_num_t>(motor_pin), GPIO_MODE_OUTPUT);
+    gpio_set_level(static_cast<gpio_num_t>(motor_pin), 0);
+    if (rmt_new_tx_channel(&tx_chan_config, &rmt_channel) != ESP_OK) return;
+    rmt_copy_encoder_config_t encoder_config{};
+    if (rmt_new_copy_encoder(&encoder_config, &current_encoder) != ESP_OK) {
+        rmt_del_channel(rmt_channel);
+        return;
     }
+    if (rmt_enable(rmt_channel) != ESP_OK) {
+        rmt_del_encoder(current_encoder);
+        current_encoder = nullptr;
+        rmt_del_channel(rmt_channel);
+        return;
+    }
+    rmt_initialized = true;
+    initialized = true;
 }
 
 void Grinder::start() {
@@ -50,35 +66,27 @@ void Grinder::start() {
 #endif
     if (!initialized || !rmt_initialized) return;
 
-    // Reset any active pulse state when using continuous mode
-    pulse_active = false;
+    // Stop the old transaction before modifying its payload or encoder state.
+    stop();
+    if (!initialized) return;
     motor_start_time = millis();
     
-    // Clean up any existing encoder
-    if (current_encoder) {
-        rmt_del_encoder(current_encoder);
-        current_encoder = nullptr;
-    }
-    
-    // Create copy encoder for raw symbol data
-    rmt_copy_encoder_config_t encoder_config = {};
-    
-    if (rmt_new_copy_encoder(&encoder_config, &current_encoder) != ESP_OK) {
-        return;
-    }
-    
     // Use RMT infinite loop for continuous grinding
-    rmt_symbol_word_t continuous_data[1];
-    continuous_data[0].duration0 = 32767; // Maximum 15-bit duration per symbol (~32ms at 1MHz)
-    continuous_data[0].level0 = 1; // HIGH
-    continuous_data[0].duration1 = 0;
-    continuous_data[0].level1 = 0;
+    symbols[0] = {};
+    symbols[0].duration0 = 32767;
+    symbols[0].level0 = 1;
+    symbols[0].duration1 = 32767;
+    symbols[0].level1 = 1;
     
     rmt_transmit_config_t tx_config = {
         .loop_count = -1, // Infinite loop
     };
     
-    rmt_transmit(rmt_channel, current_encoder, continuous_data, sizeof(continuous_data), &tx_config);
+    if (rmt_transmit(rmt_channel, current_encoder, symbols, sizeof(symbols[0]), &tx_config) != ESP_OK) {
+        LOG_BLE("[Grinder] Failed to start continuous transmission\n");
+        stop();
+        return;
+    }
     grinding = true;
     emit_background_change(true);
 }
@@ -95,13 +103,17 @@ void Grinder::stop() {
     if (!initialized || !rmt_initialized) return;
     
     // Stop RMT transmission (works for both infinite loop and finite pulses)
-    rmt_disable(rmt_channel);
-    rmt_enable(rmt_channel); // Re-enable for next operation
-    
-    // Clean up current encoder
-    if (current_encoder) {
-        rmt_del_encoder(current_encoder);
-        current_encoder = nullptr;
+    if (rmt_disable(rmt_channel) != ESP_OK ||
+        rmt_encoder_reset(current_encoder) != ESP_OK ||
+        rmt_enable(rmt_channel) != ESP_OK) {
+        // Disconnect RMT from the output and refuse further starts until reboot.
+        // Keep its storage alive: a failed cancellation may still reference it.
+        gpio_reset_pin(static_cast<gpio_num_t>(motor_pin));
+        gpio_set_direction(static_cast<gpio_num_t>(motor_pin), GPIO_MODE_OUTPUT);
+        gpio_set_level(static_cast<gpio_num_t>(motor_pin), 0);
+        initialized = false;
+        rmt_initialized = false;
+        LOG_BLE("[Grinder] RMT reset failed; motor disabled until reboot\n");
     }
     
     grinding = false;
@@ -121,62 +133,46 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
 #endif
     if (!initialized || !rmt_initialized) return;
 
-    motor_start_time = millis();
-
-    // Clean up any existing encoder
-    if (current_encoder) {
-        rmt_del_encoder(current_encoder);
-        current_encoder = nullptr;
-    }
-    
-    // Create copy encoder for raw symbol data
-    rmt_copy_encoder_config_t encoder_config = {};
-    
-    if (rmt_new_copy_encoder(&encoder_config, &current_encoder) != ESP_OK) {
+    stop();
+    if (!initialized) return;
+    // Reserve one half-symbol for LOW. Covers every supported call, including
+    // the one-second motor test, without multiplication overflow or allocation.
+    constexpr uint32_t max_duration_ms = (kSymbolCount * 2 - 1) * 32767U / 1000U;
+    if (duration_ms == 0 || duration_ms > max_duration_ms) {
+        LOG_BLE("[Grinder] Pulse duration outside supported range\n");
         return;
     }
-    
-    // Create RMT symbols for HIGH pulse + LOW end
-    rmt_symbol_word_t pulse_symbols[2];
-    uint32_t duration_us = duration_ms * 1000;
-    
-    // Handle long durations by using maximum duration and remainder
-    if (duration_us <= 32767) {
-        // Single symbol for short durations
-        pulse_symbols[0].level0 = 1;
-        pulse_symbols[0].duration0 = duration_us;
-        pulse_symbols[0].level1 = 0;
-        pulse_symbols[0].duration1 = 1; // Minimal LOW to end pulse
-        
-        rmt_transmit_config_t tx_config = {.loop_count = 0};
-        pulse_active = true;
-        grinding = true;
-        
-        rmt_transmit(rmt_channel, current_encoder, pulse_symbols, sizeof(rmt_symbol_word_t), &tx_config);
-        emit_background_change(true);
-    } else {
-        // For longer durations, use loop_count to repeat
-        uint32_t base_duration = 32767; // Max single symbol duration
-        uint32_t loop_count = (duration_us / base_duration) - 1; // -1 because first isn't a loop
-        uint32_t remainder = duration_us % base_duration;
-        
-        pulse_symbols[0].level0 = 1;
-        pulse_symbols[0].duration0 = base_duration;
-        pulse_symbols[0].level1 = 1;
-        pulse_symbols[0].duration1 = remainder > 0 ? remainder : 1;
-        
-        pulse_symbols[1].level0 = 0;
-        pulse_symbols[1].duration0 = 1; // Minimal LOW to end
-        pulse_symbols[1].level1 = 0;
-        pulse_symbols[1].duration1 = 0;
-        
-        rmt_transmit_config_t tx_config = {.loop_count = (int)loop_count};
-        pulse_active = true;
-        grinding = true;
-        
-        rmt_transmit(rmt_channel, current_encoder, pulse_symbols, sizeof(pulse_symbols), &tx_config);
-        emit_background_change(true);
+    std::fill(std::begin(symbols), std::end(symbols), rmt_symbol_word_t{});
+    uint32_t remaining = duration_ms * 1000U;
+    size_t halves = 0;
+    while (remaining > 0) {
+        const uint32_t ticks = std::min(remaining, 32767U);
+        auto& symbol = symbols[halves / 2];
+        if (halves % 2 == 0) {
+            symbol.duration0 = ticks;
+            symbol.level0 = 1;
+        } else {
+            symbol.duration1 = ticks;
+            symbol.level1 = 1;
+        }
+        remaining -= ticks;
+        ++halves;
     }
+    // All HIGH halves are consecutive. Only the final half is LOW.
+    if (halves % 2 == 0) symbols[halves / 2].duration0 = 1;
+    else symbols[halves / 2].duration1 = 1;
+    ++halves;
+    rmt_transmit_config_t tx_config{}; // no repeats, end output LOW
+    if (rmt_transmit(rmt_channel, current_encoder, symbols,
+                     ((halves + 1) / 2) * sizeof(symbols[0]), &tx_config) != ESP_OK) {
+        LOG_BLE("[Grinder] Failed to start pulse transmission\n");
+        stop();
+        return;
+    }
+    motor_start_time = millis();
+    pulse_active = true;
+    grinding = true;
+    emit_background_change(true);
 }
 
 bool Grinder::is_pulse_complete() {
@@ -192,13 +188,18 @@ bool Grinder::is_pulse_complete() {
 #endif
     if (!pulse_active) return true;
     
-    // For simplicity, we'll use a transmission done callback approach
-    // Since RMT handles the pulse timing in hardware, we can check the GPIO state
-    // as a simple completion indicator
-    if (digitalRead(motor_pin) == LOW) {
+    // A queued transmission can still have a LOW GPIO before it starts.
+    // Poll the driver non-blockingly, not the pin level.
+    const esp_err_t result = rmt_tx_wait_all_done(rmt_channel, 0);
+    if (result == ESP_OK) {
         pulse_active = false;
         grinding = false;
         emit_background_change(false);
+        return true;
+    }
+    if (result != ESP_ERR_TIMEOUT) {
+        LOG_BLE("[Grinder] Pulse completion check failed; stopping motor\n");
+        stop();
         return true;
     }
     

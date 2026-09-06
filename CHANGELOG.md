@@ -6,6 +6,16 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Motor timing
+
+- Encode motor pulses as a continuous HIGH of the requested duration, followed
+  by LOW, including longer pulses and the one-second motor test.
+- Keep transmission buffers alive until stopped/completed and use the RMT
+  driver's completion status instead of the GPIO level. Failed starts no longer
+  report the motor as running; reset failures disable the output until reboot.
+- Add host-side tests of the real driver for every supported millisecond pulse
+  duration, cancellation, pending transfers and simulated driver errors.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
