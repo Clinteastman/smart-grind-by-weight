@@ -8,6 +8,7 @@
 #include <esp_app_format.h>
 #include <soc/rtc.h>
 #include <esp_pm.h>
+#include "../system/operation_interlock.h"
 
 // Include detools/delta libraries
 extern "C" {
@@ -61,6 +62,7 @@ private:
     bool watchdog_extended = false;
     bool hardware_suspended = false;
     bool touch_disabled = false;
+    OperationInterlock::Token operation_token = 0;
     
     // Power management
     BLEPowerState power_state;

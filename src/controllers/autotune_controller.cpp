@@ -59,6 +59,10 @@ bool AutoTuneController::start() {
         return false;
     }
 
+    const auto token = operation_interlock().try_acquire();
+    if (!token) return false;
+    operation_token = token;
+
     LOG_BLE("=== Starting Motor Response Latency Auto-Tune (Non-Blocking) ===\n");
 
     memset(&progress, 0, sizeof(progress));
@@ -625,6 +629,8 @@ void AutoTuneController::complete_with_success(float final_latency_ms) {
     }
 
     is_running = false;
+    operation_interlock().release(operation_token);
+    operation_token = 0;
 }
 
 void AutoTuneController::complete_with_failure(const char* error_msg) {
@@ -651,6 +657,8 @@ void AutoTuneController::complete_with_failure(const char* error_msg) {
     }
 
     is_running = false;
+    operation_interlock().release(operation_token);
+    operation_token = 0;
 }
 
 //==============================================================================

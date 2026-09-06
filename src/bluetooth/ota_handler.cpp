@@ -115,6 +115,10 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
         return false;
     }
     
+    const auto token = operation_interlock().try_acquire();
+    if (!token) return false;
+    operation_token = token;
+
     patch_size = size;
     received_size = 0;
     this->is_full_update = is_full_update;
@@ -328,6 +332,10 @@ void OTAHandler::recover_failed_update() {
         preferences->remove("new_build_nr");
         preferences->remove("new_fw_ver");
     }
+    // A watchdog recovery that requires reboot deliberately keeps ownership.
+    // Only successful recovery makes motor operations available again.
+    operation_interlock().release(operation_token);
+    operation_token = 0;
 }
 
 float OTAHandler::get_progress() const {

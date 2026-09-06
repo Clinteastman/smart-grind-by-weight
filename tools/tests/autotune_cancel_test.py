@@ -29,6 +29,7 @@ class AutoTuneCancelTest(unittest.TestCase):
         harness = r'''
 #include <cassert>
 #include <cstring>
+#include "system/operation_interlock.h"
 #define LOG_BLE(...) ((void)0)
 constexpr float GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS = 50;
 enum class AutoTunePhase { IDLE, PRIMING, BINARY_SEARCH, VERIFICATION, COMPLETE_SUCCESS, COMPLETE_FAILURE };
@@ -47,6 +48,7 @@ public:
     Grinder* grinder = &motor;
     GrindController* grind_controller = &controller;
     bool is_running = true, cancel_requested = false;
+    OperationInterlock::Token operation_token = operation_interlock().try_acquire();
     AutoTunePhase current_phase = AutoTunePhase::PRIMING;
     struct { bool success = false; float latency_ms = 0; const char* error_message = nullptr; } result;
     struct { float previous_latency_ms = 50, final_latency_ms = 0; } progress;
@@ -66,6 +68,10 @@ int main() {
     // No update() between clicking cancel and checking safety/cleanup.
     AutoTuneController tuning;
     tuning.cancel();
+    assert(!operation_interlock().owns(tuning.operation_token));
+    auto next = operation_interlock().try_acquire();
+    assert(next);
+    operation_interlock().release(next);
     assert(!motor.motor && !tuning.is_running && !tuning.autotune_log_file.opened);
     assert(tuning.current_phase == AutoTunePhase::COMPLETE_FAILURE);
     assert(std::strcmp(tuning.result.error_message, "Cancelled by user") == 0);
@@ -91,6 +97,7 @@ int main() {
             cpp, binary = Path(tmp) / "cancel.cpp", Path(tmp) / "cancel"
             cpp.write_text(harness)
             subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra",
+                            "-I", str(ROOT / "src"),
                             "-fsanitize=address,undefined", str(cpp), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)
 
