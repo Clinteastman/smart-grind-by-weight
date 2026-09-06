@@ -134,6 +134,13 @@ bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
                     static_cast<int>(weight_sensor->get_hardware_fault()));
             return false;
         }
+    }
+
+    const auto token = operation_interlock().try_acquire();
+    if (!token) return false;
+    operation_token_ = token;
+
+    if (grind_mode == GrindMode::WEIGHT) {
         // Read grinder purge settings from preferences (weight mode only)
         grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
         grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
@@ -263,12 +270,17 @@ void GrindController::return_to_idle() {
             active_strategy = nullptr;
         }
         switch_phase(GrindPhase::IDLE);  // No loop_data needed for IDLE transition
+        if (grinder) grinder->stop();
+        operation_interlock().release(operation_token_);
+        operation_token_ = 0;
     }
     // If already IDLE, do nothing. If in another active state, this method shouldn't be called.
 }
 
 void GrindController::stop_grind() {
     const auto control_lock = lock_control();
+    // An idle controller does not own the motor: a diagnostic or OTA may do.
+    if (phase == GrindPhase::IDLE) return;
     if (!grinder) return;
 
     if (phase == GrindPhase::COMPLETED || phase == GrindPhase::TIMEOUT) {
@@ -304,6 +316,8 @@ void GrindController::stop_grind() {
         active_strategy = nullptr;
     }
     switch_phase(GrindPhase::IDLE);  // No loop_data needed for IDLE transition
+    operation_interlock().release(operation_token_);
+    operation_token_ = 0;
 }
 
 void GrindController::continue_from_purge() {
@@ -1227,7 +1241,8 @@ bool GrindController::can_pulse() const {
     const auto control_lock = lock_control();
     // Only allow pulses in time mode when grind is completed and not in pulse phase
     return mode == GrindMode::TIME &&
-           phase == GrindPhase::COMPLETED;
+           phase == GrindPhase::COMPLETED &&
+           operation_interlock().owns(operation_token_);
 }
 
 //==============================================================================

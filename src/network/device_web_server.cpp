@@ -77,6 +77,7 @@ bool history_is_busy(const GrindController* controller) {
 struct OtaRequestState {
     bool success;
     bool complete;
+    OperationInterlock::Token token;
 };
 
 struct ScreensaverUploadState {
@@ -199,6 +200,7 @@ void DeviceWebServer::begin() {
 
 void DeviceWebServer::update() {
     device_api.update();
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     OtaPreparationState preparation = ota_preparation_state_.load();
     if (preparation == OtaPreparationState::REQUESTED) {
         const bool unsafe = ota_active_.load() || !grind_controller_ ||
@@ -243,7 +245,7 @@ void DeviceWebServer::update() {
                                   : UPDATE_CHECK_INTERVAL_MS;
     const uint32_t last_check = last_firmware_update_check_ms_.load();
     const bool check_due = last_check == 0 || now - last_check >= interval;
-    const bool check_safe = network_manager.is_connected() && !ota_active_.load() &&
+    const bool check_safe = network_manager.is_connected() && !is_ota_active() &&
                             ota_preparation_state_.load() == OtaPreparationState::IDLE &&
                             (!grind_controller_ || !grind_controller_->is_active()) &&
                             (!bluetooth_manager_ || !bluetooth_manager_->is_transfer_active()) &&
@@ -281,6 +283,7 @@ String DeviceWebServer::latest_release_tag() const {
 }
 
 bool DeviceWebServer::install_available_update() {
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     if (!firmware_update_available() || latest_release_tag().isEmpty() ||
         !network_manager.is_connected() || ota_active_.load() ||
         ota_preparation_state_.load() != OtaPreparationState::IDLE ||
@@ -288,8 +291,8 @@ bool DeviceWebServer::install_available_update() {
         (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
         return false;
     }
+    if (!request_ota_preparation()) return false;
     on_device_update_pending_.store(true);
-    request_ota_preparation();
     return true;
 }
 
@@ -364,20 +367,36 @@ void DeviceWebServer::perform_firmware_update_check() {
 }
 
 bool DeviceWebServer::is_ota_ready() const {
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     return ota_preparation_state_.load() == OtaPreparationState::READY &&
-           initialized_ && network_manager.is_connected() && !ota_active_.load() &&
+           static_cast<int32_t>(millis() - ota_preparation_deadline_ms_.load()) < 0 &&
+           operation_interlock().owns(operation_token_) &&
+           initialized_ && network_manager.is_connected() && !is_ota_active() &&
            (!grind_controller_ || !grind_controller_->is_active()) &&
            (!bluetooth_manager_ || !bluetooth_manager_->is_transfer_active()) &&
            heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >= OTA_MIN_INTERNAL_HEAP;
 }
 
-void DeviceWebServer::request_ota_preparation() {
+bool DeviceWebServer::request_ota_preparation() {
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
+    if (!initialized_ || !network_manager.is_connected() || is_ota_active() ||
+        firmware_update_check_active_.load() ||
+        ota_preparation_state_.load() != OtaPreparationState::IDLE ||
+        !grind_controller_ || grind_controller_->is_active() ||
+        (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) return false;
+    const auto token = operation_interlock().try_acquire();
+    if (!token) return false;
+    operation_token_ = token;
     ota_bluetooth_stopped_.store(false);
     ota_preparation_deadline_ms_.store(millis() + OTA_PREPARE_TIMEOUT_MS);
     ota_preparation_state_.store(OtaPreparationState::REQUESTED);
+    return true;
 }
 
 void DeviceWebServer::recover_from_ota_failure() {
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
+    if (ota_active_.load()) return;
+    on_device_update_pending_.store(false);
     ota_preparation_state_.store(OtaPreparationState::IDLE);
     if (ota_bluetooth_stopped_.exchange(false)) {
         // Arduino BLE retains its server singleton across deinit(false). Re-enabling
@@ -386,6 +405,10 @@ void DeviceWebServer::recover_from_ota_failure() {
         LOG_BLE("[WEB OTA] Scheduling clean recovery restart\n");
         reboot_at_ms_.store(millis() + OTA_REBOOT_DELAY_MS);
         reboot_pending_.store(true);
+    }
+    if (!reboot_pending_.load()) {
+        operation_interlock().release(operation_token_);
+        operation_token_ = 0;
     }
 }
 
@@ -643,13 +666,16 @@ void DeviceWebServer::configure_routes() {
     });
 
     server_.on(AsyncURIMatcher::exact("/api/v1/ota/prepare"), HTTP_POST, [this](AsyncWebServerRequest* request) {
-        if (ota_active_.load()) {
+        const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
+        if (is_ota_active()) {
             request->send(409, "application/json", "{\"error\":\"A firmware update is already active\"}");
             return;
         }
         const OtaPreparationState preparation = ota_preparation_state_.load();
         if (preparation == OtaPreparationState::READY) {
-            request->send(200, "application/json", "{\"ready\":true}");
+            const bool ready = is_ota_ready();
+            request->send(ready ? 200 : 409, "application/json",
+                          ready ? "{\"ready\":true}" : "{\"error\":\"Update preparation is no longer ready\"}");
             return;
         }
         if (preparation == OtaPreparationState::REQUESTED) {
@@ -668,7 +694,10 @@ void DeviceWebServer::configure_routes() {
             request->send(409, "application/json", "{\"error\":\"Wait for the Bluetooth transfer to finish\"}");
             return;
         }
-        request_ota_preparation();
+        if (!request_ota_preparation()) {
+            request->send(409, "application/json", "{\"error\":\"Another operation is using the grinder\"}");
+            return;
+        }
         request->send(202, "application/json", "{\"preparing\":true}");
     });
 
@@ -715,6 +744,7 @@ void DeviceWebServer::configure_routes() {
 }
 
 bool DeviceWebServer::start_github_ota(const String& tag) {
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     if (!is_ota_ready()) return false;
     bool expected_inactive = false;
     if (!ota_active_.compare_exchange_strong(expected_inactive, true)) return false;
@@ -849,6 +879,7 @@ void DeviceWebServer::perform_github_ota(const String& tag) {
 
 void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const String& filename,
                                          size_t index, uint8_t* data, size_t len, bool final) {
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     if (request->getResponse()) return;
 
     OtaRequestState* state = static_cast<OtaRequestState*>(request->_tempObject);
@@ -870,6 +901,7 @@ void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const St
             request->send(503, "text/plain", "Not enough memory to start firmware update");
             return;
         }
+        state->token = operation_token_;
         if (!filename.endsWith(".bin") || len == 0 || data[0] != 0xE9) {
             finish_ota(false);
             request->send(400, "text/plain", "Not a valid ESP32 firmware image");
@@ -909,7 +941,9 @@ void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const St
         ota_received_.store(0);
         ota_total_.store(request->contentLength());
         request->onDisconnect([this, state]() {
-            if (ota_active_.load() && state && !state->complete) {
+            const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
+            if (ota_active_.load() && state && !state->complete &&
+                operation_interlock().owns(state->token) && state->token == operation_token_) {
                 LOG_BLE("[WEB OTA] Client disconnected; aborting incomplete upload\n");
                 web_firmware_update.abort();
                 finish_ota(false);
@@ -918,7 +952,8 @@ void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const St
         LOG_BLE("[WEB OTA] Receiving %s\n", filename.c_str());
     }
 
-    if (!state || !ota_active_.load()) return;
+    if (!state || state->complete || !ota_active_.load() ||
+        state->token != operation_token_ || !operation_interlock().owns(state->token)) return;
     if (len > 0 && web_firmware_update.write(data, len) != len) {
         LOG_BLE("[WEB OTA] Write failed at %lu: %s\n",
                 static_cast<unsigned long>(ota_received_.load()), web_firmware_update.errorString());
@@ -946,6 +981,8 @@ void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const St
 }
 
 void DeviceWebServer::finish_ota(bool success) {
+    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
+    if (!success) web_firmware_update.abort();
     ota_active_.store(false);
     if (success) {
         ota_bluetooth_stopped_.store(false);

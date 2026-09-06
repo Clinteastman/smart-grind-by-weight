@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include "../../system/operation_interlock.h"
 
 class UIManager;
 
@@ -54,6 +55,7 @@ public:
 private:
     UIManager* ui_manager_;
     lv_timer_t* motor_timer_{};
+    OperationInterlock::Token motor_test_token_ = 0;
     uint32_t last_status_update_ms_ = 0;
 
     void perform_factory_reset();

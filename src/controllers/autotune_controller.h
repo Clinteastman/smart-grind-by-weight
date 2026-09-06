@@ -5,6 +5,7 @@
 #include "../hardware/grinder.h"
 #include "grind_controller.h"
 #include <LittleFS.h>
+#include "../system/operation_interlock.h"
 
 // Auto-tune phases for UI display
 enum class AutoTunePhase {
@@ -63,6 +64,7 @@ private:
     AutoTuneSubPhase sub_phase;
     bool is_running;
     bool cancel_requested;
+    OperationInterlock::Token operation_token = 0;
 
     // Binary search state
     float current_pulse_ms;

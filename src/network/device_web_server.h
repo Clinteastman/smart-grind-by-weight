@@ -2,6 +2,8 @@
 
 #include <ESPAsyncWebServer.h>
 #include <atomic>
+#include <mutex>
+#include "../system/operation_interlock.h"
 
 class GrindController;
 class HardwareManager;
@@ -28,7 +30,7 @@ public:
               BluetoothManager* bluetooth_manager, ProfileController* profile_controller);
     void begin();
     void update();
-    bool is_ota_active() const { return ota_active_.load(); }
+    bool is_ota_active() const { return ota_active_.load() || reboot_pending_.load(); }
     bool is_ota_ready() const;
     bool is_ota_preparing() const {
         return ota_preparation_state_.load() == OtaPreparationState::REQUESTED;
@@ -46,6 +48,8 @@ private:
     AsyncWebServer server_{80};
     bool initialized_ = false;
     bool started_ = false;
+    mutable std::recursive_mutex ota_mutex_;
+    OperationInterlock::Token operation_token_ = 0;
     std::atomic<bool> ota_active_{false};
     std::atomic<OtaPreparationState> ota_preparation_state_{OtaPreparationState::IDLE};
     std::atomic<uint32_t> ota_preparation_deadline_ms_{0};
@@ -73,7 +77,7 @@ private:
     void perform_github_ota(const String& tag);
     static void firmware_update_check_task(void* parameter);
     void perform_firmware_update_check();
-    void request_ota_preparation();
+    bool request_ota_preparation();
     void recover_from_ota_failure();
     void finish_ota(bool success);
 };

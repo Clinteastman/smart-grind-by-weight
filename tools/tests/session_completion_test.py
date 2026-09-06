@@ -33,6 +33,7 @@ class SessionCompletionTest(unittest.TestCase):
 template<class... Args> void ignore_log(Args...) {}
 #define LOG_BLE(...) ignore_log(__VA_ARGS__)
 #include "src/controllers/grind_session.h"
+#include "src/system/operation_interlock.h"
 #include "src/controllers/grind_session_result.h"
 enum class GrindPhase { IDLE, COMPLETED, TIMEOUT, TIME_ADDITIONAL_PULSE };
 enum class GrinderPurgeMode { PRIME, PURGE };
@@ -91,6 +92,7 @@ struct Strategy { void on_exit(const GrindSessionDescriptor&, int) {} };
 class GrindController {
 public:
     mutable std::recursive_mutex mutex;
+    OperationInterlock::Token operation_token_ = operation_interlock().try_acquire();
     auto lock_control() const { return std::unique_lock<std::recursive_mutex>(mutex); }
     GrindPhase phase = GrindPhase::COMPLETED;
     GrindMode mode = GrindMode::TIME;
@@ -129,6 +131,8 @@ int main() {
     c.return_to_idle();
     assert(grind_logger.completed_at_ms == 80);
     assert(c.phase == GrindPhase::IDLE && grind_logger.saves == 1 && !grind_logger.active);
+    auto next_operation = operation_interlock().try_acquire();
+    assert(next_operation); operation_interlock().release(next_operation);
     c.return_to_idle(); assert(grind_logger.saves == 1);
     // A new session must not be ended by the old queued completion.
     grind_logger.start_grind_session({}, 0);
@@ -137,6 +141,7 @@ int main() {
     assert(grind_logger.saved_generations[0] == 1);
     // Full queue does not falsely mark completion as queued; dismiss drains/retries.
     c.phase = GrindPhase::TIMEOUT; c.session_end_flash_queued = false;
+    c.operation_token_ = operation_interlock().try_acquire(); assert(c.operation_token_);
     FlashOpRequest filler{}; filler.operation_type = FlashOpRequest::UPDATE_MANUAL_RUNTIME;
     assert(c.queue_flash_operation(filler));
     assert(!c.queue_terminal_session() && !c.session_end_flash_queued);
@@ -148,6 +153,7 @@ int main() {
     // Stop on an already finished session preserves, rather than discards, it.
     grind_logger.start_grind_session({}, 0);
     c.phase = GrindPhase::COMPLETED; c.session_end_flash_queued = false;
+    c.operation_token_ = operation_interlock().try_acquire(); assert(c.operation_token_);
     c.last_session_result_ = GrindSessionResult::OVERSHOOT;
     c.stop_grind();
     assert(grind_logger.saves == 3 && grind_logger.discards == 0);
@@ -155,7 +161,9 @@ int main() {
     // Extra pulse cannot start until the prior session has been saved.
     grind_logger.start_grind_session({}, 0);
     c.phase = GrindPhase::COMPLETED; c.session_end_flash_queued = false;
+    c.operation_token_ = operation_interlock().try_acquire(); assert(c.operation_token_);
     c.start_additional_pulse();
+    assert(!operation_interlock().try_acquire());
     assert(grind_logger.saves == 4 && motor.motor);
     assert(c.phase == GrindPhase::TIME_ADDITIONAL_PULSE);
     motor.stop(); c.phase = GrindPhase::COMPLETED;
@@ -163,7 +171,9 @@ int main() {
     // Missing queue must neither crash nor release unsaved buffers for reuse.
     grind_logger.start_grind_session({}, 0);
     c.phase = GrindPhase::COMPLETED; c.session_end_flash_queued = false; c.flash_op_queue = nullptr;
+    c.operation_token_ = operation_interlock().try_acquire(); assert(c.operation_token_);
     c.return_to_idle(); assert(c.phase == GrindPhase::COMPLETED && grind_logger.active);
+    assert(!operation_interlock().try_acquire());
     c.start_additional_pulse(); assert(!motor.motor);
     // Logging disabled: no record to preserve and no queue required.
     grind_logger.active = false; c.return_to_idle(); assert(c.phase == GrindPhase::IDLE);

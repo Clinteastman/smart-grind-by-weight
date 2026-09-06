@@ -14,6 +14,7 @@ STUBS = r'''
 #include <map>
 #include <cassert>
 #include <stdexcept>
+#include "system/operation_interlock.h"
 #define LOG_BLE(...) ((void)0)
 #define LOG_OTA_DEBUG(...) ((void)0)
 #define BUILD_NUMBER 1
@@ -91,18 +92,29 @@ void recovered(OTAHandler& ota, Preferences& prefs) {
     assert(last_watchdog.timeout_ms==5000);
     assert(last_watchdog.idle_core_mask==1 && last_watchdog.trigger_panic);
     assert(prefs.values.empty());
+    auto token = operation_interlock().try_acquire();
+    assert(token); // Recovery must release only after restoring hardware.
+    assert(operation_interlock().release(token));
 }
 int main() {
     const uint8_t bytes[8]{};
     Preferences prefs;
     OTAHandler ota;
     ota.init(&prefs);
+    auto other_operation = operation_interlock().try_acquire();
+    assert(other_operation);
+    assert(!ota.start_ota(8,"2",true,"next"));
+    assert(prefs.values.empty() && !task_manager.suspended);
+    assert(last_watchdog.timeout_ms == 0);
+    assert(operation_interlock().owns(other_operation));
+    operation_interlock().release(other_operation);
     for (int scenario=0; scenario<6; ++scenario) {
         init_error = scenario==0 ? -1 : 0;
         bool started=ota.start_ota(8,"2",true,"next");
         if (scenario==0) { assert(!started); }
         else {
             assert(started && task_manager.suspended);
+            assert(!operation_interlock().try_acquire());
             assert(last_watchdog.timeout_ms==1800000);
             if (scenario==1) ota.abort_ota(); // includes disconnect path
             if (scenario==2) assert(!ota.complete_ota()); // short image
@@ -140,6 +152,7 @@ int main() {
     bool restarted=false;
     try { ota.abort_ota(); } catch (const Restart&) { restarted=true; }
     assert(restarted && task_manager.suspended);
+    assert(!operation_interlock().try_acquire()); // Keep locked until reboot/recovery.
     watchdog_error=0;
     ota.abort_ota();
     recovered(ota,prefs);
@@ -164,6 +177,7 @@ class OtaRecoveryTest(unittest.TestCase):
             binary = Path(folder) / "test"
             cpp.write_text(source)
             subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra",
+                            "-I", str(ROOT / "src"),
                             str(cpp), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=10)
 

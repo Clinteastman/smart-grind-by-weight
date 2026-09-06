@@ -782,20 +782,28 @@ void MenuUIController::execute_purge_operation() {
 void MenuUIController::run_motor_test() {
     if (!ui_manager_) return;
 
-    auto* grinder = ui_manager_->get_hardware_manager()->get_grinder();
+    auto* hardware = ui_manager_->get_hardware_manager();
+    auto* grinder = hardware ? hardware->get_grinder() : nullptr;
     if (!grinder) return;
 
+    const auto token = operation_interlock().try_acquire();
+    if (!token) return;
+    motor_test_token_ = token;
+
+    // Allocate the completion callback before starting the motor. If allocation
+    // fails there must be neither a pulse nor an abandoned reservation.
+    motor_timer_ = lv_timer_create(static_motor_timer_cb, 2000, this);
+    if (!motor_timer_) {
+        operation_interlock().release(motor_test_token_);
+        motor_test_token_ = 0;
+        return;
+    }
     ui_manager_->set_background_active(true);
     grinder->start_pulse_rmt(1000);
 
     // Update statistics for motor test (1000ms = 1 second)
     statistics_manager.update_motor_test(1000);
 
-    stop_motor_timer();
-    motor_timer_ = lv_timer_create(static_motor_timer_cb, 2000, this);
-    if (motor_timer_) {
-        lv_timer_set_user_data(motor_timer_, this);
-    }
 }
 
 void MenuUIController::return_to_menu() {
@@ -844,18 +852,20 @@ void MenuUIController::stop_motor_timer() {
 }
 
 void MenuUIController::motor_timer_cb(lv_timer_t* timer) {
-    if (!ui_manager_) {
+    if (!ui_manager_ || timer != motor_timer_ ||
+        !operation_interlock().owns(motor_test_token_)) {
         return;
     }
 
     auto* grinder = ui_manager_->get_hardware_manager()->get_grinder();
-    if (grinder && !grinder->is_pulse_complete()) {
-        grinder->stop();
-    }
+    if (!grinder) return; // Cannot verify a safe stop; keep the reservation.
+    grinder->stop();
 
     stop_motor_timer();
     ui_manager_->set_background_active(false);
     return_to_menu();
+    operation_interlock().release(motor_test_token_);
+    motor_test_token_ = 0;
 }
 
 void MenuUIController::static_motor_timer_cb(lv_timer_t* timer) {
