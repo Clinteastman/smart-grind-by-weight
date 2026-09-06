@@ -9,6 +9,16 @@ line. Earlier release history remains available in the original project's
 - Cancelling Pulse Tune immediately stops the motor and closes its log before
   returning to the menu. Success and failure paths also stop any active pulse.
 
+### Motor timing
+
+- Encode motor pulses as a continuous HIGH of the requested duration, followed
+  by LOW, including longer pulses and the one-second motor test.
+- Keep transmission buffers alive until stopped/completed and use the RMT
+  driver's completion status instead of the GPIO level. Failed starts no longer
+  report the motor as running; reset failures disable the output until reboot.
+- Add host-side tests of the real driver for every supported millisecond pulse
+  duration, cancellation, pending transfers and simulated driver errors.
+
 ### Bluetooth updates
 
 - Restore the normal watchdog policy, touch input and suspended tasks after a
