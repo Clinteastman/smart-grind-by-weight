@@ -6,9 +6,8 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
-- Fixed touchscreen state updates being lost behind a backlog of live weight
-  readings. The screen now catches up to the latest grind phase or final result,
-  retains error text safely and acknowledges a rapid stop/restart correctly.
+- Cancelling Pulse Tune immediately stops the motor and closes its log before
+  returning to the menu. Success and failure paths also stop any active pulse.
 
 ### Bluetooth updates
 
@@ -43,6 +42,12 @@ line. Earlier release history remains available in the original project's
 - Failed history writes are now reported as not saved. Removed unused legacy
   logging/export code; existing schema-2 files keep their unchanged layout and
   zero reserved checksum field (no new checksum or data migration).
+
+### Touchscreen updates
+
+- Fixed touchscreen state updates being lost behind a backlog of live weight
+  readings. The screen now catches up to the latest grind phase or final result,
+  retains error text safely and acknowledges a rapid stop/restart correctly.
 
 ### Development
 
