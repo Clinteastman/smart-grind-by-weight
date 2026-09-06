@@ -68,6 +68,12 @@ line. Earlier release history remains available in the original project's
   logging/export code; existing schema-2 files keep their unchanged layout and
   zero reserved checksum field (no new checksum or data migration).
 
+### Development
+
+- Run simulator checks for controller and system changes as well as UI changes.
+  Standalone policy tests also run on Linux, independently of the desktop
+  rendering test.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
