@@ -70,6 +70,12 @@ line. Earlier release history remains available in the original project's
   logging/export code; existing schema-2 files keep their unchanged layout and
   zero reserved checksum field (no new checksum or data migration).
 
+### Touchscreen updates
+
+- Fixed touchscreen state updates being lost behind a backlog of live weight
+  readings. The screen now catches up to the latest grind phase or final result,
+  retains error text safely and acknowledges a rapid stop/restart correctly.
+
 ### Development
 
 - Run simulator checks for controller and system changes as well as UI changes.
