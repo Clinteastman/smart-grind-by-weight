@@ -6,11 +6,8 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
-### Web settings
-
-- Accept older settings forms that omit the optional panel-off controls,
-  preserving the grinder's saved panel-off settings instead of rejecting the
-  complete form with a missing-field error.
+- Cancelling Pulse Tune immediately stops the motor and closes its log before
+  returning to the menu. Success and failure paths also stop any active pulse.
 
 ### Bluetooth updates
 
@@ -27,6 +24,12 @@ line. Earlier release history remains available in the original project's
 - Refuse weight-mode starts against stale readings. Time and Manual modes
   remain independent of scale availability. Failed ADC reads no longer refresh
   sample freshness using the previous reading.
+
+### Web settings
+
+- Accept older settings forms that omit the optional panel-off controls,
+  preserving the grinder's saved panel-off settings instead of rejecting the
+  complete form with a missing-field error.
 
 ### Controller and history
 
