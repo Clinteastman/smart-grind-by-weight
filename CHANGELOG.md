@@ -10,6 +10,12 @@ line. Earlier release history remains available in the original project's
   readings. The screen now catches up to the latest grind phase or final result,
   retains error text safely and acknowledges a rapid stop/restart correctly.
 
+### Development
+
+- Run simulator checks for controller and system changes as well as UI changes.
+  Standalone policy tests also run on Linux, independently of the desktop
+  rendering test.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
