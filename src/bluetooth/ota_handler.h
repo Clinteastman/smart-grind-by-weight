@@ -57,7 +57,10 @@ private:
     bool is_full_update;
     
     // OTA tracking
-    Preferences* preferences;
+    Preferences* preferences = nullptr;
+    bool watchdog_extended = false;
+    bool hardware_suspended = false;
+    bool touch_disabled = false;
     
     // Power management
     BLEPowerState power_state;
@@ -70,6 +73,7 @@ private:
     void restore_normal_power();
     bool start_update();
     bool finalize_update();
+    void recover_failed_update();
     
 public:
     OTAHandler();

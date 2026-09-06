@@ -121,11 +121,10 @@ bool HX711Driver::update_async() {
         return false;
     }
     
-    conversion_24bit();
-    return true;
+    return conversion_24bit();
 }
 
-void HX711Driver::conversion_24bit() {
+bool HX711Driver::conversion_24bit() {
     // Record conversion timing
     unsigned long now = micros();
     if (conversion_start_time == 0) {
@@ -152,8 +151,15 @@ void HX711Driver::conversion_24bit() {
         }
     }
     
-    // Re-enable interrupts immediately after conversion
+    // DOUT must release after the gain clocks. Check before interrupts can
+    // delay us until the next conversion; a disconnected pulldown stays LOW.
+    delayMicroseconds(1);
+    const bool released = digitalRead(dout_pin) == HIGH;
     interrupts();
+    if (!released) {
+        data_ready_flag = false;
+        return false;
+    }
     
     // HX711_ADC exact data processing: normalize HX711's offset binary output
     // HX711 natural range: 0x800000 to 0x7FFFFF
@@ -164,11 +170,12 @@ void HX711Driver::conversion_24bit() {
     if (raw_data > 0xFFFFFF) {
         // Data out of range - this shouldn't happen with proper 24-bit data
         LOG_BLE("HX711Driver: Data out of range - raw=0x%08lx\n", raw_data);
-        return; // Skip this invalid reading
+        return false; // Skip this invalid reading
     }
     
     last_raw_data = (int32_t)raw_data;  // Explicit cast to int32_t for consistency
     data_ready_flag = true;
+    return true;
 }
 
 int32_t HX711Driver::get_raw_data() const {

@@ -66,6 +66,7 @@ int main() {
 struct FlashOpRequest {
  enum { END_GRIND_SESSION }; int operation_type;
  char result_string[32]; float final_weight; uint8_t pulse_count;
+ uint32_t completed_at_ms;
 };
 struct Logger { bool is_logging_active() { return true; } } grind_logger;
 enum class GrindPhase { COMPLETED, TIMEOUT };
@@ -74,6 +75,7 @@ struct Controller {
  GrindPhase phase=GrindPhase::TIMEOUT;
  bool accept=false;
  bool session_end_flash_queued=false;
+ uint32_t phase_start_time=1234;
  float final_weight=12; uint8_t pulse_attempts=2;
  FlashOpRequest stored{};
  bool queue_flash_operation(const FlashOpRequest& request) { stored=request; return accept; }
@@ -91,8 +93,10 @@ int main() {
  assert(static_cast<uint8_t>(GrindTerminationReason::SCALE_ERROR)==4);
  assert(!is_completed_grind_result(GrindSessionResult::SCALE_ERROR));
  assert(!scale.session_end_flash_queued);
+ assert(scale.stored.completed_at_ms==1234);
  scale.accept=true;
  assert(scale.terminal());
+ assert(scale.stored.completed_at_ms==1234);
  assert(std::strcmp(scale.stored.result_string,"SCALE_ERROR")==0);
 }
 '''
@@ -115,6 +119,8 @@ int main() {
         guard = controller.split("    // Check before any phase can start/restart", 1)[1].split(
             "    if (control_loop_paused_)", 1)[0]
         guard = guard[guard.index("    if (mode =="):]
+        diagnostics = sensor_cpp.split("uint32_t WeightSensor::get_adc_headroom_counts() const", 1)[1].split(
+            "// Primary weight readings", 1)[0]
         code = r'''
 #include <atomic>
 #include <cstdint>
@@ -133,6 +139,7 @@ public:
  int32_t raw=0x800000;
  std::atomic<bool> has_sample_{false},tare_initialized_{false};
  std::atomic<uint32_t> last_sample_ms_{0};
+ std::atomic<int32_t> diagnostic_raw_adc_{-1};
  Filter raw_filter;
  bool doTare=false,tareStatus=false,data_available=false;
  int tareTimes=0,DATA_SET=18;
@@ -145,11 +152,13 @@ public:
  float raw_to_weight(int32_t){return 1;}
  void update_temperature_if_available(){}
  bool sample_and_feed_filter();
+ uint32_t get_adc_headroom_counts() const;
+ bool is_adc_near_saturation() const;
  bool has_recent_sample() const
 ''' + freshness + r'''
 };
 bool WeightSensor::sample_and_feed_filter()
-''' + sampling + r'''
+''' + sampling + '\nuint32_t WeightSensor::get_adc_headroom_counts() const' + diagnostics + r'''
 enum class GrindMode {WEIGHT,TIME,MANUAL};
 enum class GrindPhase {PRIME,PREDICTIVE,PULSE_EXECUTE,FINAL_SETTLING,PURGE_CONFIRM,COMPLETED,TIMEOUT};
 #include "src/controllers/grind_session_result.h"
@@ -171,6 +180,7 @@ struct Controller {
 };
 int main(){
  WeightSensor sensor;assert(!sensor.has_recent_sample());
+ assert(!sensor.is_adc_near_saturation());
  assert(sensor.sample_and_feed_filter());assert(sensor.has_recent_sample());
  clock_ms=499;assert(sensor.has_recent_sample());clock_ms=500;assert(!sensor.has_recent_sample());
  // Both supported sample rates remain fresh; failed reads cannot refresh time.
@@ -179,6 +189,22 @@ int main(){
  }
  sensor.read_ok=false;clock_ms+=500;assert(!sensor.sample_and_feed_filter());assert(!sensor.has_recent_sample());
  sensor.read_ok=true;sensor.raw=-1;assert(!sensor.sample_and_feed_filter());assert(!sensor.has_recent_sample());
+ // Rail faults must neither refresh time nor progress a tare.
+ sensor.doTare=true;
+ for(int32_t raw:{0,0xFFFF,0xFFFFFF-0xFFFF,0xFFFFFF}){
+  sensor.raw=raw;clock_ms+=100;
+  const auto before=sensor.last_sample_ms_.load();
+  assert(!sensor.sample_and_feed_filter());
+  assert(sensor.is_adc_near_saturation());
+  assert(sensor.get_adc_headroom_counts()==uint32_t(min(raw,0xFFFFFF-raw)));
+  assert(sensor.last_sample_ms_.load()==before && sensor.tareTimes==0);
+  assert(!sensor.has_recent_sample());
+ }
+ sensor.doTare=false;
+ for(int32_t raw:{0x10000,0xFFFFFF-0x10000}){
+  sensor.raw=raw;assert(sensor.sample_and_feed_filter());assert(sensor.has_recent_sample());
+  assert(!sensor.is_adc_near_saturation());
+ }
  sensor.raw=0x800000;clock_ms=UINT32_MAX-100;assert(sensor.sample_and_feed_filter());
  clock_ms=398;assert(sensor.has_recent_sample());clock_ms=399;assert(!sensor.has_recent_sample());
  for(auto phase:{GrindPhase::PRIME,GrindPhase::PREDICTIVE,GrindPhase::PULSE_EXECUTE,
