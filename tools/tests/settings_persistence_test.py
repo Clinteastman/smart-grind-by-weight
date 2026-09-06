@@ -92,7 +92,12 @@ struct HardwareManager {
 };
 namespace ScreensaverSettings {
 bool succeed = true;
-bool save_timing(uint16_t, uint8_t, bool, uint16_t) { return succeed; }
+struct Timing { bool display_off_enabled; uint16_t display_off_delay_s; } stored{true, 7200};
+Timing load_timing() { return stored; }
+bool save_timing(uint16_t, uint8_t, bool enabled, uint16_t delay) {
+    if (succeed) stored = {enabled, delay};
+    return succeed;
+}
 }
 struct StatusClient {
     bool succeed = true, enabled = false;
@@ -119,6 +124,14 @@ int main() {
     const int total_writes = Preferences::writes, total_opens = Preferences::opens;
     assert(total_writes == 16 && total_opens == 10);
     assert(control.motor_response_latency_ms == 100 && control.coast_ratio_ == 2);
+    // Applying a legacy form preserves the current panel-off values while
+    // still using the checked persistence path.
+    ScreensaverSettings::stored = {true, 7200};
+    update.has_display_off_enabled = update.has_display_off_delay_s = false;
+    assert(api.apply_settings(update));
+    assert(ScreensaverSettings::stored.display_off_enabled);
+    assert(ScreensaverSettings::stored.display_off_delay_s == 7200);
+    update.has_display_off_enabled = update.has_display_off_delay_s = true;
     for (int failure = 1; failure <= total_writes; ++failure) {
         Preferences::reset(); Preferences::fail_write = failure;
         control.motor_response_latency_ms = 50; control.coast_ratio_ = 1;

@@ -38,7 +38,7 @@ private:
     static const uint16_t SIGNAL_TIMEOUT = 100;  // Signal timeout in ms
     
     // HX711 hardware methods
-    void conversion_24bit();
+    bool conversion_24bit();
     void power_up_sequence();
     void power_down_sequence();
     

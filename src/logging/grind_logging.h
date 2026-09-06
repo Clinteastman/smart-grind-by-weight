@@ -93,6 +93,7 @@ enum class GrindTerminationReason : uint8_t {
     TIMEOUT = 1,
     OVERSHOOT = 2,
     MAX_PULSES = 3,
+    SCALE_ERROR = 4,
     UNKNOWN = 255
 };
 
@@ -172,7 +173,8 @@ public:
     
     // Session management
     void start_grind_session(const GrindSessionDescriptor& descriptor, float start_weight);
-    void end_grind_session(const char* final_result, float final_weight, uint8_t pulse_count);
+    void end_grind_session(const char* final_result, float final_weight, uint8_t pulse_count,
+                           uint32_t completed_at_ms);
     void discard_current_session();         // Discard current session without saving
     
     // Logging methods
@@ -194,7 +196,7 @@ public:
     uint32_t get_total_flash_sessions() const;
     bool is_logging_active() const { return logging_active; }
     uint32_t get_session_storage_version() const { return session_storage_version; }
-    bool validate_stored_session(uint32_t session_id) { return validate_session_file(session_id); }
+    bool validate_stored_session(uint32_t session_id) const { return validate_session_file(session_id); }
     
     // Debug output helpers - conditionally compiled based on debug flags (moved to public for BLE access)
 #if ENABLE_GRIND_DEBUG
@@ -218,7 +220,7 @@ private:
     // Individual session file management
     bool ensure_sessions_directory_exists();    // Create sessions directory if needed
     bool write_individual_session_file(uint32_t session_id, const GrindSession& session, const GrindEvent* events, const GrindMeasurement* measurements);
-    bool validate_session_file(uint32_t session_id); // Check if session file is valid/readable
+    bool validate_session_file(uint32_t session_id) const; // Check if session file is valid/readable
     bool remove_session_file(uint32_t session_id);   // Delete specific session file
     void cleanup_old_session_files(); // Remove old session files to maintain MAX_STORED_SESSIONS_FLASH limit
     void mark_session_storage_dirty(); // Bump version when session files change

@@ -17,6 +17,8 @@ class SettingsCompatibilityTest(unittest.TestCase):
         block = handler.split("    const long screensaver_idle_timeout_s =", 1)[1]
         block = "const long screensaver_idle_timeout_s =" + block.split(
             "    const String screensaver_style", 1)[0]
+        resolve = source.split("    DeviceSettingsUpdate settings = update;", 1)[1].split(
+            "    Preferences* grinder =", 1)[0]
         code = r'''
 #include <map>
 #include <string>
@@ -32,7 +34,8 @@ struct Settings {
  uint16_t screensaver_idle_timeout_s=0;
  uint8_t screensaver_startup_timeout_s=0;
  bool display_off_enabled=false;
- uint16_t display_off_delay_s=0;
+ uint16_t display_off_delay_s=3600;
+ bool has_display_off_enabled=true,has_display_off_delay_s=true;
 };
 struct ScreensaverTimingSettings {bool display_off_enabled;uint16_t display_off_delay_s;};
 namespace ScreensaverSettings {
@@ -50,26 +53,37 @@ Settings parse(Request* request){
 ''' + block + r'''
  return settings;
 }
+Settings apply(Settings settings){
+''' + resolve + r'''
+ ScreensaverSettings::saved={settings.display_off_enabled,settings.display_off_delay_s};
+ return settings;
+}
 int main(){
  Request old;
- auto settings=parse(&old);
+ auto settings=apply(parse(&old));
  assert(settings.display_off_enabled && settings.display_off_delay_s==7200);
  assert(settings.screensaver_idle_timeout_s==300 && settings.screensaver_startup_timeout_s==3);
  old.fields["display_off_enabled"]={"0"};
- settings=parse(&old);
+ settings=apply(parse(&old));
  assert(!settings.display_off_enabled && settings.display_off_delay_s==7200);
  old.fields.erase("display_off_enabled");
+ ScreensaverSettings::saved.display_off_enabled=true;
  old.fields["display_off_delay_s"]={"30"};
- settings=parse(&old);
+ settings=apply(parse(&old));
  assert(settings.display_off_enabled && settings.display_off_delay_s==30);
  old.fields["display_off_enabled"]={"false"};
- settings=parse(&old);
+ settings=apply(parse(&old));
  assert(!settings.display_off_enabled && settings.display_off_delay_s==30);
  old.fields["display_off_enabled"]={"true"};
  settings=parse(&old);assert(settings.display_off_enabled);
  ScreensaverSettings::saved={false,3600};
- Request another_old;settings=parse(&another_old);
+ Request another_old;settings=apply(parse(&another_old));
  assert(!settings.display_off_enabled && settings.display_off_delay_s==3600);
+ // Queue both before applying either: old form must preserve the newer save.
+ old.fields["display_off_enabled"]={"true"};old.fields["display_off_delay_s"]={"7200"};
+ auto current=parse(&old);auto legacy=parse(&another_old);
+ apply(current);settings=apply(legacy);
+ assert(settings.display_off_enabled && settings.display_off_delay_s==7200);
 }
 '''
         with tempfile.TemporaryDirectory(prefix="smart-grind-settings-test-") as folder:

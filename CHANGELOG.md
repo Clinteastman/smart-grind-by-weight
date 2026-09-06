@@ -6,15 +6,8 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
-- Serialized grind-controller updates, commands and state reads across tasks,
-  preventing an in-flight update from restarting the motor after stop returns.
-  Web start acknowledgements now reflect whether the controller accepted the
-  start, and firmware-update task suspension waits for controller access to end.
-- Finished and timed-out grinds queue their history record before notifying the
-  UI. Immediate dismissal, stop or an extra time-mode pulse preserves that
-  record; a full save queue is retried instead of silently losing completion.
-- Live web status and settings read a coherent profile snapshot while profiles
-  are edited. Active grind status reports the session's own profile.
+- Cancelling Pulse Tune immediately stops the motor and closes its log before
+  returning to the menu. Success and failure paths also stop any active pulse.
 
 ### Motor timing
 
@@ -33,17 +26,6 @@ line. Earlier release history remains available in the original project's
   immediately from flash write errors. If watchdog recovery fails, restart
   instead of continuing with weakened protection.
 
-### Pulse Tune
-
-- Cancelling Pulse Tune immediately stops the motor and closes its log before
-  returning to the menu. Success and failure paths also stop any active pulse.
-
-### Web settings
-
-- Accept older settings forms that omit the optional panel-off controls,
-  preserving the grinder's saved panel-off settings instead of rejecting the
-  complete form with a missing-field error.
-
 ### Scale reliability
 
 - Stop weight-mode grinding if no valid scale reading arrives for 500 ms,
@@ -53,20 +35,35 @@ line. Earlier release history remains available in the original project's
   remain independent of scale availability. Failed ADC reads no longer refresh
   sample freshness using the previous reading.
 
-### Touchscreen events
+### Web settings
 
-- Fixed touchscreen state updates being lost behind a backlog of live weight
-  readings. The screen now catches up to the latest grind phase or final result,
-  retains error text safely and acknowledges a rapid stop/restart correctly.
+- Accept older settings forms that omit the optional panel-off controls,
+  preserving the grinder's saved panel-off settings instead of rejecting the
+  complete form with a missing-field error.
 
-### History storage
+### Controller and history
 
+- Serialized grind-controller updates, commands and state reads across tasks,
+  preventing an in-flight update from restarting the motor after stop returns.
+  Web start acknowledgements now reflect whether the controller accepted the
+  start, and firmware-update task suspension waits for controller access to end.
+- Finished and timed-out grinds queue their history record before notifying the
+  UI. Immediate dismissal, stop or an extra time-mode pulse preserves that
+  record; a full save queue is retried instead of silently losing completion.
+- Live web status and settings read a coherent profile snapshot while profiles
+  are edited. Active grind status reports the session's own profile.
 - Hardened grind history against allocation failures, incomplete session files
   and malformed filenames. Bluetooth export no longer hangs when its file list
   contains no usable sessions, and retention sorts only verified file IDs.
 - Failed history writes are now reported as not saved. Removed unused legacy
   logging/export code; existing schema-2 files keep their unchanged layout and
   zero reserved checksum field (no new checksum or data migration).
+
+### Touchscreen updates
+
+- Fixed touchscreen state updates being lost behind a backlog of live weight
+  readings. The screen now catches up to the latest grind phase or final result,
+  retains error text safely and acknowledges a rapid stop/restart correctly.
 
 ### Development
 

@@ -20,6 +20,8 @@ class SessionCompletionTest(unittest.TestCase):
             "void GrindController::start_additional_pulse()",
             "bool GrindController::can_pulse() const",
         ))
+        methods += "\n" + function((ROOT / "src/tasks/file_io_task.cpp").read_text(),
+                                    "void FileIOTask::process_flash_operation(")
         harness = r'''
 #include <cassert>
 #include <cstdint>
@@ -37,7 +39,8 @@ enum class GrindPhase { IDLE, COMPLETED, TIMEOUT, TIME_ADDITIONAL_PULSE };
 enum class GrinderPurgeMode { PRIME, PURGE };
 constexpr int GRIND_PURGE_MODE_DEFAULT = 1;
 constexpr float GRIND_PURGE_AMOUNT_DEFAULT_G = 1;
-unsigned long millis() { return 100; }
+uint32_t clock_ms = 100;
+unsigned long millis() { return clock_ms; }
 struct GrindLoopData { unsigned long now = 0; };
 struct FlashOpRequest {
     enum Type { START_GRIND_SESSION, END_GRIND_SESSION, UPDATE_MANUAL_RUNTIME } operation_type;
@@ -46,6 +49,7 @@ struct FlashOpRequest {
     float start_weight = 0, final_weight = 0;
     uint8_t pulse_count = 0;
     uint32_t motor_runtime_ms = 0;
+    uint32_t completed_at_ms = 0;
 };
 struct Queue { std::deque<FlashOpRequest> requests; unsigned capacity = 1; };
 using BaseType_t = int;
@@ -64,15 +68,21 @@ struct Logger {
     std::vector<unsigned> saved_generations;
     std::string result;
     float weight = 0;
+    uint32_t completed_at_ms = 0;
     bool is_logging_active() const { return active; }
     void start_grind_session(const GrindSessionDescriptor&, float) { active = true; ++generation; }
-    void end_grind_session(const char* r, float w, uint8_t) {
+    void end_grind_session(const char* r, float w, uint8_t, uint32_t ended) {
+        completed_at_ms = ended;
         assert(active); ++saves; active = false; result = r; weight = w;
         saved_generations.push_back(generation);
     }
     void discard_current_session() { active = false; ++discards; }
 } grind_logger;
 struct Statistics { void update_manual_grind(uint32_t) {} void update_time_pulse() {} } statistics_manager;
+struct FileIOTask {
+    unsigned failed_operations_count = 0;
+    void process_flash_operation(const FlashOpRequest&);
+};
 struct Grinder {
     bool motor = false;
     void stop() { motor = false; }
@@ -90,6 +100,7 @@ public:
     bool session_end_flash_queued = false;
     float final_weight = 18.5f;
     int pulse_attempts = 3;
+    uint32_t phase_start_time = 80;
     Queue* flash_op_queue;
     Grinder* grinder;
     uint32_t time_grind_start_ms = 0, target_time_ms = 0, start_time = 0, pulse_duration_ms = 100;
@@ -116,7 +127,9 @@ int main() {
     // Notification followed immediately by dismissal, without another update.
     assert(c.queue_terminal_session());
     assert(c.queue_terminal_session() && queue.requests.size() == 1);
+    clock_ms = 5000;
     c.return_to_idle();
+    assert(grind_logger.completed_at_ms == 80);
     assert(c.phase == GrindPhase::IDLE && grind_logger.saves == 1 && !grind_logger.active);
     auto next_operation = operation_interlock().try_acquire();
     assert(next_operation); operation_interlock().release(next_operation);
@@ -132,7 +145,9 @@ int main() {
     FlashOpRequest filler{}; filler.operation_type = FlashOpRequest::UPDATE_MANUAL_RUNTIME;
     assert(c.queue_flash_operation(filler));
     assert(!c.queue_terminal_session() && !c.session_end_flash_queued);
+    clock_ms = 9000;
     c.return_to_idle();
+    assert(grind_logger.completed_at_ms == 80);
     assert(grind_logger.saves == 2 && grind_logger.result == "TIMEOUT");
     assert(grind_logger.weight == 18.5f && queue.requests.empty());
     // Stop on an already finished session preserves, rather than discards, it.
@@ -162,6 +177,16 @@ int main() {
     c.start_additional_pulse(); assert(!motor.motor);
     // Logging disabled: no record to preserve and no queue required.
     grind_logger.active = false; c.return_to_idle(); assert(c.phase == GrindPhase::IDLE);
+    // The alternate FileIO dispatcher must carry the same captured timestamp.
+    grind_logger.start_grind_session({}, 0);
+    FileIOTask io;
+    FlashOpRequest completed{};
+    completed.operation_type = FlashOpRequest::END_GRIND_SESSION;
+    completed.completed_at_ms = 42;
+    std::strcpy(completed.result_string, "COMPLETE");
+    clock_ms = 60000;
+    io.process_flash_operation(completed);
+    assert(grind_logger.completed_at_ms == 42 && !grind_logger.active);
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:
