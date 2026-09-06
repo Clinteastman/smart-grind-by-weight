@@ -48,7 +48,7 @@ public:
     void update();
     bool process_commands();
     // UI task calls this only after reloading runtime settings.
-    void complete_settings_application();
+    void complete_settings_application(bool runtime_applied);
     String settings_json();
     void mark_settings_dirty() { settings_cache_dirty_.store(true); }
 

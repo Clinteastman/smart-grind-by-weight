@@ -26,6 +26,8 @@ constexpr uint16_t kMaxDisplayOffDelayS = 43200;
 constexpr uint32_t kWeightActivityWindowCapMs = 60000;
 
 ScreensaverTimingSettings load_timing();
+// Strict post-save read: missing, invalid or unreadable values are failures.
+bool load_timing_checked(ScreensaverTimingSettings& settings);
 bool save_timing(uint16_t idle_timeout_s, uint8_t startup_timeout_s,
                  bool display_off_enabled, uint16_t display_off_delay_s);
 bool is_valid_idle_timeout(uint16_t idle_timeout_s);

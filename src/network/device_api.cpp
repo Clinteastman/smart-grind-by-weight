@@ -333,10 +333,10 @@ const char* DeviceApi::settings_result(uint32_t id) {
     return status; // All statuses are static literals, not pointers into a slot.
 }
 
-void DeviceApi::complete_settings_application() {
+void DeviceApi::complete_settings_application(bool runtime_applied) {
     if (!applying_settings_id_) return;
     // Keep other operations excluded through persistence, cache and UI refresh.
-    set_settings_result(applying_settings_id_, settings_persisted_ ? "saved" : "failed");
+    set_settings_result(applying_settings_id_, settings_persisted_ && runtime_applied ? "saved" : "failed");
     operation_interlock().release(settings_operation_token_);
     settings_operation_token_ = 0;
     applying_settings_id_ = 0;
@@ -727,10 +727,18 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     if (screensaver.begin("screensaver", false)) {
         const bool style_saved = screensaver.putString("style", settings.screensaver_style) == strlen(settings.screensaver_style);
         saved = style_saved && saved;
-        const String stored_style = screensaver.getString("style", "minimal");
+        const String stored_style = screensaver.getString("style", "");
         screensaver.end();
-        saved = gaggimate_status_client.configure(stored_style == "gaggimate",
-                                                  settings.gaggimate_host) && saved;
+        const bool style_read = stored_style == "minimal" || stored_style == "orbit" ||
+                                stored_style == "blank" || stored_style == "custom" ||
+                                stored_style == "gaggimate";
+        if (style_read) {
+            saved = gaggimate_status_client.configure(stored_style == "gaggimate",
+                                                      settings.gaggimate_host) && saved;
+        } else {
+            // Keep the active client unchanged when stored style is unreadable.
+            saved = false;
+        }
     } else {
         saved = false;
     }

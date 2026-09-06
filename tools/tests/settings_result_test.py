@@ -43,7 +43,7 @@ struct DeviceApi {
     uint32_t reserve_settings_result();
     void set_settings_result(uint32_t, const char*);
     const char* settings_result(uint32_t);
-    void complete_settings_application();
+    void complete_settings_application(bool);
     bool process_one(const Command& command) {
         switch (CommandAction::APPLY_SETTINGS) {
 ''' + branch + r'''
@@ -69,10 +69,10 @@ int main() {
     assert(!operation_interlock().try_acquire());
     // Runtime/UI refresh is the caller's responsibility. Until it finishes,
     // the result must stay pending and the shared operation gate stay held.
-    api.complete_settings_application();
+    api.complete_settings_application(true);
     assert(strcmp(api.settings_result(id), "saved") == 0);
     competing = operation_interlock().try_acquire(); assert(competing);
-    api.complete_settings_application(); // Repeated completion cannot free another owner.
+    api.complete_settings_application(true); // Repeated completion cannot free another owner.
     assert(operation_interlock().owns(competing));
     operation_interlock().release(competing);
     api.persist_success = false;
@@ -80,10 +80,15 @@ int main() {
     assert(api.process_one({failed}));
     assert(api.refreshed == 2); // Partial changes are also reloaded.
     assert(strcmp(api.settings_result(failed), "pending") == 0);
-    api.complete_settings_application();
+    api.complete_settings_application(true);
     assert(strcmp(api.settings_result(failed), "failed") == 0);
     assert(strcmp(api.settings_result(id), "saved") == 0);
     assert(strcmp(api.settings_result(0), "unknown") == 0);
+    api.persist_success = true;
+    auto reload_failed = api.reserve_settings_result();
+    assert(api.process_one({reload_failed}));
+    api.complete_settings_application(false);
+    assert(strcmp(api.settings_result(reload_failed), "failed") == 0);
     for (int i = 0; i < 4; ++i) {
         auto next = api.reserve_settings_result(); api.set_settings_result(next, "failed");
     }
@@ -100,8 +105,8 @@ int main() {
 '''
         ui = (ROOT / "src/ui/ui_manager.cpp").read_text()
         update = method(ui, "void UIManager::update(")
-        self.assertLess(update.index("apply_runtime_settings()"), update.index("complete_settings_application()"))
-        self.assertLess(update.index("update_screensaver_toggles()"), update.index("complete_settings_application()"))
+        self.assertLess(update.index("apply_runtime_settings(true)"), update.index("complete_settings_application(runtime_applied)"))
+        self.assertLess(update.index("update_screensaver_toggles()"), update.index("complete_settings_application(runtime_applied)"))
         with tempfile.TemporaryDirectory() as tmp:
             cpp, binary = Path(tmp) / "result.cpp", Path(tmp) / "result"
             cpp.write_text(harness)
