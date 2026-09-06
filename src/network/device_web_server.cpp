@@ -23,6 +23,7 @@
 #include "../logging/diagnostic_log.h"
 #include "network_manager.h"
 #include "device_api.h"
+#include "ota_stream.h"
 
 namespace {
 const char* network_state_name(NetworkState state) {
@@ -387,6 +388,7 @@ bool DeviceWebServer::request_ota_preparation() {
     const auto token = operation_interlock().try_acquire();
     if (!token) return false;
     operation_token_ = token;
+    ota_failed_.store(false);
     ota_bluetooth_stopped_.store(false);
     ota_preparation_deadline_ms_.store(millis() + OTA_PREPARE_TIMEOUT_MS);
     ota_preparation_state_.store(OtaPreparationState::REQUESTED);
@@ -434,7 +436,7 @@ void DeviceWebServer::configure_routes() {
             "\"network\":{\"state\":\"%s\",\"hostname\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\"},"
             "\"system\":{\"uptime_ms\":%lu,\"free_heap\":%u,\"free_internal_heap\":%u,"
             "\"largest_internal_block\":%u,\"free_psram\":%u},"
-            "\"ota\":{\"active\":%s,\"preparing\":%s,\"ready\":%s,\"progress\":%u}}",
+            "\"ota\":{\"active\":%s,\"preparing\":%s,\"ready\":%s,\"progress\":%u,\"failed\":%s}}",
             device_id.c_str(),
             HW_DISPLAY_REVISION,
             BUILD_FIRMWARE_VERSION,
@@ -452,7 +454,8 @@ void DeviceWebServer::configure_routes() {
             device_web_server.is_ota_active() ? "true" : "false",
             device_web_server.is_ota_preparing() ? "true" : "false",
             device_web_server.is_ota_ready() ? "true" : "false",
-            device_web_server.ota_progress_percent());
+            device_web_server.ota_progress_percent(),
+            device_web_server.ota_failed() ? "true" : "false");
         response->addHeader("Cache-Control", "no-store");
         request->send(response);
     });
@@ -823,7 +826,15 @@ void DeviceWebServer::perform_github_ota(const String& tag) {
     }
     WiFiClient* stream = http.getStreamPtr();
     uint8_t first_byte = 0;
-    if (!stream || stream->readBytes(&first_byte, 1) != 1 || first_byte != 0xE9) {
+    if (!stream || !ota_wait_for_data(*stream, [] { return millis(); },
+                                      [] { delay(2); }, 15000) ||
+        stream->readBytes(&first_byte, 1) != 1) {
+        LOG_BLE("[WEB OTA] Download timed out or disconnected before the first image byte\n");
+        http.end();
+        finish_ota(false);
+        return;
+    }
+    if (first_byte != 0xE9) {
         LOG_BLE("[WEB OTA] Download is not an ESP32 application image\n");
         http.end();
         finish_ota(false);
@@ -983,6 +994,7 @@ void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const St
 void DeviceWebServer::finish_ota(bool success) {
     const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     if (!success) web_firmware_update.abort();
+    ota_failed_.store(!success);
     ota_active_.store(false);
     if (success) {
         ota_bluetooth_stopped_.store(false);

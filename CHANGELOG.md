@@ -4,6 +4,22 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [1.5.9] - 2026-09-06
+
+### Firmware update hotfix
+
+- Wait for the first downloaded firmware byte before checking the image header.
+  A delayed HTTPS response body no longer incorrectly fails at 0% with
+  "Download is not an ESP32 application image".
+- Keep the wait bounded and handle disconnection and timer rollover. Invalid
+  images are still rejected before opening the inactive firmware partition.
+- Show failed updates in the web interface and confirm the installed version
+  after restart. Keep update buttons locked during preparation and dispatch.
+- If automatic installation fails on older firmware, download the matching V1
+  or V2 application `.bin` from this release and use **System & updates → Manual
+  firmware file → Upload firmware** once. This works over Wi-Fi and retains
+  settings; subsequent automatic updates use the repaired downloader.
+
 ## [1.5.8] - 2026-09-06
 
 ### Pulse Tune
@@ -368,3 +384,4 @@ fixes described above.
 [1.5.6]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.6
 [1.5.7]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.7
 [1.5.8]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.8
+[1.5.9]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.9

@@ -36,6 +36,7 @@ public:
         return ota_preparation_state_.load() == OtaPreparationState::REQUESTED;
     }
     uint8_t ota_progress_percent() const;
+    bool ota_failed() const { return ota_failed_.load(); }
     FirmwareUpdateState firmware_update_state() const { return firmware_update_state_.load(); }
     bool firmware_update_available() const {
         return firmware_update_state_.load() == FirmwareUpdateState::AVAILABLE;
@@ -51,6 +52,7 @@ private:
     mutable std::recursive_mutex ota_mutex_;
     OperationInterlock::Token operation_token_ = 0;
     std::atomic<bool> ota_active_{false};
+    std::atomic<bool> ota_failed_{false};
     std::atomic<OtaPreparationState> ota_preparation_state_{OtaPreparationState::IDLE};
     std::atomic<uint32_t> ota_preparation_deadline_ms_{0};
     std::atomic<bool> ota_bluetooth_stopped_{false};

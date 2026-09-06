@@ -26,18 +26,17 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build & installation guide](docs/DOC.md#start-here)** ·
-**[What's new in v1.5.8](CHANGELOG.md#158---2026-09-06)** ·
+**[What's new in v1.5.9](CHANGELOG.md#159---2026-09-06)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
-> **v1.5.8 reliability update:** improved scale-fault handling, motor timing,
-> update recovery, saved history and settings confirmation. Read the
-> [v1.5.8 changelog](CHANGELOG.md#158---2026-09-06). **This is release preparation:
-> install 1.5.8 only once it appears in
-> [GitHub Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases).**
-> The [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/)
-> offers it after publication and the subsequent site deployment; until then it
-> may offer only an older version.
+> **Firmware installation stuck at 0%?** The v1.5.9 hotfix repairs a download
+> timing bug and adds clear update-failure feedback. Once it appears in
+> [GitHub Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases),
+> download its matching V1 or V2 application `.bin` and use **System & updates →
+> Manual firmware file → Upload firmware** if your current automatic installer
+> fails. No USB connection or settings reset is needed. Read the
+> [hotfix notes](CHANGELOG.md#159---2026-09-06).
 
 See [release validation](docs/RELIABILITY_RELEASE.md) for the tested candidate
 and coverage limits. The release badge above identifies the latest published build.

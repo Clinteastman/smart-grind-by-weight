@@ -72,6 +72,9 @@ jobs:
       - name: Test embedded settings save workflow
         run: node tools/tests/settings_web_test.mjs
 
+      - name: Test embedded firmware update feedback
+        run: node tools/tests/ota_web_test.mjs
+
       - name: Build firmware
         env:
           PLATFORMIO_BUILD_CACHE_DIR: .pio/build-cache/${{ matrix.environment }}
