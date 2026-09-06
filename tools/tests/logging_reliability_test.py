@@ -32,6 +32,10 @@ class LoggingReliabilityTest(unittest.TestCase):
             "void GrindLogger::clear_buffers(",
             "bool GrindLogger::write_individual_session_file(",
             "bool GrindLogger::validate_session_file(",
+            "uint32_t GrindLogger::count_sessions_in_flash(",
+            "uint32_t GrindLogger::count_total_events_in_flash(",
+            "uint32_t GrindLogger::count_total_measurements_in_flash(",
+            "uint32_t GrindLogger::get_total_flash_sessions(",
             "bool GrindLogger::remove_session_file(",
             "void GrindLogger::cleanup_old_session_files(",
             "void GrindLogger::mark_session_storage_dirty(",
@@ -156,9 +160,6 @@ struct FakeFS {
 ''' + header + "\n" + data_header + r'''
 #undef private
 GrindLogger grind_logger;
-uint32_t reported_sessions = 0;
-uint32_t GrindLogger::count_sessions_in_flash() const { return reported_sessions; }
-uint32_t GrindLogger::get_total_flash_sessions() const { return reported_sessions; }
 void GrindLogger::initialize_session_config() {}
 bool save_success = false;
 bool GrindLogger::flush_session_to_flash() { return save_success; }
@@ -191,7 +192,7 @@ int main() {
     for (bool saved : {false, true}) {
         messages.clear(); save_success = saved;
         grind_logger.start_grind_session(GrindSessionDescriptor{}, 0);
-        grind_logger.end_grind_session("COMPLETE", 18, 0);
+        grind_logger.end_grind_session("COMPLETE", 18, 0, 1000);
         assert((messages.find("(saved)") != std::string::npos) == saved);
         assert((messages.find("not saved - storage failure") != std::string::npos) == !saved);
     }
@@ -203,18 +204,28 @@ int main() {
     std::memcpy(&header, original.data(), sizeof(header));
     assert(header.checksum == 0 && header.schema_version == 2);
     assert(original.size() == 24 + 80 + 2*44 + 3*24);
+    auto assert_totals = [](uint32_t sessions, uint32_t events, uint32_t measurements) {
+        assert(grind_logger.count_sessions_in_flash() == sessions);
+        assert(grind_logger.count_total_events_in_flash() == events);
+        assert(grind_logger.count_total_measurements_in_flash() == measurements);
+    };
+    assert_totals(1, 2, 3);
     // Reject header-only, truncated payload, trailing data and mismatched metadata.
     for (size_t length : {size_t(0), size_t(23), size_t(24), original.size()-1}) {
         file(1)->bytes.assign(original.begin(), original.begin()+length);
         assert(!grind_logger.validate_stored_session(1));
+        assert_totals(0, 0, 0);
     }
     file(1)->bytes = original; file(1)->bytes.push_back(0);
     assert(!grind_logger.validate_stored_session(1));
+    assert_totals(0, 0, 0);
     for (size_t offset : {size_t(0), size_t(8), size_t(16), size_t(18), size_t(20), size_t(24), size_t(28)}) {
         file(1)->bytes = original; file(1)->bytes[offset] ^= 1;
         assert(!grind_logger.validate_stored_session(1));
+        assert_totals(0, 0, 0);
     }
     file(1)->bytes = original;
+    assert_totals(1, 2, 3);
     for (size_t limit : {size_t(0), size_t(24), size_t(104), size_t(192), original.size()-1}) {
         write_limit = limit;
         GrindSession session; session.session_id = 2;
@@ -234,14 +245,22 @@ int main() {
     // Malformed and invalid-only directory lists must terminate, not underflow.
     DataStreamManager stream;
     uint32_t ids[12]{};
-    reported_sessions = 10;
     auto malformed = std::make_shared<Node>(); malformed->name = "session_abc.bin";
     LittleFS.directory_reads = {{malformed}};
+    assert_totals(0, 0, 0);
+    assert(stream.get_total_sessions() == 0);
     assert(stream.get_session_list(ids, 12) == 0);
     LittleFS.directory_reads.clear();
     file(1)->bytes.resize(24);
+    assert(stream.get_total_sessions() == 0);
     assert(stream.get_session_list(ids, 12) == 0);
     assert(!stream.initialize_file_stream(1));
+    file(1)->bytes = original;
+    assert(stream.get_total_sessions() == 1);
+    // Unsupported schema is excluded from both advertised count and export.
+    file(1)->bytes[20] ^= 1;
+    assert(stream.get_total_sessions() == 0);
+    assert(stream.get_session_list(ids, 12) == 0);
     file(1)->bytes = original;
     assert(stream.get_session_list(ids, 0) == 0);
     assert(stream.get_session_list(nullptr, 12) == 0);

@@ -17,6 +17,9 @@ GrindTerminationReason classify_termination_reason(const char* final_result) {
         return GrindTerminationReason::UNKNOWN;
     }
 
+    if (strcmp(final_result, "SCALE_ERROR") == 0) {
+        return GrindTerminationReason::SCALE_ERROR;
+    }
     if (strcmp(final_result, "TIMEOUT") == 0) {
         return GrindTerminationReason::TIMEOUT;
     }
@@ -143,21 +146,21 @@ void GrindLogger::start_grind_session(const GrindSessionDescriptor& descriptor, 
 }
 
 
-void GrindLogger::end_grind_session(const char* final_result, float final_weight, uint8_t pulse_count) {
+void GrindLogger::end_grind_session(const char* final_result, float final_weight, uint8_t pulse_count,
+                                   uint32_t completed_at_ms) {
     if (!current_session || !logging_active) {
         return;
     }
 
     current_session->final_weight = final_weight;
     current_session->error_grams = current_session->target_weight - final_weight;
-    current_session->total_time_ms = millis() - session_start_time;
+    current_session->total_time_ms = completed_at_ms - session_start_time;
     current_session->pulse_count = pulse_count;
     strncpy(current_session->result_status, final_result, sizeof(current_session->result_status) - 1);
 
     // Finalize motor time tracking - if motor is still on, count the final period
-    uint32_t now = millis();
-    if (last_motor_state && motor_start_time > 0) {
-        total_motor_time_ms += (now - motor_start_time);
+    if (last_motor_state) {
+        total_motor_time_ms += (completed_at_ms - motor_start_time);
     }
     current_session->total_motor_on_time_ms = total_motor_time_ms;
 
@@ -308,7 +311,7 @@ void GrindLogger::log_continuous_measurement(uint32_t timestamp_ms, float weight
     if (current_motor_state && !last_motor_state) {
         // Motor just turned ON
         motor_start_time = millis();
-    } else if (!current_motor_state && last_motor_state && motor_start_time > 0) {
+    } else if (!current_motor_state && last_motor_state) {
         // Motor just turned OFF, accumulate the time
         total_motor_time_ms += (millis() - motor_start_time);
     }
@@ -354,11 +357,9 @@ uint32_t GrindLogger::count_sessions_in_flash() const {
             File file = dir.openNextFile();
             
             while (file) {
-                String filename = file.name();
-                // Handle both base names and full paths
-                bool is_session_file = (filename.startsWith("session_") || filename.indexOf("/session_") != -1)
-                                       && filename.endsWith(".bin");
-                if (is_session_file) {
+                uint32_t session_id = 0;
+                if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
+                    validate_stored_session(session_id)) {
                     count++;
                 }
                 file = dir.openNextFile();
@@ -381,12 +382,12 @@ uint32_t GrindLogger::count_total_events_in_flash() const {
             File file = dir.openNextFile();
             
             while (file) {
-                String filename = file.name();
-                bool is_session_file = (filename.startsWith("session_") || filename.indexOf("/session_") != -1)
-                                       && filename.endsWith(".bin");
-                if (is_session_file) {
-                    String full_path = filename.startsWith("/") ? filename : (String(GRIND_SESSIONS_DIR) + "/" + filename);
-                    File sessionFile = LittleFS.open(full_path.c_str(), "r");
+                uint32_t session_id = 0;
+                if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
+                    validate_stored_session(session_id)) {
+                    char full_path[64];
+                    snprintf(full_path, sizeof(full_path), SESSION_FILE_FORMAT, session_id);
+                    File sessionFile = LittleFS.open(full_path, "r");
                     if (sessionFile) {
                         TimeSeriesSessionHeader header;
                         if (sessionFile.read((uint8_t*)&header, sizeof(header)) == sizeof(header)) {
@@ -415,12 +416,12 @@ uint32_t GrindLogger::count_total_measurements_in_flash() const {
             File file = dir.openNextFile();
             
             while (file) {
-                String filename = file.name();
-                bool is_session_file = (filename.startsWith("session_") || filename.indexOf("/session_") != -1)
-                                       && filename.endsWith(".bin");
-                if (is_session_file) {
-                    String full_path = filename.startsWith("/") ? filename : (String(GRIND_SESSIONS_DIR) + "/" + filename);
-                    File sessionFile = LittleFS.open(full_path.c_str(), "r");
+                uint32_t session_id = 0;
+                if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
+                    validate_stored_session(session_id)) {
+                    char full_path[64];
+                    snprintf(full_path, sizeof(full_path), SESSION_FILE_FORMAT, session_id);
+                    File sessionFile = LittleFS.open(full_path, "r");
                     if (sessionFile) {
                         TimeSeriesSessionHeader header;
                         if (sessionFile.read((uint8_t*)&header, sizeof(header)) == sizeof(header)) {
@@ -971,7 +972,7 @@ bool GrindLogger::write_individual_session_file(uint32_t session_id, const Grind
     return true;
 }
 
-bool GrindLogger::validate_session_file(uint32_t session_id) {
+bool GrindLogger::validate_session_file(uint32_t session_id) const {
     char filename[64];
     snprintf(filename, sizeof(filename), SESSION_FILE_FORMAT, session_id);
     

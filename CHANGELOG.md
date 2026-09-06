@@ -6,6 +6,8 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Controller and history
+
 - Serialized grind-controller updates, commands and state reads across tasks,
   preventing an in-flight update from restarting the motor after stop returns.
   Web start acknowledgements now reflect whether the controller accepted the

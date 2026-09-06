@@ -25,6 +25,8 @@ STUBS = r'''
 #define CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0 1
 #define CONFIG_ESP_TASK_WDT_PANIC 1
 constexpr int ESP_OK = 0;
+constexpr int PARTITION_PAGE_SIZE=4096;
+constexpr int ESP_PARTITION_TYPE_DATA=1, ESP_PARTITION_SUBTYPE_DATA_SPIFFS=130;
 struct String {
     std::string text;
     String(const char* s=""): text(s) {}
@@ -68,10 +70,15 @@ struct {
 } task_manager;
 struct delta_partition_writer_t {};
 struct delta_opts_t { const char* src; const char* dest; const char* patch; int is_full_update; };
-struct esp_partition_t { const char* label; uint32_t address; uint32_t size; } partition{"test",0,1024};
+struct esp_partition_t { const char* label; uint32_t address; uint32_t size; } partition{"test",0,8192};
+bool partition_present=true;
+int init_calls=0;
+const esp_partition_t* esp_partition_find_first(int,int,const char*){
+    return partition_present ? &partition : nullptr;
+}
 const esp_partition_t* esp_ota_get_running_partition(){return &partition;}
 const esp_partition_t* esp_ota_get_next_update_partition(void*){return &partition;}
-int delta_partition_init(delta_partition_writer_t*,const char*,int){return init_error;}
+int delta_partition_init(delta_partition_writer_t*,const char*,int){++init_calls;return init_error;}
 int delta_partition_write(delta_partition_writer_t*,const char*,size_t){return write_error;}
 int delta_check_and_apply(uint32_t,delta_opts_t*){return finalize_error;}
 const char* delta_error_as_string(int){return "injected failure";}
@@ -129,6 +136,13 @@ int main() {
     }
     assert(!ota.start_ota(0));
     assert(!ota.start_ota(UINT32_MAX));
+    const int before=init_calls;
+    for(uint32_t size:{8193U,0x7ffff000U,0x7fffffffU,UINT32_MAX})
+        assert(!ota.start_ota(size,"2",true,"next"));
+    partition_present=false;assert(!ota.start_ota(8));partition_present=true;
+    partition.size=8191;assert(!ota.start_ota(4097));partition.size=8192;
+    assert(init_calls==before && prefs.values.empty() && !task_manager.suspended);
+    assert(ota.start_ota(8192));ota.abort_ota();
     watchdog_error=-1;
     assert(!ota.start_ota(8,"2",true,"next"));
     recovered(ota,prefs);

@@ -211,13 +211,19 @@ void GrindingUIController::handle_grind_button() {
         error_grind_weight_ = 0.0f;
         error_grind_progress_ = 0;
 
+        bool started = false;
         if (manual && ui_manager_->grind_controller) {
-            ui_manager_->grind_controller->start_grind(0.0f, 0, GrindMode::MANUAL);
+            started = ui_manager_->grind_controller->start_grind(0.0f, 0, GrindMode::MANUAL);
         } else if (ui_manager_->profile_controller && ui_manager_->grind_controller) {
             float target_weight = ui_manager_->profile_controller->get_current_weight();
             float target_time_seconds = ui_manager_->profile_controller->get_current_time();
             uint32_t target_time_ms = static_cast<uint32_t>((target_time_seconds * 1000.0f) + 0.5f);
-            ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, ui_manager_->current_mode);
+            started = ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, ui_manager_->current_mode);
+        }
+        if (!started) {
+            ui_manager_->show_confirmation(
+                "Could not start", "Check scale and grinder.\nAn update may be active.",
+                "OK", lv_color_hex(THEME_COLOR_WARNING), nullptr, "BACK");
         }
         LOG_BLE("[%lums GRIND_START] start_grind() returned\n", millis());
     } else if (ui_manager_->state_machine->is_state(UIState::GRINDING)) {
