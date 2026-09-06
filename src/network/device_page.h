@@ -56,7 +56,22 @@ async function api(url,options){const r=await fetch(url,{cache:'no-store',...opt
 function renderDosePicker(settings){state.dashboardProfiles=settings.profiles;state.dashboardMode=settings.grind_mode;document.querySelectorAll('.dose').forEach(b=>{const p=settings.profiles[+b.dataset.profile],value=settings.grind_mode==='time'?`${p.time.toFixed(1)} s`:`${p.weight.toFixed(1)} g`;b.querySelector('strong').textContent=value;b.disabled=false})}
 async function selectProfile(profile){const p=state.dashboardProfiles?.[profile];document.querySelectorAll('.dose').forEach(b=>{b.classList.toggle('active',+b.dataset.profile===profile);b.disabled=true});if(p)$('target').textContent=state.dashboardMode==='time'?`Target ${p.time.toFixed(1)} seconds`:`Target ${p.weight.toFixed(1)} grams`;try{await api('/api/v1/profile',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({profile})});toast(`${['Single','Double','Custom'][profile]} target selected`)}catch(e){toast(e.message,true)}finally{setTimeout(()=>document.querySelectorAll('.dose').forEach(b=>b.disabled=lastPhase!=='IDLE'),250)}}document.querySelectorAll('.dose').forEach(b=>b.onclick=()=>selectProfile(+b.dataset.profile));
 async function loadDashboardProfiles(){try{renderDosePicker(await api('/api/v1/settings'))}catch(e){toast(e.message,true)}}loadDashboardProfiles();
-async function refreshStatus(){try{const s=await api('/api/v1/status');state.deviceStatus=s;$('firmware').textContent=`${s.firmware.version} · build ${s.firmware.build}`;$('hardware').textContent=`${s.device.model} (${s.device.hardware_revision.toUpperCase()})`;$('deviceId').textContent=s.device.id;$('network').textContent=s.network.ssid||s.network.state;$('hostname').textContent=`${s.network.hostname}.local`;$('hostname').href=`http://${s.network.hostname}.local/`;$('address').textContent=s.network.ip||'Not connected';$('otaProgress').style.width=`${s.ota.progress||0}%`;$('otaButton').disabled=s.ota.active||s.ota.preparing;$('installUpdate').disabled=s.ota.active||s.ota.preparing;$('otaMessage').textContent=s.ota.active?`Installing ${s.ota.progress||0}% — do not remove power.`:s.ota.preparing?'Preparing the grinder for update…':'Advanced fallback: choose a compatible ESP32 application image.';if(s.ota.active)$('releaseStatus').textContent=`Installing firmware on the grinder… ${s.ota.progress||0}%`;if(!state.releaseChecked)checkForUpdate()}catch(e){$('network').textContent='Unavailable'}}refreshStatus();setInterval(refreshStatus,1000);
+let otaRequestPending=false,githubInstall=null;
+function renderOtaStatus(s){
+ const ota=s.ota,busy=otaRequestPending||ota.active||ota.preparing;
+ $('otaProgress').style.width=`${ota.progress||0}%`;
+ $('otaButton').disabled=busy;$('installUpdate').disabled=busy;
+ $('otaMessage').textContent=ota.failed?'Firmware update failed. Your previous firmware is retained; refresh the diagnostic log for details.':ota.active?`Installing ${ota.progress||0}% — do not remove power.`:ota.preparing?'Preparing the grinder for update…':'Advanced fallback: choose a compatible ESP32 application image.';
+ if(githubInstall&&compareVersions(s.firmware.version,githubInstall.tag)===0){
+  githubInstall=null;state.releaseChecked=false;toast('Firmware update confirmed on the grinder');
+ }else if(!otaRequestPending&&(ota.failed||(githubInstall&&!ota.active&&!ota.preparing&&performance.now()-githubInstall.startedAt>3000))){
+  githubInstall=null;
+  $('releaseStatus').textContent='Update failed — the new firmware was not installed. Refresh the diagnostic log for details, then retry or use a manual firmware file.';
+ }else if(ota.active){
+  $('releaseStatus').textContent=`Installing firmware on the grinder… ${ota.progress||0}% — waiting for restart and version confirmation.`;
+ }
+}
+async function refreshStatus(){try{const s=await api('/api/v1/status');state.deviceStatus=s;$('firmware').textContent=`${s.firmware.version} · build ${s.firmware.build}`;$('hardware').textContent=`${s.device.model} (${s.device.hardware_revision.toUpperCase()})`;$('deviceId').textContent=s.device.id;$('network').textContent=s.network.ssid||s.network.state;$('hostname').textContent=`${s.network.hostname}.local`;$('hostname').href=`http://${s.network.hostname}.local/`;$('address').textContent=s.network.ip||'Not connected';renderOtaStatus(s);if(!state.releaseChecked&&!s.ota.failed)checkForUpdate()}catch(e){$('network').textContent='Unavailable'}}refreshStatus();setInterval(refreshStatus,1000);
 function profileFields(){return ['Single','Double','Custom'].map((name,i)=>`<div class="profile"><h3>${name}</h3><label class="field"><span>Weight (g)</span><input id="weight${i}" class="input" type="number" min="5" max="1000" step="0.1"></label><label class="field" style="margin-top:9px"><span>Time (seconds)</span><input id="time${i}" class="input" type="number" min="0.5" max="25" step="0.1"></label></div>`).join('')}$('profileFields').innerHTML=profileFields();
 function setCheck(id,v){$(id).checked=!!v}function selectStyle(style){document.querySelectorAll('.stylecard').forEach(b=>b.classList.toggle('selected',b.dataset.style===style));state.screensaverStyle=style}
 async function loadCustomPreview(enabled){const p=$('customPreview');p.style.backgroundImage='';p.textContent=enabled?'Loading…':'Your image';if(!enabled)return;try{const r=await fetch('/api/v1/screensaver/image',{cache:'no-store'});if(!r.ok)throw new Error();const raw=new Uint8Array(await r.arrayBuffer());if(raw.length!==280*456*2)throw new Error();const c=$('screensaverCanvas'),x=c.getContext('2d'),img=x.createImageData(280,456);for(let i=0,j=0;i<raw.length;i+=2,j+=4){const v=raw[i]|(raw[i+1]<<8);img.data[j]=((v>>11)&31)*255/31;img.data[j+1]=((v>>5)&63)*255/63;img.data[j+2]=(v&31)*255/31;img.data[j+3]=255}x.putImageData(img,0,0);p.textContent='';p.style.background=`center/cover no-repeat url(${c.toDataURL('image/jpeg',.72)})`}catch{p.textContent='Custom image'}}
@@ -132,7 +147,29 @@ async function checkForUpdate(){if(!state.deviceStatus)return;state.releaseCheck
 $('checkUpdate').onclick=()=>{state.releaseChecked=false;checkForUpdate()};
 async function installFirmwareBlob(blob,name,label=name){if(!name.toLowerCase().endsWith('.bin'))return toast('Choose an ESP32 .bin firmware image',true);const magic=new Uint8Array(await blob.slice(0,1).arrayBuffer())[0];if(magic!==0xe9)return toast('That file is not an ESP32 firmware image',true);if(!confirm(`Install ${label}? The grinder will restart when the update is complete.`))return false;$('otaButton').disabled=true;$('installUpdate').disabled=true;try{await api('/api/v1/ota/prepare',{method:'POST'});let ready=false;for(let n=0;n<40;n++){await new Promise(r=>setTimeout(r,250));const s=await api('/api/v1/status');if(s.ota.ready){ready=true;break}}if(!ready)throw new Error('The grinder could not free enough memory for the update.');const form=new FormData();form.append('firmware',blob,name);await api('/api/v1/ota',{method:'POST',body:form});toast('Firmware accepted; grinder is restarting');return true}catch(e){toast(e.message,true);refreshStatus();return false}}
 $('otaButton').onclick=async()=>{const file=$('firmwareFile').files[0];if(!file)return toast('Choose a firmware file first',true);await installFirmwareBlob(file,file.name)};
-$('installUpdate').onclick=async()=>{const release=state.latestRelease,asset=state.latestAsset;if(!release||!asset)return checkForUpdate();if(!confirm(`Install ${release.tag_name} for this ${state.deviceStatus.device.hardware_revision.toUpperCase()} grinder? The grinder will download it from GitHub and restart.`))return;$('installUpdate').disabled=true;$('releaseStatus').textContent='Preparing the grinder for update…';try{await api('/api/v1/ota/prepare',{method:'POST'});let ready=false;for(let n=0;n<40;n++){await new Promise(r=>setTimeout(r,250));const s=await api('/api/v1/status');if(s.ota.ready){ready=true;break}}if(!ready)throw new Error('The grinder could not free enough memory for the update.');await api('/api/v1/ota/github',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({tag:release.tag_name})});$('releaseStatus').textContent=`Installing ${release.tag_name} from GitHub…`;toast('Update started on the grinder')}catch(e){$('releaseStatus').textContent=`Could not start the update: ${e.message}`;$('installUpdate').disabled=false;toast(e.message,true);refreshStatus()}};
+$('installUpdate').onclick=async()=>{
+ if(otaRequestPending||githubInstall)return;
+ const release=state.latestRelease,asset=state.latestAsset;
+ if(!release||!asset)return checkForUpdate();
+ if(!confirm(`Install ${release.tag_name} for this ${state.deviceStatus.device.hardware_revision.toUpperCase()} grinder? The grinder will download it from GitHub and restart.`))return;
+ otaRequestPending=true;$('installUpdate').disabled=true;$('otaButton').disabled=true;
+ $('releaseStatus').textContent='Preparing the grinder for update…';
+ try{
+  await api('/api/v1/ota/prepare',{method:'POST'});
+  let ready=false;
+  for(let n=0;n<60;n++){
+   await new Promise(r=>setTimeout(r,250));
+   const s=await api('/api/v1/status');if(s.ota.ready){ready=true;break}
+  }
+  if(!ready)throw new Error('The grinder could not free enough memory for the update.');
+  await api('/api/v1/ota/github',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({tag:release.tag_name})});
+  githubInstall={tag:release.tag_name,startedAt:performance.now()};
+  $('releaseStatus').textContent=`Installing ${release.tag_name} from GitHub…`;
+  toast('Update started on the grinder');
+ }catch(e){
+  $('releaseStatus').textContent=`Could not start the update: ${e.message}`;toast(e.message,true);
+ }finally{otaRequestPending=false;refreshStatus()}
+};
 window.onresize=()=>{if(state.page==='dashboard')drawLive();if(state.page==='history'&&state.selected)drawHistory(state.selected)};
 </script></body></html>
 )WEB";
