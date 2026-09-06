@@ -32,6 +32,8 @@ class LoggingReliabilityTest(unittest.TestCase):
             "void GrindLogger::clear_buffers(",
             "bool GrindLogger::write_individual_session_file(",
             "bool GrindLogger::validate_session_file(",
+            "uint32_t GrindLogger::count_sessions_in_flash(",
+            "uint32_t GrindLogger::get_total_flash_sessions(",
             "bool GrindLogger::remove_session_file(",
             "void GrindLogger::cleanup_old_session_files(",
             "void GrindLogger::mark_session_storage_dirty(",
@@ -156,9 +158,6 @@ struct FakeFS {
 ''' + header + "\n" + data_header + r'''
 #undef private
 GrindLogger grind_logger;
-uint32_t reported_sessions = 0;
-uint32_t GrindLogger::count_sessions_in_flash() const { return reported_sessions; }
-uint32_t GrindLogger::get_total_flash_sessions() const { return reported_sessions; }
 void GrindLogger::initialize_session_config() {}
 bool save_success = false;
 bool GrindLogger::flush_session_to_flash() { return save_success; }
@@ -234,14 +233,21 @@ int main() {
     // Malformed and invalid-only directory lists must terminate, not underflow.
     DataStreamManager stream;
     uint32_t ids[12]{};
-    reported_sessions = 10;
     auto malformed = std::make_shared<Node>(); malformed->name = "session_abc.bin";
     LittleFS.directory_reads = {{malformed}};
+    assert(stream.get_total_sessions() == 0);
     assert(stream.get_session_list(ids, 12) == 0);
     LittleFS.directory_reads.clear();
     file(1)->bytes.resize(24);
+    assert(stream.get_total_sessions() == 0);
     assert(stream.get_session_list(ids, 12) == 0);
     assert(!stream.initialize_file_stream(1));
+    file(1)->bytes = original;
+    assert(stream.get_total_sessions() == 1);
+    // Unsupported schema is excluded from both advertised count and export.
+    file(1)->bytes[20] ^= 1;
+    assert(stream.get_total_sessions() == 0);
+    assert(stream.get_session_list(ids, 12) == 0);
     file(1)->bytes = original;
     assert(stream.get_session_list(ids, 0) == 0);
     assert(stream.get_session_list(nullptr, 12) == 0);
