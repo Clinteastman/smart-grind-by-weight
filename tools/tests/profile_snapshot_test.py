@@ -20,7 +20,10 @@ class ProfileSnapshotTest(unittest.TestCase):
 #include <cassert>
 #include <atomic>
 #include <cstring>
+#include <cstdint>
+#include <map>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <type_traits>
 #include "src/controllers/grind_mode.h"
@@ -31,10 +34,23 @@ constexpr float USER_DOUBLE_ESPRESSO_TIME_S = 10, USER_CUSTOM_PROFILE_TIME_S = 1
 constexpr float USER_MIN_TARGET_WEIGHT_G = 1, USER_MAX_TARGET_WEIGHT_G = 100;
 constexpr float USER_MIN_TARGET_TIME_S = 1, USER_MAX_TARGET_TIME_S = 60;
 struct Preferences {
-    int getInt(const char*, int fallback) { return fallback; }
-    float getFloat(const char*, float fallback) { return fallback; }
-    unsigned putInt(const char*, int) { std::this_thread::yield(); return sizeof(int); }
-    unsigned putFloat(const char*, float) { std::this_thread::yield(); return sizeof(float); }
+    std::map<std::string, int> integers;
+    std::map<std::string, float> floats;
+    int writes = 0, fail_at = -1;
+    int getInt(const char* key, int fallback) {
+        const auto it = integers.find(key); return it == integers.end() ? fallback : it->second;
+    }
+    float getFloat(const char* key, float fallback) {
+        const auto it = floats.find(key); return it == floats.end() ? fallback : it->second;
+    }
+    unsigned putInt(const char* key, int value) {
+        std::this_thread::yield(); if (++writes == fail_at) return 0;
+        integers[key] = value; return sizeof(int32_t);
+    }
+    unsigned putFloat(const char* key, float value) {
+        std::this_thread::yield(); if (++writes == fail_at) return 0;
+        floats[key] = value; return sizeof(float);
+    }
 };
 ''' + header + source + r'''
 int main() {
@@ -74,6 +90,30 @@ int main() {
     controller.set_profile_weight(1, 19); controller.set_profile_time(1, 11);
     assert(controller.get_profile_weight(1) == 19 && controller.get_profile_time(1) == 11);
     assert(std::strcmp(controller.get_current_name(), "DOUBLE") == 0);
+
+    // Inject failure into each of the eight separate NVS writes. The failure
+    // must be visible, and RAM must match a fresh boot from the partial store.
+    for (int fail = 1; fail <= 8; ++fail) {
+        Preferences store;
+        ProfileController live; live.init(&store);
+        assert(live.apply_web_settings(0, GrindMode::WEIGHT, weights_a, times_a));
+        store.writes = 0; store.fail_at = fail;
+        assert(!live.apply_web_settings(2, GrindMode::TIME, weights_b, times_b));
+        assert(store.writes == 8);
+        ProfileController rebooted; rebooted.init(&store);
+        const auto current = live.snapshot(), boot = rebooted.snapshot();
+        assert(current.current_profile == boot.current_profile && current.mode == boot.mode);
+        for (int i = 0; i < 3; ++i) {
+            assert(current.profiles[i].weight == boot.profiles[i].weight);
+            assert(current.profiles[i].time_seconds == boot.profiles[i].time_seconds);
+        }
+        store.fail_at = -1;
+        assert(live.apply_web_settings(2, GrindMode::TIME, weights_b, times_b));
+        assert(live.snapshot().current_profile == 2);
+        store.writes = 0;
+        assert(!live.apply_web_settings(3, GrindMode::TIME, weights_b, times_b));
+        assert(store.writes == 0);
+    }
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:

@@ -18,7 +18,7 @@ class SettingsCompatibilityTest(unittest.TestCase):
         block = "const long screensaver_idle_timeout_s =" + block.split(
             "    const String screensaver_style", 1)[0]
         resolve = source.split("    DeviceSettingsUpdate settings = update;", 1)[1].split(
-            "    if (!profile_controller_->apply_web_settings", 1)[0]
+            "    Preferences* grinder =", 1)[0]
         code = r'''
 #include <map>
 #include <string>

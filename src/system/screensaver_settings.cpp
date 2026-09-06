@@ -80,6 +80,23 @@ ScreensaverTimingSettings load_timing() {
     return settings;
 }
 
+bool load_timing_checked(ScreensaverTimingSettings& settings) {
+    Preferences prefs;
+    if (!prefs.begin(kPrefsNamespace, true)) return false;
+    ScreensaverTimingSettings loaded{};
+    loaded.idle_timeout_s = prefs.getUShort(kIdleTimeoutKey, 0);
+    loaded.startup_timeout_s = prefs.getUChar(kStartupTimeoutKey, 0);
+    const uint8_t enabled = prefs.getUChar(kDisplayOffEnabledKey, 2);
+    loaded.display_off_enabled = enabled == 1;
+    loaded.display_off_delay_s = prefs.getUShort(kDisplayOffDelayKey, 0);
+    prefs.end();
+    if (enabled > 1 || !is_valid_idle_timeout(loaded.idle_timeout_s) ||
+        !is_valid_startup_timeout(loaded.startup_timeout_s) ||
+        !is_valid_display_off_delay(loaded.display_off_delay_s)) return false;
+    settings = loaded;
+    return true;
+}
+
 bool save_timing(uint16_t idle_timeout_s, uint8_t startup_timeout_s,
                  bool display_off_enabled, uint16_t display_off_delay_s) {
     if (!is_valid_idle_timeout(idle_timeout_s) ||

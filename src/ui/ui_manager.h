@@ -136,7 +136,7 @@ public:
     void set_current_tab(int tab) { current_tab = tab; }
     
     void set_background_active(bool active);
-    void refresh_auto_action_settings();
+    bool refresh_auto_action_settings(bool verify_storage = false);
     
 
 private:

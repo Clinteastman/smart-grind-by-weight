@@ -268,13 +268,13 @@ public:
     float get_min_pulse_duration() const { const auto control_lock = lock_control(); return motor_response_latency_ms; }
     float get_max_pulse_duration() const { const auto control_lock = lock_control(); return motor_response_latency_ms + GRIND_MOTOR_MAX_PULSE_DURATION_MS; }
     void load_motor_latency();
-    void save_motor_latency(float value);
+    bool save_motor_latency(float value);
 
     // Coast ratio accessors
     float get_coast_ratio() const { const auto control_lock = lock_control(); return coast_ratio_; }
     void set_coast_ratio(float value);
     void load_coast_ratio();
-    void save_coast_ratio(float value);
+    bool save_coast_ratio(float value);
 
     // Grind freshness accessors
     bool get_grinder_purged_since_boot() const { const auto control_lock = lock_control(); return grinder_purged_since_boot; }

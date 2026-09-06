@@ -42,7 +42,16 @@ struct FakeFile {
     template<class... Args> void printf(Args...) { assert(!motor.motor); }
     void close() { assert(!motor.motor); opened = false; ++closes; }
 };
-struct GrindController { void save_motor_latency(float) { assert(!motor.motor); } } controller;
+struct GrindController {
+    bool persist = true;
+    float latency = 90;
+    bool save_motor_latency(float value) {
+        assert(!motor.motor);
+        if (!persist) return false;
+        latency = value; return true;
+    }
+    float get_motor_response_latency() { return latency; }
+} controller;
 class AutoTuneController {
 public:
     Grinder* grinder = &motor;
@@ -54,6 +63,8 @@ public:
     struct { float previous_latency_ms = 50, final_latency_ms = 0; } progress;
     FakeFile autotune_log_file;
     unsigned advances = 0;
+    unsigned success_messages = 0;
+    void log_message(const char*) { ++success_messages; }
     void update_priming_phase() { ++advances; }
     void update_binary_search_phase() { ++advances; }
     void update_verification_phase() { ++advances; }
@@ -88,6 +99,16 @@ int main() {
     AutoTuneController passed; passed.complete_with_success(75);
     assert(!motor.motor && !passed.is_running && passed.result.success);
     assert(passed.autotune_log_file.closes == 1);
+    assert(controller.latency == 75 && passed.success_messages == 1);
+    motor.motor = true; controller.persist = false;
+    AutoTuneController unsaved; unsaved.complete_with_success(120);
+    assert(!motor.motor && !unsaved.is_running && !unsaved.result.success);
+    assert(unsaved.current_phase == AutoTunePhase::COMPLETE_FAILURE);
+    assert(unsaved.result.latency_ms == 75 && controller.latency == 75);
+    assert(std::strcmp(unsaved.result.error_message, "Could not save latency") == 0);
+    assert(unsaved.autotune_log_file.closes == 1 && unsaved.success_messages == 0);
+    auto released = operation_interlock().try_acquire(); assert(released);
+    operation_interlock().release(released);
     // Missing log/motor cannot turn cancellation into a crash.
     AutoTuneController absent; absent.grinder = nullptr; absent.autotune_log_file.opened = false;
     absent.cancel(); assert(!absent.is_running);

@@ -144,8 +144,9 @@ void UIManager::update() {
         current_tab = ReadyScreen::tab_for_profile_index(profile_controller->get_current_profile());
         current_mode = profile_controller->get_grind_mode();
         edit_target = get_current_profile_target(*profile_controller, current_mode);
-        refresh_auto_action_settings();
-        if (screen_timeout_controller_) screen_timeout_controller_->apply_runtime_settings();
+        bool runtime_applied = refresh_auto_action_settings(true);
+        runtime_applied = (screen_timeout_controller_ &&
+            screen_timeout_controller_->apply_runtime_settings(true)) && runtime_applied;
         if (ready_controller_) ready_controller_->refresh_profiles();
         ready_screen.set_active_tab(current_tab);
         if (menu_screen.is_visible()) {
@@ -155,6 +156,7 @@ void UIManager::update() {
             menu_screen.update_grind_mode_toggles();
             menu_screen.update_screensaver_toggles();
         }
+        device_api.complete_settings_application(runtime_applied);
     }
 #endif
 
@@ -408,20 +410,23 @@ void UIManager::set_background_active(bool active) {
 #endif
 }
 
-void UIManager::refresh_auto_action_settings() {
+bool UIManager::refresh_auto_action_settings(bool verify_storage) {
     Preferences prefs;
-    prefs.begin("autogrind", true);
-    auto_actions_.auto_start_enabled = prefs.getBool("auto_start", false);
-    auto_actions_.auto_return_enabled = prefs.getBool("auto_return", false);
-    auto_actions_.auto_start_threshold_g = prefs.getFloat("start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G);
-    auto_actions_.auto_start_threshold_g = std::clamp(auto_actions_.auto_start_threshold_g,
+    if (!prefs.begin("autogrind", true)) return false;
+    const uint8_t start = prefs.getUChar("auto_start", verify_storage ? 2 : 0);
+    const uint8_t return_on_removal = prefs.getUChar("auto_return", verify_storage ? 2 : 0);
+    const float threshold = prefs.getFloat("start_delta_g", verify_storage ? NAN : USER_AUTO_GRIND_TRIGGER_DELTA_G);
+    prefs.end();
+    if (start > 1 || return_on_removal > 1 || !std::isfinite(threshold)) return false;
+    auto_actions_.auto_start_enabled = start == 1;
+    auto_actions_.auto_return_enabled = return_on_removal == 1;
+    auto_actions_.auto_start_threshold_g = std::clamp(threshold,
                                                       USER_AUTO_GRIND_TRIGGER_MIN_G,
                                                       USER_AUTO_GRIND_TRIGGER_MAX_G);
-    prefs.end();
-
     uint32_t now = millis();
     auto_actions_.last_auto_start_ms = now;
     auto_actions_.last_auto_return_ms = now;
+    return true;
 }
 
 void UIManager::update_auto_actions() {

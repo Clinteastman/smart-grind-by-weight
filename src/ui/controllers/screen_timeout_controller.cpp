@@ -115,8 +115,14 @@ void ScreenTimeoutController::update() {
     }
 }
 
-void ScreenTimeoutController::apply_runtime_settings() {
-    timing_settings_ = ScreensaverSettings::load_timing();
+bool ScreenTimeoutController::apply_runtime_settings(bool verify_storage) {
+    ScreensaverTimingSettings loaded;
+    if (verify_storage) {
+        if (!ScreensaverSettings::load_timing_checked(loaded)) return false;
+    } else {
+        loaded = ScreensaverSettings::load_timing();
+    }
+    timing_settings_ = loaded;
     settings_applied_at_ms_ = millis();
     last_weight_activity_ms_ = settings_applied_at_ms_;
     last_settings_refresh_ms_ = settings_applied_at_ms_;
@@ -125,9 +131,11 @@ void ScreenTimeoutController::apply_runtime_settings() {
             timing_settings_.display_off_enabled ? "ON" : "OFF",
             static_cast<unsigned long>(timing_settings_.display_off_delay_s));
 
-    if (!ui_manager_ || !ui_manager_->hardware_manager) return;
+    if (!ui_manager_ || !ui_manager_->hardware_manager) return false;
     DisplayManager* display = ui_manager_->hardware_manager->get_display();
-    if (display) restore_normal_display(display);
+    if (!display) return false;
+    restore_normal_display(display);
+    return true;
 }
 
 void ScreenTimeoutController::refresh_settings_if_needed(uint32_t now_ms) {
