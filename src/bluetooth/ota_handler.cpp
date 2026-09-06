@@ -110,7 +110,12 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
         LOG_OTA_DEBUG("start_ota() FAILED - already in progress\n");
         return false;
     }
-    if (size == 0 || size > INT_MAX) {
+    // The delta library rounds a signed int up to an erase page. Validate
+    // before changing preferences, suspending tasks, or erasing any flash.
+    const esp_partition_t* patch = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "patch");
+    if (size == 0 || size > INT_MAX - (PARTITION_PAGE_SIZE - 1) ||
+        !patch || size > (patch->size / PARTITION_PAGE_SIZE) * PARTITION_PAGE_SIZE) {
         current_status = BLE_OTA_ERROR;
         return false;
     }

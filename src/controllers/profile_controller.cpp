@@ -3,7 +3,17 @@
 #include <string.h>
 #include <Preferences.h>
 
+ProfileController::Snapshot ProfileController::snapshot() const {
+    const auto lock = lock_profiles();
+    Snapshot copy{};
+    for (int i = 0; i < USER_PROFILE_COUNT; ++i) copy.profiles[i] = profiles[i];
+    copy.current_profile = current_profile;
+    copy.mode = current_grind_mode;
+    return copy;
+}
+
 void ProfileController::init(Preferences* prefs) {
+    const auto lock = lock_profiles();
     preferences = prefs;
     
     // Initialize default profiles
@@ -26,6 +36,7 @@ void ProfileController::init(Preferences* prefs) {
 }
 
 void ProfileController::load_profiles() {
+    const auto lock = lock_profiles();
     current_profile = preferences->getInt("profile", 1);
     
     profiles[0].weight = preferences->getFloat("weight0", USER_SINGLE_ESPRESSO_WEIGHT_G);
@@ -46,6 +57,7 @@ void ProfileController::load_profiles() {
 }
 
 void ProfileController::save_profiles() {
+    const auto lock = lock_profiles();
     preferences->putFloat("weight0", profiles[0].weight);
     preferences->putFloat("weight1", profiles[1].weight);
     preferences->putFloat("weight2", profiles[2].weight);
@@ -56,11 +68,13 @@ void ProfileController::save_profiles() {
 }
 
 void ProfileController::save_current_profile() {
+    const auto lock = lock_profiles();
     preferences->putInt("profile", current_profile);
     save_profiles();
 }
 
 void ProfileController::set_current_profile(int index) {
+    const auto lock = lock_profiles();
     if (index >= 0 && index < USER_PROFILE_COUNT) {
         current_profile = index;
         save_current_profile();
@@ -68,6 +82,7 @@ void ProfileController::set_current_profile(int index) {
 }
 
 void ProfileController::set_profile_weight(int index, float weight) {
+    const auto lock = lock_profiles();
     if (index >= 0 && index < USER_PROFILE_COUNT && is_weight_valid(weight)) {
         profiles[index].weight = weight;
         save_profiles();
@@ -75,6 +90,7 @@ void ProfileController::set_profile_weight(int index, float weight) {
 }
 
 float ProfileController::get_profile_weight(int index) const {
+    const auto lock = lock_profiles();
     if (index >= 0 && index < USER_PROFILE_COUNT) {
         return profiles[index].weight;
     }
@@ -82,6 +98,7 @@ float ProfileController::get_profile_weight(int index) const {
 }
 
 const char* ProfileController::get_profile_name(int index) const {
+    const auto lock = lock_profiles();
     if (index >= 0 && index < USER_PROFILE_COUNT) {
         return profiles[index].name;
     }
@@ -89,6 +106,7 @@ const char* ProfileController::get_profile_name(int index) const {
 }
 
 void ProfileController::set_profile_time(int index, float seconds) {
+    const auto lock = lock_profiles();
     if (index >= 0 && index < USER_PROFILE_COUNT && is_time_valid(seconds)) {
         profiles[index].time_seconds = seconds;
         save_profiles();
@@ -96,6 +114,7 @@ void ProfileController::set_profile_time(int index, float seconds) {
 }
 
 float ProfileController::get_profile_time(int index) const {
+    const auto lock = lock_profiles();
     if (index >= 0 && index < USER_PROFILE_COUNT) {
         return profiles[index].time_seconds;
     }
@@ -103,7 +122,8 @@ float ProfileController::get_profile_time(int index) const {
 }
 
 bool ProfileController::apply_web_settings(int current_profile_index, GrindMode mode,
-                                           const float* weights, const float* times) {
+                                          const float* weights, const float* times) {
+    const auto lock = lock_profiles();
     if (!preferences || !weights || !times || current_profile_index < 0 ||
         current_profile_index >= USER_PROFILE_COUNT ||
         (mode != GrindMode::WEIGHT && mode != GrindMode::TIME)) {
@@ -136,12 +156,14 @@ float ProfileController::clamp_weight(float weight) const {
 }
 
 void ProfileController::update_current_weight(float weight) {
+    const auto lock = lock_profiles();
     if (is_weight_valid(weight)) {
         profiles[current_profile].weight = weight;
     }
 }
 
 void ProfileController::update_current_time(float seconds) {
+    const auto lock = lock_profiles();
     if (is_time_valid(seconds)) {
         profiles[current_profile].time_seconds = seconds;
     }
@@ -158,10 +180,12 @@ float ProfileController::clamp_time(float seconds) const {
 }
 
 void ProfileController::set_grind_mode(GrindMode mode) {
+    const auto lock = lock_profiles();
     current_grind_mode = mode;
     save_grind_mode();
 }
 
 void ProfileController::save_grind_mode() {
+    const auto lock = lock_profiles();
     preferences->putInt("grind_mode", static_cast<int>(current_grind_mode));
 }
