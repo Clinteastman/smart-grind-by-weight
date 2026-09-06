@@ -33,6 +33,11 @@ line. Earlier release history remains available in the original project's
   immediately from flash write errors. If watchdog recovery fails, restart
   instead of continuing with weakened protection.
 
+### Pulse Tune
+
+- Cancelling Pulse Tune immediately stops the motor and closes its log before
+  returning to the menu. Success and failure paths also stop any active pulse.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
