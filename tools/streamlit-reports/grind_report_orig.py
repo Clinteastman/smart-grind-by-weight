@@ -18,6 +18,7 @@ TERMINATION_REASON_MAP = {
     1: "TIMEOUT",
     2: "OVERSHOOT",
     3: "MAX_PULSES",
+    4: "SCALE_ERROR",
     255: "UNKNOWN"
 }
 

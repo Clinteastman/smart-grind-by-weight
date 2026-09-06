@@ -1876,8 +1876,9 @@ void BluetoothManager::generate_diagnostic_report() {
                             sessionFile.read((uint8_t*)&session, sizeof(session)) == sizeof(session)) {
 
                             const char* mode_name = (session.grind_mode == 0) ? "WEIGHT" : "TIME";
-                            const char* term_names[] = {"COMPLETED", "TIMEOUT", "OVERSHOOT", "MAX_PULSES", "UNKNOWN"};
-                            const char* term_name = (session.termination_reason < 4) ? term_names[session.termination_reason] : term_names[4];
+                            const char* term_names[] = {"COMPLETED", "TIMEOUT", "OVERSHOOT", "MAX_PULSES", "SCALE_ERROR"};
+                            const char* term_name = (session.termination_reason < sizeof(term_names) / sizeof(term_names[0]))
+                                ? term_names[session.termination_reason] : "UNKNOWN";
 
                             snprintf(buf, sizeof(buf),
                                 "\n--- Session #%lu ---\n"
