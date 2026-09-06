@@ -6,6 +6,9 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+- Cancelling Pulse Tune immediately stops the motor and closes its log before
+  returning to the menu. Success and failure paths also stop any active pulse.
+
 ### Motor timing
 
 - Encode motor pulses as a continuous HIGH of the requested duration, followed
