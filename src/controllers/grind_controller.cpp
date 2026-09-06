@@ -130,6 +130,10 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     if (!grinder) return;
     if (grind_mode == GrindMode::WEIGHT) {
         if (!weight_sensor) return;
+        if (!weight_sensor->has_recent_sample()) {
+            LOG_BLE("ERROR: Cannot start weight grind - no fresh scale reading\n");
+            return;
+        }
         if (weight_sensor->has_hardware_fault()) {
             LOG_BLE("ERROR: Cannot start grind - load cell hardware fault detected (%d)\n",
                     static_cast<int>(weight_sensor->get_hardware_fault()));
@@ -297,6 +301,8 @@ void GrindController::continue_from_purge() {
                 millis(), get_phase_name());
         return;
     }
+    // The control loop will show the scale error; never restart from stale data.
+    if (!weight_sensor || !weight_sensor->has_recent_sample()) return;
 
     LOG_BLE("[%lums CONTROLLER] User confirmed purge, continuing to PREDICTIVE\n", millis());
 
@@ -359,6 +365,21 @@ void GrindController::update() {
     loop_data.phase_id = get_current_phase_id();
     loop_data.flow_rate = weight_sensor ? weight_sensor->get_flow_rate() : 0.0f;
     loop_data.weight_delta = loop_data.current_weight - last_logged_weight;
+
+    // Check before any phase can start/restart the motor, including while
+    // waiting for purge confirmation. Terminal results must remain visible.
+    if (mode == GrindMode::WEIGHT && phase != GrindPhase::COMPLETED &&
+        phase != GrindPhase::TIMEOUT &&
+        (!weight_sensor || !weight_sensor->has_recent_sample())) {
+        timeout_phase = phase;
+        if (grinder) grinder->stop();
+        final_weight = loop_data.current_weight;
+        last_session_result_ = GrindSessionResult::ERROR;
+        set_error_message("Scale disconnected");
+        queue_log_message("[SCALE] Weight grind stopped: no valid sample for 500ms\n");
+        switch_phase(GrindPhase::TIMEOUT, loop_data);
+        return;
+    }
 
     if (control_loop_paused_) {
         emit_progress_update(loop_data);
