@@ -6,6 +6,13 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Bluetooth updates
+
+- Restore the normal watchdog policy, touch input and suspended tasks after a
+  failed or cancelled update. Reject empty/oversized transfers and recover
+  immediately from flash write errors. If watchdog recovery fails, restart
+  instead of continuing with weakened protection.
+
 ### Scale reliability
 
 - Stop weight-mode grinding if no valid scale reading arrives for 500 ms,
