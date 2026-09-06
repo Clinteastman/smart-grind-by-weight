@@ -6,8 +6,13 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+This reliability update is being validated; it is not a published release.
+
 - Cancelling Pulse Tune immediately stops the motor and closes its log before
   returning to the menu. Success and failure paths also stop any active pulse.
+- Pulse Tune reports failure if saving the measured latency fails, retaining
+  the previous active value. Manual latency and coast controls also restore
+  their active values instead of displaying a rejected change.
 
 ### Motor timing
 
@@ -34,12 +39,19 @@ line. Earlier release history remains available in the original project's
 - Refuse weight-mode starts against stale readings. Time and Manual modes
   remain independent of scale availability. Failed ADC reads no longer refresh
   sample freshness using the previous reading.
+- Reject ADC rail readings and incomplete HX711 conversions before filtering,
+  taring or refreshing sample freshness, while keeping raw fault diagnostics.
 
 ### Web settings
 
 - Accept older settings forms that omit the optional panel-off controls,
   preserving the grinder's saved panel-off settings instead of rejecting the
   complete form with a missing-field error.
+- Wait for checked persistence and touchscreen runtime refresh before reporting
+  a settings save as successful. Show pending, busy, partial-save and unconfirmed
+  outcomes; restore the form after failures without automatically resubmitting.
+- Resolve omitted panel-off values when applying the form so an older queued
+  form cannot overwrite settings saved by a newer form.
 
 ### Controller and history
 
@@ -50,6 +62,10 @@ line. Earlier release history remains available in the original project's
 - Finished and timed-out grinds queue their history record before notifying the
   UI. Immediate dismissal, stop or an extra time-mode pulse preserves that
   record; a full save queue is retried instead of silently losing completion.
+- Record the actual completion timestamp, not the later file-write time.
+- Reserve one shared operation slot for grinding, tuning, motor tests, settings
+  application and firmware updates, retaining ownership through cleanup and
+  rejecting stale callbacks from previous operations.
 - Live web status and settings read a coherent profile snapshot while profiles
   are edited. Active grind status reports the session's own profile.
 - Hardened grind history against allocation failures, incomplete session files

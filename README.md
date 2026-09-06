@@ -26,15 +26,19 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build & installation guide](docs/DOC.md#start-here)** ·
-**[What's new in v1.5.4](CHANGELOG.md#154---2026-08-16)** ·
+**[What's new in v1.5.7](CHANGELOG.md#157---2026-08-27)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
-> **v1.5.4** adds an adjustable automatic-start cup threshold, a live read-only
-> GaggiMate status screensaver and connection-reliability fixes, alongside
-> purge, touch-startup and load-cell diagnostic fixes. Read the
-> [v1.5.4 changelog](CHANGELOG.md#154---2026-08-16) or install it from the
+> **v1.5.7 is the current published release.** It fixes return-on-cup-removal
+> and AMOLED wake behaviour. Read the
+> [v1.5.7 changelog](CHANGELOG.md#157---2026-08-27) or install it from the
 > [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
+
+The next reliability update is **not released yet**. It improves scale-fault
+handling, motor timing, update recovery, saved history and settings confirmation.
+See [Unreleased changes](CHANGELOG.md#unreleased) and
+[release readiness](docs/RELIABILITY_RELEASE.md) for validation and remaining gates.
 
 <table>
 <tr>
@@ -187,10 +191,11 @@ tuning is unavailable.
 
 ## Community development status
 
-All feature rows below are implemented for both V1 and V2 and both firmware
-targets pass CI. Physical acceptance has been completed on V2 because that is
-the hardware currently available to the maintainers; there are no known V1
-incompatibilities, and a community V1 hardware acceptance run is welcome.
+The released baseline supports both V1 and V2, with separate firmware builds.
+Previous physical acceptance used V2; community V1 hardware testing is welcome.
+That earlier testing does not validate new unreleased changes. The next
+reliability candidate still needs supervised device acceptance as recorded in
+[release readiness](docs/RELIABILITY_RELEASE.md).
 
 | Stage | Status | Outcome |
 | --- | --- | --- |
