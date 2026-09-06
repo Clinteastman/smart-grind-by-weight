@@ -59,6 +59,15 @@ line. Earlier release history remains available in the original project's
   readings. The screen now catches up to the latest grind phase or final result,
   retains error text safely and acknowledges a rapid stop/restart correctly.
 
+### History storage
+
+- Hardened grind history against allocation failures, incomplete session files
+  and malformed filenames. Bluetooth export no longer hangs when its file list
+  contains no usable sessions, and retention sorts only verified file IDs.
+- Failed history writes are now reported as not saved. Removed unused legacy
+  logging/export code; existing schema-2 files keep their unchanged layout and
+  zero reserved checksum field (no new checksum or data migration).
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
