@@ -1,5 +1,28 @@
 #pragma once
-#include "grind_controller.h"
+#include "grind_mode.h"
+#include <cstdint>
+
+// Shared by the controller and its display events. Values are also log phase IDs.
+enum class GrindPhase {
+    IDLE,
+    INITIALIZING,
+    SETUP,
+    TARING,
+    TARE_CONFIRM,
+    PREDICTIVE,
+    PULSE_DECISION,
+    PULSE_EXECUTE,
+    PULSE_SETTLING,
+    FINAL_SETTLING,
+    TIME_GRINDING,
+    MANUAL_GRINDING,
+    TIME_ADDITIONAL_PULSE,
+    COMPLETED,
+    TIMEOUT,
+    PRIME,
+    PRIME_SETTLING,
+    PURGE_CONFIRM
+};
 
 // Event types that GrindController can emit to UIManager
 enum class UIGrindEvent {
@@ -28,7 +51,7 @@ struct GrindEventData {
     
     // Additional data for specific events
     float final_weight;           // For COMPLETED event
-    const char* error_message;    // For TIMEOUT/ERROR event
+    char error_message[32];      // Owned copy for TIMEOUT/ERROR event
     float error_weight;           // For TIMEOUT/ERROR event
     int error_progress;           // For TIMEOUT/ERROR event
     bool background_active;       // For BACKGROUND_CHANGE event

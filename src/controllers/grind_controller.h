@@ -4,6 +4,7 @@
 #include "../hardware/grinder.h"
 #include "../logging/grind_logging.h"
 #include "grind_mode.h"
+#include "grind_ui_events.h"
 #include "grind_session.h"
 #include "grind_session_result.h"
 #include "grind_strategy.h"
@@ -17,10 +18,6 @@
 #include <freertos/queue.h>
 
 class DiagnosticsController;
-
-// Forward declaration to avoid circular dependency
-struct GrindEventData;
-
 
 // Flash operation request structure for Core 0 → Core 1 communication
 struct FlashOpRequest {
@@ -55,29 +52,6 @@ struct GrindLoopData {
     uint8_t phase_id;
     unsigned long now;
 };
-
-// Grind controller state machine phases
-enum class GrindPhase {
-    IDLE,               // Not grinding
-    INITIALIZING,       // Pre-initialization - emit UI event and prepare for grind
-    SETUP,              // Initialization - file system operations, logger setup
-    TARING,             // Performing tare operation
-    TARE_CONFIRM,       // Confirming tare completed
-    PREDICTIVE,         // Main grinding with flow prediction
-    PULSE_DECISION,     // Deciding if pulse correction needed
-    PULSE_EXECUTE,      // Executing precision pulse
-    PULSE_SETTLING,     // Waiting for weight to settle after pulse
-    FINAL_SETTLING,     // Waiting for weight to settle
-    TIME_GRINDING,      // Time-based grinding phase
-    MANUAL_GRINDING,    // User-controlled grinding with no target
-    TIME_ADDITIONAL_PULSE, // Additional pulse in time mode after completion
-    COMPLETED,          // Grind completed (success, overshoot, or max pulses)
-    TIMEOUT,            // Grind timed out
-    PRIME,              // Optional chute priming/purging grind
-    PRIME_SETTLING,     // Settling after priming grind
-    PURGE_CONFIRM       // Waiting for user to confirm purge completion
-};
-
 
 struct PulseReport {
     float start_weight;
@@ -146,7 +120,8 @@ private:
     bool force_measurement_log;     // Flag to force measurement logging on next update cycle
 
     // UI event system - thread-safe Core 0 → Core 1 communication
-    QueueHandle_t ui_event_queue;
+    GrindUIEventMailbox ui_events_;
+    portMUX_TYPE ui_event_lock_ = portMUX_INITIALIZER_UNLOCKED;
     
     bool control_loop_paused_;      // Indicates control loop is suspended (e.g., purge confirmation)
 
@@ -237,8 +212,7 @@ public:
     void set_ui_event_callback(void (*callback)(const GrindEventData&));
     GrindSessionResult get_last_session_result() const { const auto control_lock = lock_control(); return last_session_result_; }
     void ui_acknowledge_phase_transition(); // Called by UI to confirm phase transition
-    void process_queued_ui_events(); // Core 1: Process events from Core 0 queue
-    QueueHandle_t get_ui_event_queue() const { return ui_event_queue; }
+    void process_queued_ui_events(); // Core 1: Consume latest display snapshots
     
     // Flash operation system
     void process_queued_flash_operations(); // Core 1: Process flash ops from Core 0 queue
