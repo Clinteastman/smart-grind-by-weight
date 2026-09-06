@@ -75,6 +75,19 @@ local build 1. These remain local validation results, not device acceptance.
 
 ## Remaining before this fix can ship
 
+Local browser checks started with `node tools/tests/settings_browser_server.mjs`
+and the actual embedded page at `http://127.0.0.1:8765/#settings`. In-app browser
+click-through confirmed pending saves block interaction, successful saves show
+the confirmed success message, and `?scenario=failed#settings` shows partial-save
+failure with controls restored. This fixture has no real motor/device connection
+and does not implement WebSocket telemetry. It is single-session test tooling.
+
+The accessibility tree also exposed a remaining issue: making the entire form
+inert hides its pending status from assistive technology. Keep an accessible
+pending announcement outside the inert subtree before claiming UI completion.
+Chrome, explicit mobile/desktop viewports, remaining failure scenarios and
+console/network inspection have not yet been completed.
+
 - Test the HTTP request/result lifecycle and the rendered web settings workflow,
   including runtime application failures and settings reload errors.
 - Complete V1/V2 builds, PR review and appropriate device acceptance before
