@@ -25,6 +25,12 @@ line. Earlier release history remains available in the original project's
   remain independent of scale availability. Failed ADC reads no longer refresh
   sample freshness using the previous reading.
 
+### Web settings
+
+- Accept older settings forms that omit the optional panel-off controls,
+  preserving the grinder's saved panel-off settings instead of rejecting the
+  complete form with a missing-field error.
+
 ### Controller and history
 
 - Serialized grind-controller updates, commands and state reads across tasks,
