@@ -192,7 +192,7 @@ int main() {
     for (bool saved : {false, true}) {
         messages.clear(); save_success = saved;
         grind_logger.start_grind_session(GrindSessionDescriptor{}, 0);
-        grind_logger.end_grind_session("COMPLETE", 18, 0);
+        grind_logger.end_grind_session("COMPLETE", 18, 0, 1000);
         assert((messages.find("(saved)") != std::string::npos) == saved);
         assert((messages.find("not saved - storage failure") != std::string::npos) == !saved);
     }
