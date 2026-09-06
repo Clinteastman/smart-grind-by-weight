@@ -15,6 +15,18 @@ line. Earlier release history remains available in the original project's
   record; a full save queue is retried instead of silently losing completion.
 - Live web status and settings read a coherent profile snapshot while profiles
   are edited. Active grind status reports the session's own profile.
+- Hardened grind history against allocation failures, incomplete session files
+  and malformed filenames. Bluetooth export no longer hangs when its file list
+  contains no usable sessions, and retention sorts only verified file IDs.
+- Failed history writes are now reported as not saved. Removed unused legacy
+  logging/export code; existing schema-2 files keep their unchanged layout and
+  zero reserved checksum field (no new checksum or data migration).
+
+### Development
+
+- Run simulator checks for controller and system changes as well as UI changes.
+  Standalone policy tests also run on Linux, independently of the desktop
+  rendering test.
 
 ## [1.5.7] - 2026-08-27
 
