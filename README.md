@@ -26,15 +26,21 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build & installation guide](docs/DOC.md#start-here)** ·
-**[What's new in v1.5.4](CHANGELOG.md#154---2026-08-16)** ·
+**[What's new in v1.5.8](CHANGELOG.md#158---2026-09-06)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
-> **v1.5.4** adds an adjustable automatic-start cup threshold, a live read-only
-> GaggiMate status screensaver and connection-reliability fixes, alongside
-> purge, touch-startup and load-cell diagnostic fixes. Read the
-> [v1.5.4 changelog](CHANGELOG.md#154---2026-08-16) or install it from the
-> [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
+> **v1.5.8 reliability update:** improved scale-fault handling, motor timing,
+> update recovery, saved history and settings confirmation. Read the
+> [v1.5.8 changelog](CHANGELOG.md#158---2026-09-06). **This is release preparation:
+> install 1.5.8 only once it appears in
+> [GitHub Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases).**
+> The [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/)
+> offers it after publication and the subsequent site deployment; until then it
+> may offer only an older version.
+
+See [release validation](docs/RELIABILITY_RELEASE.md) for the tested candidate
+and coverage limits. The release badge above identifies the latest published build.
 
 <table>
 <tr>
@@ -86,6 +92,8 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   checks, a touchscreen update indicator and on-device installer, strict V1/V2
   image selection, plus manual Wi-Fi/Bluetooth upload and USB recovery.
 - **On-device diagnostics** with downloadable retained startup/runtime logs.
+- **Checked settings saves and stronger fault handling**, including runtime
+  save confirmation, stale-scale stops and coordinated motor/update operations.
 - **V1 and V2 Waveshare support**, reproducible CI builds, a public web flasher
   and a deterministic Windows desktop simulator for development.
 
@@ -187,10 +195,10 @@ tuning is unavailable.
 
 ## Community development status
 
-All feature rows below are implemented for both V1 and V2 and both firmware
-targets pass CI. Physical acceptance has been completed on V2 because that is
-the hardware currently available to the maintainers; there are no known V1
-incompatibilities, and a community V1 hardware acceptance run is welcome.
+The released baseline supports both V1 and V2, with separate firmware builds.
+The 1.5.8 candidate passed supervised V2 Wi-Fi installation, an 18 g grind with
+saved history, and a live-settings check. Community V1 hardware testing is
+welcome. See [release validation](docs/RELIABILITY_RELEASE.md) for coverage limits.
 
 | Stage | Status | Outcome |
 | --- | --- | --- |

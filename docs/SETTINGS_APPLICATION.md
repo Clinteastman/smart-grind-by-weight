@@ -1,6 +1,7 @@
 # Reliable settings application
 
-This branch is work in progress and is not a released fix.
+Implemented for 1.5.8; see [release validation](RELIABILITY_RELEASE.md) for
+candidate evidence and publication checks.
 
 ## Storage failures
 
@@ -47,8 +48,8 @@ failure injected, plus dependency failures. Result tests execute the production
 result methods and APPLY_SETTINGS dispatch branch with peripheral stubs. They
 check busy/refused saves, partial-save refresh, completion ordering, bounded result
 retention, ID wrap and concurrent requests. They do not exercise a real HTTP
-server or rendered UI. All 18 host tests and three standalone policies pass.
-Native WSL V1/V2 builds passed in 39.128s/39.734s (local build 1).
+server or rendered UI. See [release readiness](RELIABILITY_RELEASE.md) for the
+candidate validation snapshot and outstanding gates.
 The embedded web page now polls the result instead of assuming a queued save
 has finished. It blocks duplicate save submissions, distinguishes busy and
 partial-write failure from success, and reloads the stored values. Unknown,
@@ -66,7 +67,7 @@ passes pending/saved/failed/busy, unknown results, ID mismatch, polling timeout,
 duplicate submission and reload failure cases. This is not rendered-browser
 or hardware verification. The test runs in firmware CI.
 
-No device flashing or physical acceptance test has been performed.
+The V2 device acceptance is recorded in [release validation](RELIABILITY_RELEASE.md).
 
 Pulse Tune also checks latency persistence before reporting success. A failed
 write uses the existing failure screen and cleanup path, retains the previous
@@ -87,12 +88,7 @@ The post-save screensaver-style read also rejects missing or invalid values.
 An unreadable style reports failure and leaves the running GaggiMate status
 client unchanged; it is not treated as a request to disable the client.
 
-After the web timeout/interaction changes, all 18 host tests passed again
-(17.484 seconds), along with the JavaScript tests including a real abortable
-pending request. Native WSL V1/V2 rebuilds passed in 31.194/29.872 seconds,
-local build 1. These remain local validation results, not device acceptance.
-
-## Remaining before this fix can ship
+## Validation and release gates
 
 The production `configure_settings_routes` method now has a host regression test
 using HTTP request/response doubles. It checks route registration, missing,
@@ -114,11 +110,15 @@ announcement, busy refusal and saved-but-reload-failed messaging. At 390x844,
 long save messages now use a separate row above the buttons instead of squeezing
 their labels. Screenshot verification confirmed the revised layout; temporary
 viewport overrides were reset afterwards.
-Chrome, explicit desktop viewport, remaining failure scenarios and console/network
-inspection have not yet been completed. These latest UI edits require fresh
-firmware rebuilds; the earlier build timings do not validate the new edits.
+Independent Chrome checks covered success, pending timeout, busy refusal,
+partial-save failure and saved-but-reload-failed feedback. Desktop width 1440
+and emulated 390x844 layouts were inspected without horizontal overflow.
+Network inspection confirmed one save POST followed by result polling; console
+errors were limited to the fixture's missing WebSocket telemetry and deliberately
+injected reload failure. These checks used the actual embedded page, not a real
+device, and do not prove hardware persistence or OTA recovery.
 
-- Test the HTTP request/result lifecycle and the rendered web settings workflow,
-  including runtime application failures and settings reload errors.
-- Complete V1/V2 builds, PR review and appropriate device acceptance before
-  merge/release.
+Current-head V1/V2 builds, PR review and appropriate device acceptance are
+required before merge/release. Follow the checklist in
+[release readiness](RELIABILITY_RELEASE.md); do not infer device acceptance
+from host or browser-fixture tests.

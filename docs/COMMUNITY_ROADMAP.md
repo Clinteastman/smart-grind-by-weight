@@ -57,10 +57,24 @@ the original project or its authorship.
 
 ## Delivery status
 
+### 1.5.8 reliability update
+
+Reviewed reliability PRs cover motor timing, stale/disconnected scales, history,
+touchscreen events, update recovery, operation ownership and settings confirmation.
+Both firmware targets and host regressions pass. The combined V2 candidate passed
+supervised Wi-Fi installation, an 18 g grind with saved history and a live
+settings change/restoration without reboot. See [release validation](RELIABILITY_RELEASE.md)
+for evidence and publication checks; the releases page identifies published binaries.
+
+Pulse-free finishing remains a separate tester-dependent draft. Learned cup
+matching and variable-speed hardware work are not part of this release.
+
+### Established baseline
+
 The feature set is built for both maintained controller targets and both pass
-CI. Physical acceptance currently uses the available V2 grinder; there are no
-known V1 incompatibilities, and equivalent community V1 hardware validation is
-welcome.
+CI. Earlier physical acceptance used the available V2 grinder; equivalent
+community V1 hardware validation is welcome. These historical results do not
+replace acceptance of the new reliability candidate.
 
 | Area | Software status | Remaining acceptance work |
 | --- | --- | --- |
