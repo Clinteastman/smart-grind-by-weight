@@ -2,6 +2,7 @@
 #include <Preferences.h>
 #include "../config/constants.h"
 #include "grind_mode.h"
+#include <mutex>
 
 struct Profile {
     char name[USER_PROFILE_NAME_MAX_LENGTH];
@@ -11,22 +12,31 @@ struct Profile {
 
 class ProfileController {
 private:
+    mutable std::recursive_mutex mutex_;
+    auto lock_profiles() const { return std::unique_lock<std::recursive_mutex>(mutex_); }
     Profile profiles[USER_PROFILE_COUNT];
     int current_profile;
     GrindMode current_grind_mode;
     Preferences* preferences;
 
 public:
+    struct Snapshot {
+        Profile profiles[USER_PROFILE_COUNT];
+        int current_profile;
+        GrindMode mode;
+    };
+    Snapshot snapshot() const;
     void init(Preferences* prefs);
     void load_profiles();
     void save_profiles();
     void save_current_profile();
     
     void set_current_profile(int index);
-    int get_current_profile() const { return current_profile; }
-    float get_current_weight() const { return profiles[current_profile].weight; }
-    float get_current_time() const { return profiles[current_profile].time_seconds; }
-    const char* get_current_name() const { return profiles[current_profile].name; }
+    int get_current_profile() const { const auto lock = lock_profiles(); return current_profile; }
+    float get_current_weight() const { const auto lock = lock_profiles(); return profiles[current_profile].weight; }
+    float get_current_time() const { const auto lock = lock_profiles(); return profiles[current_profile].time_seconds; }
+    // Names are fixed at initialization and never edited afterward.
+    const char* get_current_name() const { const auto lock = lock_profiles(); return profiles[current_profile].name; }
     
     void set_profile_weight(int index, float weight);
     float get_profile_weight(int index) const;
@@ -48,6 +58,6 @@ public:
     
     // Grind mode persistence methods
     void set_grind_mode(GrindMode mode);
-    GrindMode get_grind_mode() const { return current_grind_mode; }
+    GrindMode get_grind_mode() const { const auto lock = lock_profiles(); return current_grind_mode; }
     void save_grind_mode();
 };
