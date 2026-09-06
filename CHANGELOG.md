@@ -74,6 +74,13 @@ line. Earlier release history remains available in the original project's
   Standalone policy tests also run on Linux, independently of the desktop
   rendering test.
 
+### Wi-Fi and web interface
+
+- Serve the embedded setup and grinder pages directly from flash instead of
+  copying the full page into scarce internal RAM when a browser connects.
+  This removes an avoidable roughly 50 KB allocation when opening the web UI.
+- Prevent browsers retaining an outdated settings page across firmware updates.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
