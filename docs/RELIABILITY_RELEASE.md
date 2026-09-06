@@ -9,10 +9,12 @@ this review cycle.
 - Focused fixes for motor timing, Bluetooth recovery, scale faults, history,
   controller ownership and touchscreen events have been reviewed and merged.
 - [PR51](https://github.com/Clinteastman/smart-grind-by-weight/pull/51) adds checked
-  settings persistence and runtime confirmation. Its latest review finding
-  about Pulse Tune save failures has been fixed; final review is pending.
-- Candidate code `365f73ce872bd6f9449fe4e699918f6b6c94a717` passes 25 host
-  regression tests, native WSL2 V1/V2 builds and all four GitHub checks.
+  settings persistence and runtime confirmation. Findings about Pulse Tune
+  write failures and post-save runtime reads have been fixed; final review
+  is pending.
+- Candidate code `e9f437b81b11835f52af47391f4f5529032931cb` passes 26 host
+  regression tests and native WSL2 V1/V2 builds (local build 1). GitHub checks
+  must also pass on this exact candidate before acceptance.
 - Browser-fixture checks cover success, pending timeout, busy refusal, partial
   save and failed reload. Desktop and 390-pixel mobile layouts were inspected.
   The fixture does not provide a real motor, storage or WebSocket telemetry.
