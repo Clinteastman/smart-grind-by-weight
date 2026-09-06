@@ -578,7 +578,11 @@ void MenuUIController::handle_coast_ratio_slider_released() {
 
     auto* grind_controller = ui_manager_->get_grind_controller();
     if (grind_controller) {
-        grind_controller->save_coast_ratio(ratio);
+        if (!grind_controller->save_coast_ratio(ratio)) {
+            ratio = grind_controller->get_coast_ratio();
+            lv_slider_set_value(slider, static_cast<int>(ratio * MenuScreen::kCoastRatioSliderScale + 0.5f), LV_ANIM_OFF);
+            LOG_BLE("Could not save coast ratio; retaining active value\n");
+        }
     }
 
     LOG_DEBUG_PRINT("Coast ratio set to: ");
@@ -611,7 +615,11 @@ void MenuUIController::handle_motor_latency_slider_released() {
 
     auto* grind_controller = ui_manager_->get_grind_controller();
     if (grind_controller) {
-        grind_controller->save_motor_latency(static_cast<float>(latency_ms));
+        if (!grind_controller->save_motor_latency(static_cast<float>(latency_ms))) {
+            latency_ms = static_cast<int>(grind_controller->get_motor_response_latency());
+            lv_slider_set_value(slider, latency_ms, LV_ANIM_OFF);
+            LOG_BLE("Could not save motor latency; retaining active value\n");
+        }
     }
     ui_manager_->menu_screen.update_motor_latency_label(static_cast<float>(latency_ms));
     LOG_DEBUG_PRINTF("Motor response latency manually set to: %dms\n", latency_ms);

@@ -73,6 +73,8 @@ write uses the existing failure screen and cleanup path, retains the previous
 active latency, closes the log and releases the operation reservation. The
 terminal-method regression injects this failure and checks that no success
 message or new active latency is reported.
+The touchscreen latency and coast sliders also revert to their active values
+when persistence fails, instead of displaying a value the controller rejected.
 
 After the web timeout/interaction changes, all 18 host tests passed again
 (17.484 seconds), along with the JavaScript tests including a real abortable
