@@ -354,11 +354,9 @@ uint32_t GrindLogger::count_sessions_in_flash() const {
             File file = dir.openNextFile();
             
             while (file) {
-                String filename = file.name();
-                // Handle both base names and full paths
-                bool is_session_file = (filename.startsWith("session_") || filename.indexOf("/session_") != -1)
-                                       && filename.endsWith(".bin");
-                if (is_session_file) {
+                uint32_t session_id = 0;
+                if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
+                    validate_stored_session(session_id)) {
                     count++;
                 }
                 file = dir.openNextFile();
@@ -971,7 +969,7 @@ bool GrindLogger::write_individual_session_file(uint32_t session_id, const Grind
     return true;
 }
 
-bool GrindLogger::validate_session_file(uint32_t session_id) {
+bool GrindLogger::validate_session_file(uint32_t session_id) const {
     char filename[64];
     snprintf(filename, sizeof(filename), SESSION_FILE_FORMAT, session_id);
     
