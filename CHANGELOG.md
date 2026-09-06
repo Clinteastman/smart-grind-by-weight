@@ -15,6 +15,24 @@ line. Earlier release history remains available in the original project's
   remain independent of scale availability. Failed ADC reads no longer refresh
   sample freshness using the previous reading.
 
+### Controller and history
+
+- Serialized grind-controller updates, commands and state reads across tasks,
+  preventing an in-flight update from restarting the motor after stop returns.
+  Web start acknowledgements now reflect whether the controller accepted the
+  start, and firmware-update task suspension waits for controller access to end.
+- Finished and timed-out grinds queue their history record before notifying the
+  UI. Immediate dismissal, stop or an extra time-mode pulse preserves that
+  record; a full save queue is retried instead of silently losing completion.
+- Live web status and settings read a coherent profile snapshot while profiles
+  are edited. Active grind status reports the session's own profile.
+- Hardened grind history against allocation failures, incomplete session files
+  and malformed filenames. Bluetooth export no longer hangs when its file list
+  contains no usable sessions, and retention sorts only verified file IDs.
+- Failed history writes are now reported as not saved. Removed unused legacy
+  logging/export code; existing schema-2 files keep their unchanged layout and
+  zero reserved checksum field (no new checksum or data migration).
+
 ### Development
 
 - Run simulator checks for controller and system changes as well as UI changes.

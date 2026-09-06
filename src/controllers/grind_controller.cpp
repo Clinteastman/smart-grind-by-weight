@@ -27,6 +27,7 @@
 static constexpr float NO_WEIGHT_DELIVERED_THRESHOLD_G = 0.2f;
 
 void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
+    const auto control_lock = lock_control();
     weight_sensor = lc;
     grinder = gr;
     preferences = prefs;
@@ -116,7 +117,9 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     load_coast_ratio();
 }
 
-void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
+bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
+    const auto control_lock = lock_control();
+    if (phase != GrindPhase::IDLE) return false;
     const char* mode_name = grind_mode == GrindMode::TIME ? "TIME" :
                             grind_mode == GrindMode::MANUAL ? "MANUAL" : "WEIGHT";
     LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s\n",
@@ -124,20 +127,20 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
 #ifndef SMART_GRIND_SIM
     if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
         LOG_BLE("[CONTROLLER] Grind blocked while firmware update is active\n");
-        return;
+        return false;
     }
 #endif
-    if (!grinder) return;
+    if (!grinder || !grinder->is_initialized()) return false;
     if (grind_mode == GrindMode::WEIGHT) {
-        if (!weight_sensor) return;
+        if (!weight_sensor) return false;
         if (!weight_sensor->has_recent_sample()) {
             LOG_BLE("ERROR: Cannot start weight grind - no fresh scale reading\n");
-            return;
+            return false;
         }
         if (weight_sensor->has_hardware_fault()) {
             LOG_BLE("ERROR: Cannot start grind - load cell hardware fault detected (%d)\n",
                     static_cast<int>(weight_sensor->get_hardware_fault()));
-            return;
+            return false;
         }
         // Read grinder purge settings from preferences (weight mode only)
         grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
@@ -150,6 +153,9 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
             grinder_purge_amount_g_for_session = configured_amount;
         }
     }
+
+    // Finish pending history writes only after OTA/hardware eligibility checks.
+    process_queued_flash_operations();
 
     // Do not mutate the active session until all requirements for the selected
     // mode have passed. A rejected weight grind must not leave the controller
@@ -236,6 +242,7 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     }
     
     switch_phase(GrindPhase::INITIALIZING, loop_data);
+    return true;
 }
 
 void GrindController::user_tare_request() {
@@ -244,9 +251,15 @@ void GrindController::user_tare_request() {
 }
 
 void GrindController::return_to_idle() {
+    const auto control_lock = lock_control();
     // This is called by the UI to acknowledge a completed or timed-out grind
     // and return the controller to the IDLE state.
     if (phase == GrindPhase::COMPLETED || phase == GrindPhase::TIMEOUT) {
+        // Do not release the single session buffer until its terminal record
+        // has been consumed. A full queue is drained and retried on this caller.
+        process_queued_flash_operations();
+        if (!queue_terminal_session()) return;
+        process_queued_flash_operations();
         LOG_BLE("[%lums CONTROLLER] UI acknowledged completion/timeout, returning to IDLE.\n", millis());
         time_grind_start_ms = 0;
         target_time_ms = 0;
@@ -263,7 +276,14 @@ void GrindController::return_to_idle() {
 }
 
 void GrindController::stop_grind() {
+    const auto control_lock = lock_control();
     if (!grinder) return;
+
+    if (phase == GrindPhase::COMPLETED || phase == GrindPhase::TIMEOUT) {
+        grinder->stop();
+        return_to_idle();
+        return;
+    }
     
     const uint32_t manual_runtime_ms =
         (mode == GrindMode::MANUAL && time_grind_start_ms > 0)
@@ -295,6 +315,7 @@ void GrindController::stop_grind() {
 }
 
 void GrindController::continue_from_purge() {
+    const auto control_lock = lock_control();
     // Called by UI when user confirms purge completion
     if (phase != GrindPhase::PURGE_CONFIRM) {
         LOG_BLE("[%lums CONTROLLER] Warning: continue_from_purge() called in wrong phase: %s\n",
@@ -324,6 +345,7 @@ void GrindController::continue_from_purge() {
 }
 
 void GrindController::pause_grind() {
+    const auto control_lock = lock_control();
     if (phase != GrindPhase::TIME_GRINDING || grind_paused_) return;
 
     grind_paused_ = true;
@@ -336,6 +358,7 @@ void GrindController::pause_grind() {
 }
 
 void GrindController::resume_grind() {
+    const auto control_lock = lock_control();
     if (phase != GrindPhase::TIME_GRINDING || !grind_paused_) return;
 
     uint32_t pause_duration = millis() - pause_start_ms_;
@@ -351,6 +374,7 @@ void GrindController::resume_grind() {
 }
 
 void GrindController::update() {
+    const auto control_lock = lock_control();
     if (!is_active()) return;
     
     unsigned long now = millis();
@@ -586,56 +610,10 @@ void GrindController::update() {
             break;
             
         case GrindPhase::COMPLETED:
-            if (grind_logger.is_logging_active() && !session_end_flash_queued) {
-                float error = final_weight - target_weight;
-                if (mode == GrindMode::TIME) {
-                    error = 0.0f;
-                }
-
-                const char* result_string = "COMPLETE";
-                switch (last_session_result_) {
-                    case GrindSessionResult::OVERSHOOT:
-                        result_string = "OVERSHOOT";
-                        LOG_BLE("--- RESULT: OVERSHOOT (Error: %+.2fg) ---\n", error);
-                        break;
-                    case GrindSessionResult::MAX_PULSES:
-                        result_string = "COMPLETE - MAX PULSES";
-                        LOG_BLE("--- RESULT: COMPLETE - MAX PULSES (Error: %+.2fg) ---\n", error);
-                        break;
-                    default:
-                        LOG_BLE("--- RESULT: COMPLETE (Error: %+.2fg) ---\n", error);
-                        break;
-                }
-
-                // Queue flash operation for Core 1 processing - no blocking on Core 0
-                FlashOpRequest request = {};
-                request.operation_type = FlashOpRequest::END_GRIND_SESSION;
-                strncpy(request.result_string, result_string, sizeof(request.result_string) - 1);
-                request.final_weight = final_weight;
-                request.pulse_count = pulse_attempts;
-                queue_flash_operation(request);
-                
-                // Mark flash operation as queued to prevent repeated calls
-                session_end_flash_queued = true;
-            }
-            break;
-            
         case GrindPhase::TIMEOUT:
-            if (grind_logger.is_logging_active() && !session_end_flash_queued) {
-                // Queue flash operation for Core 1 processing - no blocking on Core 0
-                FlashOpRequest request = {};
-                request.operation_type = FlashOpRequest::END_GRIND_SESSION;
-                const char* result = last_session_result_ == GrindSessionResult::SCALE_ERROR
-                                         ? "SCALE_ERROR" : "TIMEOUT";
-                strncpy(request.result_string, result, sizeof(request.result_string) - 1);
-                request.final_weight = final_weight;
-                request.pulse_count = pulse_attempts;
-                queue_flash_operation(request);
-                
-                // Mark flash operation as queued to prevent repeated calls
-                session_end_flash_queued = true;
-            }
+            queue_terminal_session();
             break;
+
             
         default:
             break;
@@ -722,6 +700,7 @@ void GrindController::update() {
 // OLD predictive_grind method removed - logic now inline in update()
 
 void GrindController::reset_mechanical_anomaly_count() {
+    const auto control_lock = lock_control();
     mechanical_anomaly_count_ = 0;
     last_mechanical_event_ms_ = 0;
     last_mechanical_weight_ = 0.0f;
@@ -919,11 +898,17 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         event_data.error_message = last_error_message;
         // Use non-blocking high latency weight instead of precision settled weight
         event_data.error_weight = weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f;
+        final_weight = event_data.error_weight;
         event_data.error_progress = get_progress_percent();
     } else if (new_phase == GrindPhase::IDLE) {
         event_data.event = UIGrindEvent::STOPPED;
     }
     
+    // Queue the final record before exposing completion to another task.
+    // If the queue is full, terminal update ticks retry without blocking.
+    if (new_phase == GrindPhase::COMPLETED || new_phase == GrindPhase::TIMEOUT) {
+        queue_terminal_session();
+    }
     emit_ui_event(event_data);
 }
 
@@ -941,6 +926,7 @@ bool GrindController::check_timeout() const {
 }
 
 bool GrindController::is_active() const {
+    const auto control_lock = lock_control();
     return phase != GrindPhase::IDLE;
 }
 
@@ -966,6 +952,7 @@ float GrindController::get_grind_time() const {
 }
 
 uint32_t GrindController::get_elapsed_grind_ms() const {
+    const auto control_lock = lock_control();
     if (time_grind_start_ms == 0 || phase == GrindPhase::IDLE) return 0;
     return millis() - time_grind_start_ms;
 }
@@ -1005,10 +992,12 @@ uint8_t GrindController::get_current_phase_id() const {
 
 
 void GrindController::send_measurements_data() {
+    const auto control_lock = lock_control();
     grind_logger.send_current_session_via_serial();
 }
 
 float GrindController::get_current_flow_rate() const {
+    const auto control_lock = lock_control();
     return weight_sensor ? weight_sensor->get_flow_rate() : 0.0f;
 }
 
@@ -1017,6 +1006,7 @@ void GrindController::set_ui_event_callback(void (*callback)(const GrindEventDat
 }
 
 void GrindController::ui_acknowledge_phase_transition() {
+    const auto control_lock = lock_control();
     if (phase == GrindPhase::INITIALIZING) {
         ui_ready_for_setup = true;
         LOG_UI_DEBUG("UI acknowledged INITIALIZING phase transition\n");
@@ -1098,7 +1088,25 @@ void GrindController::process_queued_ui_events() {
     }
 }
 
-void GrindController::queue_flash_operation(const FlashOpRequest& request) {
+bool GrindController::queue_terminal_session() {
+    if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT) return false;
+    if (session_end_flash_queued || !grind_logger.is_logging_active()) return true;
+
+    FlashOpRequest request = {};
+    request.operation_type = FlashOpRequest::END_GRIND_SESSION;
+    const char* result = "COMPLETE";
+    if (phase == GrindPhase::TIMEOUT) result = last_session_result_ == GrindSessionResult::SCALE_ERROR
+                                                 ? "SCALE_ERROR" : "TIMEOUT";
+    else if (last_session_result_ == GrindSessionResult::OVERSHOOT) result = "OVERSHOOT";
+    else if (last_session_result_ == GrindSessionResult::MAX_PULSES) result = "COMPLETE - MAX PULSES";
+    strncpy(request.result_string, result, sizeof(request.result_string) - 1);
+    request.final_weight = final_weight;
+    request.pulse_count = pulse_attempts;
+    session_end_flash_queued = queue_flash_operation(request);
+    return session_end_flash_queued;
+}
+
+bool GrindController::queue_flash_operation(const FlashOpRequest& request) {
     // Thread-safe Core 0 → Core 1 flash operation queuing
     if (flash_op_queue) {
         BaseType_t result = xQueueSend(flash_op_queue, &request, 0); // 0 = no wait (non-blocking)
@@ -1113,11 +1121,15 @@ void GrindController::queue_flash_operation(const FlashOpRequest& request) {
                                             ? "UPDATE_MANUAL_RUNTIME"
                                             : "START_GRIND_SESSION";
             LOG_BLE("[%lums FLASH_OP] QUEUED %s operation for Core 1 processing\n", millis(), op_name);
+            return true;
         }
     }
+    return false;
 }
 
 void GrindController::process_queued_flash_operations() {
+    const auto control_lock = lock_control();
+    if (!flash_op_queue) return;
     FlashOpRequest request;
     
     // Process all queued flash operations from Core 0
@@ -1195,6 +1207,7 @@ void GrindController::set_error_message(const char* message) {
 }
 
 void GrindController::start_additional_pulse() {
+    const auto control_lock = lock_control();
     if (!can_pulse()) {
         return;
     }
@@ -1203,6 +1216,12 @@ void GrindController::start_additional_pulse() {
         LOG_BLE("ERROR: Cannot pulse - grinder not available\n");
         return;
     }
+
+    // Extra time-mode pulses are separate from the completed history record.
+    // Finish that record before resuming motor activity or logging new samples.
+    process_queued_flash_operations();
+    if (!queue_terminal_session()) return;
+    process_queued_flash_operations();
     
     additional_pulse_count++;
 
@@ -1230,6 +1249,7 @@ void GrindController::start_additional_pulse() {
 }
 
 bool GrindController::can_pulse() const {
+    const auto control_lock = lock_control();
     // Only allow pulses in time mode when grind is completed and not in pulse phase
     return mode == GrindMode::TIME &&
            phase == GrindPhase::COMPLETED;
@@ -1240,6 +1260,7 @@ bool GrindController::can_pulse() const {
 //==============================================================================
 
 void GrindController::load_motor_latency() {
+    const auto control_lock = lock_control();
     if (!preferences) {
         motor_response_latency_ms = GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS;
         LOG_BLE("Motor latency: Using default %.1fms (no preferences)\n", motor_response_latency_ms);
@@ -1260,6 +1281,7 @@ void GrindController::load_motor_latency() {
 }
 
 void GrindController::save_motor_latency(float value) {
+    const auto control_lock = lock_control();
     if (!preferences) {
         LOG_BLE("ERROR: Cannot save motor latency - no preferences available\n");
         return;
@@ -1282,6 +1304,7 @@ void GrindController::save_motor_latency(float value) {
 }
 
 void GrindController::set_motor_response_latency(float value) {
+    const auto control_lock = lock_control();
     // Validate value
     if (value < GRIND_AUTOTUNE_LATENCY_MIN_MS || value > GRIND_AUTOTUNE_LATENCY_MAX_MS) {
         LOG_BLE("ERROR: Cannot set invalid motor latency %.1fms (range: %.1f-%.1fms)\n",
@@ -1298,6 +1321,7 @@ void GrindController::set_motor_response_latency(float value) {
 //==============================================================================
 
 void GrindController::load_coast_ratio() {
+    const auto control_lock = lock_control();
     if (!preferences) {
         coast_ratio_ = GRIND_LATENCY_TO_COAST_RATIO_DEFAULT;
         LOG_BLE("Coast ratio: Using default %.2f (no preferences)\n", coast_ratio_);
@@ -1318,6 +1342,7 @@ void GrindController::load_coast_ratio() {
 }
 
 void GrindController::save_coast_ratio(float value) {
+    const auto control_lock = lock_control();
     if (!preferences) {
         LOG_BLE("ERROR: Cannot save coast ratio - no preferences available\n");
         return;
@@ -1339,6 +1364,7 @@ void GrindController::save_coast_ratio(float value) {
 }
 
 void GrindController::set_coast_ratio(float value) {
+    const auto control_lock = lock_control();
     if (value < GRIND_LATENCY_TO_COAST_RATIO_MIN || value > GRIND_LATENCY_TO_COAST_RATIO_MAX) {
         LOG_BLE("ERROR: Cannot set invalid coast ratio %.2f (range: %.2f-%.2f)\n",
                 value, GRIND_LATENCY_TO_COAST_RATIO_MIN, GRIND_LATENCY_TO_COAST_RATIO_MAX);

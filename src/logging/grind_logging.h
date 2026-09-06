@@ -25,7 +25,6 @@ class Grinder;
 // Flash storage settings
 #define GRIND_SESSIONS_DIR "/sessions"                      // Directory for individual session files
 #define SESSION_FILE_FORMAT "/sessions/session_%lu.bin"    // Individual session file naming format
-#define GRIND_LOG_FILE "/grind_sessions.bin"                // Legacy single-file storage (deprecated)
 #define MAX_STORED_SESSIONS_FLASH 10                        // Maximum sessions to keep in flash (configurable)
 
 #pragma pack(push, 1)
@@ -37,7 +36,7 @@ struct TimeSeriesSessionHeader {
     uint32_t session_id;           // Session identifier
     uint32_t session_timestamp;    // Unix timestamp when session started
     uint32_t session_size;         // Total size of session, events, and measurements in bytes
-    uint32_t checksum;             // Checksum of all data
+    uint32_t checksum;             // Reserved legacy field; schema 2 writes zero (no checksum)
     uint16_t event_count;          // Number of discrete events in this session
     uint16_t measurement_count;    // Number of continuous measurements in this session
     uint16_t schema_version;       // Schema/version so Python tools can adapt
@@ -145,16 +144,16 @@ static_assert(sizeof(GrindSession) == 80, "Unexpected GrindSession size");
 class GrindLogger {
 private:
     // Time-series system
-    GrindSession* current_session;           // Current session metadata (PSRAM)
-    GrindEvent* event_buffer;                // PSRAM temp buffer for events
-    GrindMeasurement* measurement_buffer;    // PSRAM temp buffer for measurements
+    GrindSession* current_session = nullptr; // Current session metadata (PSRAM)
+    GrindEvent* event_buffer = nullptr;      // PSRAM temp buffer for events
+    GrindMeasurement* measurement_buffer = nullptr; // PSRAM temp buffer for measurements
     uint16_t event_count;                    // Current number of events in buffer
     uint16_t measurement_count;              // Current number of measurements in buffer
     uint16_t event_sequence_counter;         // **NEW**: Counter for unique event IDs
     uint16_t measurement_sequence_counter;   // Sequence counter for continuous measurements
     
     char current_phase_name[16];             // Current grinding phase name
-    bool logging_active;                     // Whether a grind session is active
+    bool logging_active = false;             // Whether a grind session is active
     
     // Motor time tracking
     bool last_motor_state;                   // Previous motor state for change detection
@@ -185,22 +184,18 @@ public:
     
     // Flash storage management
     bool flush_session_to_flash();          // Flush current session to flash
-    bool rotate_flash_log_if_needed();      // Remove old sessions if limit exceeded
     bool clear_all_sessions_from_flash();   // Purge all stored sessions (for developer purge)
     uint32_t count_sessions_in_flash() const; // Count total sessions in flash file
     uint32_t count_total_events_in_flash() const; // Count total events across all sessions
     uint32_t count_total_measurements_in_flash() const; // Count total measurements across all sessions
     
-    // Fixed-length binary export method
-    void export_sessions_binary_chunk(uint8_t* buffer, size_t buffer_size,
-                                     uint32_t start_pos, uint32_t* next_pos, size_t* actual_size);
     void send_current_session_via_serial();  // Debug output for current session
     
     // Data access
     uint32_t get_total_flash_sessions() const;
     bool is_logging_active() const { return logging_active; }
     uint32_t get_session_storage_version() const { return session_storage_version; }
-    bool validate_stored_session(uint32_t session_id) { return validate_session_file(session_id); }
+    bool validate_stored_session(uint32_t session_id) const { return validate_session_file(session_id); }
     
     // Debug output helpers - conditionally compiled based on debug flags (moved to public for BLE access)
 #if ENABLE_GRIND_DEBUG
@@ -218,17 +213,13 @@ private:
     // Time-series system helpers
     void clear_buffers();
     void initialize_session_config();       // Snapshot current config into session
-    void reset_export_static_variables();   // Reset static variables used in export function
     
     // Flash storage helpers
-    uint32_t calculate_checksum(const uint8_t* data, size_t length); // Simple checksum calculation
-    bool write_time_series_session_to_flash(const GrindSession& session, const GrindEvent* events, const GrindMeasurement* measurements);
-    bool remove_oldest_sessions(uint32_t sessions_to_remove); // Remove oldest sessions from flash file (legacy)
     
     // Individual session file management
     bool ensure_sessions_directory_exists();    // Create sessions directory if needed
     bool write_individual_session_file(uint32_t session_id, const GrindSession& session, const GrindEvent* events, const GrindMeasurement* measurements);
-    bool validate_session_file(uint32_t session_id); // Check if session file is valid/readable
+    bool validate_session_file(uint32_t session_id) const; // Check if session file is valid/readable
     bool remove_session_file(uint32_t session_id);   // Delete specific session file
     void cleanup_old_session_files(); // Remove old session files to maintain MAX_STORED_SESSIONS_FLASH limit
     void mark_session_storage_dirty(); // Bump version when session files change

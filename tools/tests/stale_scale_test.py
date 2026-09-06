@@ -50,8 +50,8 @@ int main() {
         controller = (ROOT / "src/controllers/grind_controller.cpp").read_text()
         logger = (ROOT / "src/logging/grind_logging.cpp").read_text()
         header = (ROOT / "src/logging/grind_logging.h").read_text()
-        terminal = controller.split("        case GrindPhase::TIMEOUT:", 1)[1].split(
-            "            break;", 1)[0]
+        terminal = controller.split("bool GrindController::queue_terminal_session() {", 1)[1].split(
+            "\n}\n", 1)[0]
         reason_enum = "enum class GrindTerminationReason" + header.split(
             "enum class GrindTerminationReason", 1)[1].split("};", 1)[0] + "};"
         classify = "GrindTerminationReason classify_termination_reason" + logger.split(
@@ -68,13 +68,16 @@ struct FlashOpRequest {
  char result_string[32]; float final_weight; uint8_t pulse_count;
 };
 struct Logger { bool is_logging_active() { return true; } } grind_logger;
+enum class GrindPhase { COMPLETED, TIMEOUT };
 struct Controller {
  GrindSessionResult last_session_result_;
+ GrindPhase phase=GrindPhase::TIMEOUT;
+ bool accept=false;
  bool session_end_flash_queued=false;
  float final_weight=12; uint8_t pulse_attempts=2;
  FlashOpRequest stored{};
- void queue_flash_operation(const FlashOpRequest& request) { stored=request; }
- void terminal() {
+ bool queue_flash_operation(const FlashOpRequest& request) { stored=request; return accept; }
+ bool terminal() {
 ''' + terminal + r'''
  }
 };
@@ -87,6 +90,10 @@ int main() {
  assert(classify_termination_reason(timeout.stored.result_string)==GrindTerminationReason::TIMEOUT);
  assert(static_cast<uint8_t>(GrindTerminationReason::SCALE_ERROR)==4);
  assert(!is_completed_grind_result(GrindSessionResult::SCALE_ERROR));
+ assert(!scale.session_end_flash_queued);
+ scale.accept=true;
+ assert(scale.terminal());
+ assert(std::strcmp(scale.stored.result_string,"SCALE_ERROR")==0);
 }
 '''
         with tempfile.TemporaryDirectory() as folder:
