@@ -6,6 +6,10 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+- Fixed touchscreen state updates being lost behind a backlog of live weight
+  readings. The screen now catches up to the latest grind phase or final result,
+  retains error text safely and acknowledges a rapid stop/restart correctly.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls

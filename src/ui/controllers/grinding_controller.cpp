@@ -452,7 +452,8 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 update_grind_button_icon();  // Update button icon to STOP and reposition for dual-button layout
             } else if (event_data.phase != GrindPhase::IDLE &&
                        event_data.phase != GrindPhase::TIME_ADDITIONAL_PULSE &&
-                       !ui_manager_->state_machine->is_state(UIState::GRINDING)) {
+                       (event_data.phase == GrindPhase::INITIALIZING ||
+                        !ui_manager_->state_machine->is_state(UIState::GRINDING))) {
                 LOG_UI_DEBUG("[%lums UI_TRANSITION] Switching to GRINDING state due to phase: %s\n",
                              millis(), event_data.phase_display_text);
                 WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
@@ -462,6 +463,10 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                         : ui_manager_->profile_controller->get_current_name());
                 ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
                 chart_updates_enabled_ = true;
+                if (event_data.phase == GrindPhase::INITIALIZING) {
+                    // A stop/restart can coalesce before the UI leaves GRINDING.
+                    ui_manager_->grinding_screen.reset_chart_data();
+                }
                 update_grinding_targets();
                 if (weight_sensor) {
                     ui_manager_->grinding_screen.update_current_weight(weight_sensor->get_display_weight());
@@ -547,7 +552,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
             error_grind_weight_ = event_data.error_weight;
             error_grind_progress_ = event_data.error_progress;
-            const char* message = event_data.error_message ? event_data.error_message : "Error";
+            const char* message = event_data.error_message[0] ? event_data.error_message : "Error";
             std::strncpy(error_message_, message, sizeof(error_message_) - 1);
             error_message_[sizeof(error_message_) - 1] = '\0';
             LOG_BLE("GRIND ERROR - %s, Weight: %.2fg (Progress: %d%%)\n",
