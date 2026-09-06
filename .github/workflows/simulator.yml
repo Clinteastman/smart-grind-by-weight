@@ -4,22 +4,33 @@ on:
   pull_request:
     paths:
       - 'include/lv_conf.h'
-      - 'src/config/**'
-      - 'src/font/**'
-      - 'src/ui/**'
+      - 'src/**'
       - 'sim/**'
       - '.github/workflows/simulator.yml'
   push:
     branches: [main]
     paths:
       - 'include/lv_conf.h'
-      - 'src/config/**'
-      - 'src/font/**'
-      - 'src/ui/**'
+      - 'src/**'
       - 'sim/**'
       - '.github/workflows/simulator.yml'
 
 jobs:
+  policy-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compile and run standalone policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_dir=$(mktemp -d)
+          for source in sim/*_test.cpp; do
+            test_name=$(basename "$source" .cpp)
+            g++ -std=c++17 -Wall -Wextra -Isrc "$source" -o "$test_dir/$test_name"
+            "$test_dir/$test_name"
+          done
+
   build-and-smoke-test:
     runs-on: windows-latest
     env:
