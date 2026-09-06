@@ -6,7 +6,8 @@ enum class GrindSessionResult {
     OVERSHOOT,
     MAX_PULSES,
     TIMEOUT,
-    ERROR
+    ERROR,
+    SCALE_ERROR
 };
 
 constexpr bool is_completed_grind_result(GrindSessionResult result) {

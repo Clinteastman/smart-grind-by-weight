@@ -404,7 +404,7 @@ void GrindController::update() {
         timeout_phase = phase;
         if (grinder) grinder->stop();
         final_weight = loop_data.current_weight;
-        last_session_result_ = GrindSessionResult::ERROR;
+        last_session_result_ = GrindSessionResult::SCALE_ERROR;
         set_error_message("Scale disconnected");
         queue_log_message("[SCALE] Weight grind stopped: no valid sample for 500ms\n");
         switch_phase(GrindPhase::TIMEOUT, loop_data);
@@ -1081,7 +1081,8 @@ bool GrindController::queue_terminal_session() {
     FlashOpRequest request = {};
     request.operation_type = FlashOpRequest::END_GRIND_SESSION;
     const char* result = "COMPLETE";
-    if (phase == GrindPhase::TIMEOUT) result = "TIMEOUT";
+    if (phase == GrindPhase::TIMEOUT) result = last_session_result_ == GrindSessionResult::SCALE_ERROR
+                                                 ? "SCALE_ERROR" : "TIMEOUT";
     else if (last_session_result_ == GrindSessionResult::OVERSHOOT) result = "OVERSHOOT";
     else if (last_session_result_ == GrindSessionResult::MAX_PULSES) result = "COMPLETE - MAX PULSES";
     strncpy(request.result_string, result, sizeof(request.result_string) - 1);
