@@ -76,6 +76,7 @@ WeightSensor::~WeightSensor() {
 }
 
 void WeightSensor::init(Preferences* preferences) {
+    has_sample_.store(false);
     prefs = preferences;
     
     LOG_BLE("Initializing WeightSensor configuration and filters...\n");
@@ -158,6 +159,7 @@ bool WeightSensor::update_async() {
 // conversion_24bit() method removed - now handled by ADC driver
 
 void WeightSensor::power_down() {
+    has_sample_.store(false);
     if (adc_driver) {
         adc_driver->power_down();
     }
@@ -731,7 +733,7 @@ bool WeightSensor::sample_and_feed_filter() {
     
     // Non-blocking check for available ADC data
     if (data_waiting_async()) {
-        update_async();
+        if (!update_async()) return false;
         int32_t raw_adc = get_raw_adc_data();  // Get raw ADC data from driver
         uint32_t timestamp = millis();
         
@@ -739,6 +741,8 @@ bool WeightSensor::sample_and_feed_filter() {
         if (raw_adc >= 0 && raw_adc <= 0xFFFFFF) {  // Valid 24-bit range
             // Thread-safe sample feeding (CircularBufferMath is single-producer safe)
             raw_filter.add_sample(raw_adc, timestamp);
+            last_sample_ms_.store(timestamp);
+            has_sample_.store(true);
             
             // Tare logic (hardware-independent)
             if (doTare) {

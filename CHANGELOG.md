@@ -44,6 +44,15 @@ line. Earlier release history remains available in the original project's
   preserving the grinder's saved panel-off settings instead of rejecting the
   complete form with a missing-field error.
 
+### Scale reliability
+
+- Stop weight-mode grinding if no valid scale reading arrives for 500 ms,
+  including during purge and settling. Show a scale-disconnected error and
+  require the user to dismiss it; reconnecting does not restart the motor.
+- Refuse weight-mode starts against stale readings. Time and Manual modes
+  remain independent of scale availability. Failed ADC reads no longer refresh
+  sample freshness using the previous reading.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
