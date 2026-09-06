@@ -33,6 +33,8 @@ class LoggingReliabilityTest(unittest.TestCase):
             "bool GrindLogger::write_individual_session_file(",
             "bool GrindLogger::validate_session_file(",
             "uint32_t GrindLogger::count_sessions_in_flash(",
+            "uint32_t GrindLogger::count_total_events_in_flash(",
+            "uint32_t GrindLogger::count_total_measurements_in_flash(",
             "uint32_t GrindLogger::get_total_flash_sessions(",
             "bool GrindLogger::remove_session_file(",
             "void GrindLogger::cleanup_old_session_files(",
@@ -202,18 +204,28 @@ int main() {
     std::memcpy(&header, original.data(), sizeof(header));
     assert(header.checksum == 0 && header.schema_version == 2);
     assert(original.size() == 24 + 80 + 2*44 + 3*24);
+    auto assert_totals = [](uint32_t sessions, uint32_t events, uint32_t measurements) {
+        assert(grind_logger.count_sessions_in_flash() == sessions);
+        assert(grind_logger.count_total_events_in_flash() == events);
+        assert(grind_logger.count_total_measurements_in_flash() == measurements);
+    };
+    assert_totals(1, 2, 3);
     // Reject header-only, truncated payload, trailing data and mismatched metadata.
     for (size_t length : {size_t(0), size_t(23), size_t(24), original.size()-1}) {
         file(1)->bytes.assign(original.begin(), original.begin()+length);
         assert(!grind_logger.validate_stored_session(1));
+        assert_totals(0, 0, 0);
     }
     file(1)->bytes = original; file(1)->bytes.push_back(0);
     assert(!grind_logger.validate_stored_session(1));
+    assert_totals(0, 0, 0);
     for (size_t offset : {size_t(0), size_t(8), size_t(16), size_t(18), size_t(20), size_t(24), size_t(28)}) {
         file(1)->bytes = original; file(1)->bytes[offset] ^= 1;
         assert(!grind_logger.validate_stored_session(1));
+        assert_totals(0, 0, 0);
     }
     file(1)->bytes = original;
+    assert_totals(1, 2, 3);
     for (size_t limit : {size_t(0), size_t(24), size_t(104), size_t(192), original.size()-1}) {
         write_limit = limit;
         GrindSession session; session.session_id = 2;
@@ -235,6 +247,7 @@ int main() {
     uint32_t ids[12]{};
     auto malformed = std::make_shared<Node>(); malformed->name = "session_abc.bin";
     LittleFS.directory_reads = {{malformed}};
+    assert_totals(0, 0, 0);
     assert(stream.get_total_sessions() == 0);
     assert(stream.get_session_list(ids, 12) == 0);
     LittleFS.directory_reads.clear();
