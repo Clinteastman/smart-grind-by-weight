@@ -13,6 +13,8 @@ line. Earlier release history remains available in the original project's
 - Finished and timed-out grinds queue their history record before notifying the
   UI. Immediate dismissal, stop or an extra time-mode pulse preserves that
   record; a full save queue is retried instead of silently losing completion.
+- Live web status and settings read a coherent profile snapshot while profiles
+  are edited. Active grind status reports the session's own profile.
 
 ## [1.5.7] - 2026-08-27
 

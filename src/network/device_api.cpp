@@ -194,17 +194,18 @@ bool DeviceApi::process_commands() {
                     send_ack(command, "start", false, "grinder is not idle");
                     break;
                 }
-                const GrindMode mode = profile_controller_->get_grind_mode();
+                const auto profile = profile_controller_->snapshot();
+                const GrindMode mode = profile.mode;
                 WeightSensor* sensor = hardware_->get_weight_sensor();
                 if (mode == GrindMode::WEIGHT &&
                     (!sensor || sensor->has_hardware_fault())) {
                     send_ack(command, "start", false, "load cell is not ready");
                     break;
                 }
-                grind_controller_->set_grind_profile_id(profile_controller_->get_current_profile());
-                const float target_weight = profile_controller_->get_current_weight();
+                grind_controller_->set_grind_profile_id(profile.current_profile);
+                const float target_weight = profile.profiles[profile.current_profile].weight;
                 const uint32_t target_time_ms = static_cast<uint32_t>(
-                    profile_controller_->get_current_time() * 1000.0f + 0.5f);
+                    profile.profiles[profile.current_profile].time_seconds * 1000.0f + 0.5f);
                 const bool started = grind_controller_->start_grind(target_weight, target_time_ms, mode);
                 send_ack(command, "start", started, started ? "grind started" : "grind could not start");
                 break;
@@ -234,7 +235,9 @@ bool DeviceApi::process_commands() {
                     send_ack(command, "dismiss", false, "nothing to dismiss");
                 } else {
                     grind_controller_->return_to_idle();
-                    send_ack(command, "dismiss", true, "result dismissed");
+                    const bool dismissed = grind_controller_->get_phase() == GrindPhase::IDLE;
+                    send_ack(command, "dismiss", dismissed,
+                             dismissed ? "result dismissed" : "history completion is pending");
                 }
                 break;
             case CommandAction::TARE: {
@@ -634,6 +637,7 @@ String DeviceApi::settings_json() {
 
 void DeviceApi::refresh_settings_cache() {
     if (!profile_controller_ || !hardware_ || !grind_controller_ || !settings_mutex_) return;
+    const auto profile = profile_controller_->snapshot();
     auto read_bool = [](const char* name_space, const char* key, bool fallback) {
         Preferences preferences;
         if (!preferences.begin(name_space, true)) return fallback;
@@ -686,11 +690,11 @@ void DeviceApi::refresh_settings_cache() {
              "\"screensaver_style\":\"%s\",\"has_custom_screensaver\":%s,"
              "\"gaggimate_host\":\"%s\"},"
              "\"bluetooth_startup\":%s}",
-             profile_controller_->get_current_profile(),
-             profile_controller_->get_grind_mode() == GrindMode::TIME ? "time" : "weight",
-             profile_controller_->get_profile_name(0), profile_controller_->get_profile_weight(0), profile_controller_->get_profile_time(0),
-             profile_controller_->get_profile_name(1), profile_controller_->get_profile_weight(1), profile_controller_->get_profile_time(1),
-             profile_controller_->get_profile_name(2), profile_controller_->get_profile_weight(2), profile_controller_->get_profile_time(2),
+             profile.current_profile,
+             profile.mode == GrindMode::TIME ? "time" : "weight",
+             profile.profiles[0].name, profile.profiles[0].weight, profile.profiles[0].time_seconds,
+             profile.profiles[1].name, profile.profiles[1].weight, profile.profiles[1].time_seconds,
+             profile.profiles[2].name, profile.profiles[2].weight, profile.profiles[2].time_seconds,
              read_bool("autogrind", "auto_start", false) ? "true" : "false",
              std::clamp(read_float("autogrind", "start_delta_g", USER_AUTO_GRIND_TRIGGER_DELTA_G),
                         USER_AUTO_GRIND_TRIGGER_MIN_G, USER_AUTO_GRIND_TRIGGER_MAX_G),
@@ -738,15 +742,18 @@ void DeviceApi::send_ack(const Command& command, const char* action, bool accept
 }
 
 String DeviceApi::build_state_message() {
+    // Capture profile data before taking controller access; profile persistence
+    // must not hold up the motor control loop through a network reader.
+    const auto profile = profile_controller_->snapshot();
     const auto control_lock = grind_controller_->lock_control();
     WeightSensor* sensor = hardware_->get_weight_sensor();
     Grinder* grinder = hardware_->get_grinder();
     const bool idle = grind_controller_->get_phase() == GrindPhase::IDLE;
-    const GrindMode mode = idle ? profile_controller_->get_grind_mode() : grind_controller_->get_mode();
-    const float target_weight = idle ? profile_controller_->get_current_weight()
+    const GrindMode mode = idle ? profile.mode : grind_controller_->get_mode();
+    const float target_weight = idle ? profile.profiles[profile.current_profile].weight
                                      : grind_controller_->get_target_weight();
     const uint32_t target_time_ms = idle
-        ? static_cast<uint32_t>(profile_controller_->get_current_time() * 1000.0f)
+        ? static_cast<uint32_t>(profile.profiles[profile.current_profile].time_seconds * 1000.0f)
         : grind_controller_->get_target_time_ms();
     // The web metric is for a human-readable live display, so mirror the
     // steadier filtered value used by the on-device UI. The high-frequency raw
@@ -766,7 +773,7 @@ String DeviceApi::build_state_message() {
              grind_controller_->is_active() ? "true" : "false",
              api_phase_name(*grind_controller_),
              mode == GrindMode::TIME ? "time" : mode == GrindMode::MANUAL ? "manual" : "weight",
-             profile_controller_->get_current_profile(),
+             idle ? profile.current_profile : grind_controller_->get_session_descriptor().profile_id,
              grind_controller_->get_current_progress_percent(),
              target_weight,
              static_cast<unsigned long>(target_time_ms),
