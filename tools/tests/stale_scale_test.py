@@ -8,6 +8,57 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class StaleScaleTest(unittest.TestCase):
+    def test_saved_scale_reason_is_not_timeout(self):
+        controller = (ROOT / "src/controllers/grind_controller.cpp").read_text()
+        logger = (ROOT / "src/logging/grind_logging.cpp").read_text()
+        header = (ROOT / "src/logging/grind_logging.h").read_text()
+        terminal = controller.split("        case GrindPhase::TIMEOUT:", 1)[1].split(
+            "            break;", 1)[0]
+        reason_enum = "enum class GrindTerminationReason" + header.split(
+            "enum class GrindTerminationReason", 1)[1].split("};", 1)[0] + "};"
+        classify = "GrindTerminationReason classify_termination_reason" + logger.split(
+            "GrindTerminationReason classify_termination_reason", 1)[1].split(
+            "\n}\n", 1)[0] + "\n}\n"
+        code = r'''
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include "src/controllers/grind_session_result.h"
+''' + reason_enum + classify + r'''
+struct FlashOpRequest {
+ enum { END_GRIND_SESSION }; int operation_type;
+ char result_string[32]; float final_weight; uint8_t pulse_count;
+};
+struct Logger { bool is_logging_active() { return true; } } grind_logger;
+struct Controller {
+ GrindSessionResult last_session_result_;
+ bool session_end_flash_queued=false;
+ float final_weight=12; uint8_t pulse_attempts=2;
+ FlashOpRequest stored{};
+ void queue_flash_operation(const FlashOpRequest& request) { stored=request; }
+ void terminal() {
+''' + terminal + r'''
+ }
+};
+int main() {
+ Controller scale{GrindSessionResult::SCALE_ERROR}; scale.terminal();
+ Controller timeout{GrindSessionResult::TIMEOUT}; timeout.terminal();
+ assert(std::strcmp(scale.stored.result_string,"SCALE_ERROR")==0);
+ assert(std::strcmp(timeout.stored.result_string,"TIMEOUT")==0);
+ assert(classify_termination_reason(scale.stored.result_string)==GrindTerminationReason::SCALE_ERROR);
+ assert(classify_termination_reason(timeout.stored.result_string)==GrindTerminationReason::TIMEOUT);
+ assert(static_cast<uint8_t>(GrindTerminationReason::SCALE_ERROR)==4);
+ assert(!is_completed_grind_result(GrindSessionResult::SCALE_ERROR));
+}
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            cpp = Path(folder) / "reason.cpp"
+            binary = Path(folder) / "reason"
+            cpp.write_text(code)
+            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-I", str(ROOT),
+                            str(cpp), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_sampling_and_controller_guard(self):
         sensor_cpp = (ROOT / "src/hardware/WeightSensor.cpp").read_text()
         sensor_h = (ROOT / "src/hardware/WeightSensor.h").read_text()
@@ -56,7 +107,7 @@ bool WeightSensor::sample_and_feed_filter()
 ''' + sampling + r'''
 enum class GrindMode {WEIGHT,TIME,MANUAL};
 enum class GrindPhase {PRIME,PREDICTIVE,PULSE_EXECUTE,FINAL_SETTLING,PURGE_CONFIRM,COMPLETED,TIMEOUT};
-enum class GrindSessionResult {UNKNOWN,ERROR};
+#include "src/controllers/grind_session_result.h"
 struct Motor {bool running=true;void stop(){running=false;}};
 struct Controller {
  GrindMode mode=GrindMode::WEIGHT;
@@ -89,7 +140,7 @@ int main(){
                  GrindPhase::FINAL_SETTLING,GrindPhase::PURGE_CONFIRM}){
   Motor motor;Controller c;c.weight_sensor=&sensor;c.grinder=&motor;c.phase=phase;c.cycle();
   assert(!motor.running && !c.phase_work_ran && c.phase==GrindPhase::TIMEOUT);
-  assert(c.last_session_result_==GrindSessionResult::ERROR && c.error=="Scale disconnected");
+  assert(c.last_session_result_==GrindSessionResult::SCALE_ERROR && c.error=="Scale disconnected");
   sensor.sample_and_feed_filter();c.cycle();assert(c.phase==GrindPhase::TIMEOUT && !motor.running);
   clock_ms+=500;
  }
@@ -106,7 +157,7 @@ int main(){
             binary = Path(folder) / "test"
             cpp.write_text(code)
             subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra",
-                            str(cpp), "-o", str(binary)], check=True)
+                            "-I", str(ROOT), str(cpp), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=10)
 
 
