@@ -57,14 +57,14 @@ the original project or its authorship.
 
 ## Delivery status
 
-### Next reliability release
+### 1.5.8 reliability update
 
-The next release is being validated and is not published. Focused reliability
-PRs cover motor timing, stale/disconnected scales, history, touchscreen events,
-update recovery and operation ownership. The final settings-confirmation PR is
-under review. Both firmware targets and host regressions have passed; physical
-acceptance of this combined candidate is still outstanding. See
-[release readiness](RELIABILITY_RELEASE.md).
+Reviewed reliability PRs cover motor timing, stale/disconnected scales, history,
+touchscreen events, update recovery, operation ownership and settings confirmation.
+Both firmware targets and host regressions pass. The combined V2 candidate passed
+supervised Wi-Fi installation, an 18 g grind with saved history and a live
+settings change/restoration without reboot. See [release validation](RELIABILITY_RELEASE.md)
+for evidence and publication checks; the releases page identifies published binaries.
 
 Pulse-free finishing remains a separate tester-dependent draft. Learned cup
 matching and variable-speed hardware work are not part of this release.

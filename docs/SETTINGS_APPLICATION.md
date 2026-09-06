@@ -1,6 +1,7 @@
 # Reliable settings application
 
-This branch is work in progress and is not a released fix.
+Implemented for 1.5.8; see [release validation](RELIABILITY_RELEASE.md) for
+candidate evidence and publication checks.
 
 ## Storage failures
 
@@ -66,7 +67,7 @@ passes pending/saved/failed/busy, unknown results, ID mismatch, polling timeout,
 duplicate submission and reload failure cases. This is not rendered-browser
 or hardware verification. The test runs in firmware CI.
 
-No device flashing or physical acceptance test has been performed.
+The V2 device acceptance is recorded in [release validation](RELIABILITY_RELEASE.md).
 
 Pulse Tune also checks latency persistence before reporting success. A failed
 write uses the existing failure screen and cleanup path, retains the previous

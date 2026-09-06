@@ -4,9 +4,9 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
-## [Unreleased]
+## [1.5.8] - 2026-09-06
 
-This reliability update is being validated; it is not a published release.
+### Pulse Tune
 
 - Cancelling Pulse Tune immediately stops the motor and closes its log before
   returning to the menu. Success and failure paths also stop any active pulse.
@@ -93,6 +93,15 @@ This reliability update is being validated; it is not a published release.
   copying the full page into scarce internal RAM when a browser connects.
   This removes an avoidable roughly 50 KB allocation when opening the web UI.
 - Prevent browsers retaining an outdated settings page across firmware updates.
+
+### Validation
+
+- Both firmware targets and all 26 host regression tests pass for the reviewed
+  candidate. V2 Wi-Fi installation retained the exposed settings; a supervised
+  18 g grind finished at 18.03 g and saved its history. A display-setting change
+  and restoration returned confirmed runtime results without rebooting.
+- V1 physical feedback remains welcome. Fault-injection tests are host coverage,
+  not a claim of physical disconnected-sensor or interrupted-OTA testing.
 
 ## [1.5.7] - 2026-08-27
 
@@ -358,3 +367,4 @@ fixes described above.
 [1.5.5]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.5
 [1.5.6]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.6
 [1.5.7]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.7
+[1.5.8]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.8

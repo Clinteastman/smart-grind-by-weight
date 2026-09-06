@@ -26,19 +26,17 @@ motor off before the target, then uses controlled pulses to finish the dose.
 
 **[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
 **[Build & installation guide](docs/DOC.md#start-here)** ·
-**[What's new in v1.5.7](CHANGELOG.md#157---2026-08-27)** ·
+**[What's new in v1.5.8](CHANGELOG.md#158---2026-09-06)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
-> **v1.5.7 is the current published release.** It fixes return-on-cup-removal
-> and AMOLED wake behaviour. Read the
-> [v1.5.7 changelog](CHANGELOG.md#157---2026-08-27) or install it from the
+> **v1.5.8 reliability update:** improved scale-fault handling, motor timing,
+> update recovery, saved history and settings confirmation. Read the
+> [v1.5.8 changelog](CHANGELOG.md#158---2026-09-06). Published builds are available from the
 > [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/).
 
-The next reliability update is **not released yet**. It improves scale-fault
-handling, motor timing, update recovery, saved history and settings confirmation.
-See [Unreleased changes](CHANGELOG.md#unreleased) and
-[release readiness](docs/RELIABILITY_RELEASE.md) for validation and remaining gates.
+See [release validation](docs/RELIABILITY_RELEASE.md) for the tested candidate
+and coverage limits. The release badge above identifies the latest published build.
 
 <table>
 <tr>
@@ -90,6 +88,8 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
   checks, a touchscreen update indicator and on-device installer, strict V1/V2
   image selection, plus manual Wi-Fi/Bluetooth upload and USB recovery.
 - **On-device diagnostics** with downloadable retained startup/runtime logs.
+- **Checked settings saves and stronger fault handling**, including runtime
+  save confirmation, stale-scale stops and coordinated motor/update operations.
 - **V1 and V2 Waveshare support**, reproducible CI builds, a public web flasher
   and a deterministic Windows desktop simulator for development.
 
@@ -192,10 +192,9 @@ tuning is unavailable.
 ## Community development status
 
 The released baseline supports both V1 and V2, with separate firmware builds.
-Previous physical acceptance used V2; community V1 hardware testing is welcome.
-That earlier testing does not validate new unreleased changes. The next
-reliability candidate still needs supervised device acceptance as recorded in
-[release readiness](docs/RELIABILITY_RELEASE.md).
+The 1.5.8 candidate passed supervised V2 Wi-Fi installation, an 18 g grind with
+saved history, and a live-settings check. Community V1 hardware testing is
+welcome. See [release validation](docs/RELIABILITY_RELEASE.md) for coverage limits.
 
 | Stage | Status | Outcome |
 | --- | --- | --- |
