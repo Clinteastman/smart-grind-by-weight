@@ -54,7 +54,11 @@ has finished. It blocks duplicate save submissions, distinguishes busy and
 partial-write failure from success, and reloads the stored values. Unknown,
 mismatched or timed-out results do not automatically resubmit the save. A saved
 result followed by a reload failure explicitly says the save succeeded but the
-values could not be reloaded.
+values could not be reloaded. Initial save requests and settings reloads have
+15-second network deadlines as well as bounded result polling. The settings
+form is temporarily inert during the save/reload, so edits cannot be made and
+then silently replaced by the refreshed values. Interaction is restored on
+success and failure.
 
 `node tools/tests/settings_web_test.mjs` syntax-checks the complete embedded
 JavaScript and executes the production save handler with API/DOM doubles. It
@@ -64,10 +68,13 @@ or hardware verification. The test runs in firmware CI.
 
 No device flashing or physical acceptance test has been performed.
 
+After the web timeout/interaction changes, all 18 host tests passed again
+(17.484 seconds), along with the JavaScript tests including a real abortable
+pending request. Native WSL V1/V2 rebuilds passed in 31.194/29.872 seconds,
+local build 1. These remain local validation results, not device acceptance.
+
 ## Remaining before this fix can ship
 
-- Bound the initial POST and reload network waits as well as result polling;
-  check that editing during a pending save cannot silently lose later edits.
 - Test the HTTP request/result lifecycle and the rendered web settings workflow,
   including runtime application failures and settings reload errors.
 - Complete V1/V2 builds, PR review and appropriate device acceptance before

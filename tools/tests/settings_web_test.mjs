@@ -47,12 +47,14 @@ for (const status of ['saved', 'failed', 'busy']) {
   const h = harness(['pending', status]);
   const pending = h.submit();
   assert.equal(h.get('saveSettings').disabled, true);
+  assert.equal(h.get('settingsForm').inert, true, 'prevent edits while reloading saved values');
   assert.equal(h.messages.length, 0, 'must not announce success on acceptance');
   await h.submit(); // Duplicate dispatch must not create another POST.
   await pending;
   assert.equal(h.calls.filter(c => c.options?.method === 'POST').length, 1);
   assert.equal(h.get('saveSettings').disabled, false);
   assert.equal(h.get('reloadSettings').disabled, false);
+  assert.equal(h.get('settingsForm').inert, false);
   assert.equal(h.get('settingsForm').attributes['aria-busy'], undefined);
   assert.equal(h.messages.at(-1).error, status !== 'saved');
   assert.equal(h.reloads(), status === 'busy' ? 0 : 1);
@@ -79,4 +81,20 @@ for (const status of ['saved', 'failed']) {
 const h = harness(['saved']);
 await assert.rejects(vm.runInContext('waitForSettingsSave(undefined)', h.context), /cannot confirm/);
 await assert.rejects(vm.runInContext('waitForSettingsSave(0)', h.context), /cannot confirm/);
+
+// Use a real abortable pending request to test the production request deadline.
+const stalled = harness(['saved']);
+stalled.context.setTimeout = setTimeout;
+stalled.context.clearTimeout = clearTimeout;
+stalled.context.api = (_url, {signal}) => new Promise((_resolve, reject) => {
+  signal.addEventListener('abort', () => reject(Object.assign(Error('aborted'), {name: 'AbortError'})));
+});
+await assert.rejects(vm.runInContext("settingsApi('/api/v1/settings', {}, 5)", stalled.context), /timed out.*may have changed/);
+// A lost POST response must not leave the form locked or announce success.
+stalled.context.api = async () => { throw Object.assign(Error('aborted'), {name: 'AbortError'}); };
+await stalled.submit();
+assert.equal(stalled.get('settingsForm').inert, false);
+assert.equal(stalled.get('saveSettings').disabled, false);
+assert.equal(stalled.messages.at(-1).error, true);
+assert.match(stalled.messages.at(-1).message, /may have changed/);
 console.log('Settings web save tests passed (production handler; API/DOM doubles).');
