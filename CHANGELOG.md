@@ -16,6 +16,12 @@ line. Earlier release history remains available in the original project's
 - Live web status and settings read a coherent profile snapshot while profiles
   are edited. Active grind status reports the session's own profile.
 
+### Development
+
+- Run simulator checks for controller and system changes as well as UI changes.
+  Standalone policy tests also run on Linux, independently of the desktop
+  rendering test.
+
 ## [1.5.7] - 2026-08-27
 
 ### Grinding and controls
