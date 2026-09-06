@@ -379,12 +379,12 @@ uint32_t GrindLogger::count_total_events_in_flash() const {
             File file = dir.openNextFile();
             
             while (file) {
-                String filename = file.name();
-                bool is_session_file = (filename.startsWith("session_") || filename.indexOf("/session_") != -1)
-                                       && filename.endsWith(".bin");
-                if (is_session_file) {
-                    String full_path = filename.startsWith("/") ? filename : (String(GRIND_SESSIONS_DIR) + "/" + filename);
-                    File sessionFile = LittleFS.open(full_path.c_str(), "r");
+                uint32_t session_id = 0;
+                if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
+                    validate_stored_session(session_id)) {
+                    char full_path[64];
+                    snprintf(full_path, sizeof(full_path), SESSION_FILE_FORMAT, session_id);
+                    File sessionFile = LittleFS.open(full_path, "r");
                     if (sessionFile) {
                         TimeSeriesSessionHeader header;
                         if (sessionFile.read((uint8_t*)&header, sizeof(header)) == sizeof(header)) {
@@ -413,12 +413,12 @@ uint32_t GrindLogger::count_total_measurements_in_flash() const {
             File file = dir.openNextFile();
             
             while (file) {
-                String filename = file.name();
-                bool is_session_file = (filename.startsWith("session_") || filename.indexOf("/session_") != -1)
-                                       && filename.endsWith(".bin");
-                if (is_session_file) {
-                    String full_path = filename.startsWith("/") ? filename : (String(GRIND_SESSIONS_DIR) + "/" + filename);
-                    File sessionFile = LittleFS.open(full_path.c_str(), "r");
+                uint32_t session_id = 0;
+                if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
+                    validate_stored_session(session_id)) {
+                    char full_path[64];
+                    snprintf(full_path, sizeof(full_path), SESSION_FILE_FORMAT, session_id);
+                    File sessionFile = LittleFS.open(full_path, "r");
                     if (sessionFile) {
                         TimeSeriesSessionHeader header;
                         if (sessionFile.read((uint8_t*)&header, sizeof(header)) == sizeof(header)) {
