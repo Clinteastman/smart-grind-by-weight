@@ -1,12 +1,15 @@
 #include "ota_handler.h"
 #include "../config/build_info.h"
-#include "../config/build_info.h"
 #include "../config/logging.h"
 #include "../hardware/touch_driver.h"
 #include "../hardware/hardware_manager.h"
 #include "../tasks/task_manager.h"
 #include <Arduino.h>
 #include <BLEDevice.h>
+#include <sdkconfig.h>
+#include <climits>
+
+extern HardwareManager hardware_manager;
 
 OTAHandler::OTAHandler() 
     : ota_in_progress(false)
@@ -107,6 +110,10 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
         LOG_OTA_DEBUG("start_ota() FAILED - already in progress\n");
         return false;
     }
+    if (size == 0 || size > INT_MAX) {
+        current_status = BLE_OTA_ERROR;
+        return false;
+    }
     
     patch_size = size;
     received_size = 0;
@@ -140,12 +147,18 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
         .idle_core_mask = (1 << 0) | (1 << 1), // Watch idle tasks on both cores
         .trigger_panic = true,
     };
-    esp_task_wdt_reconfigure(&wdt_config);
+    if (esp_task_wdt_reconfigure(&wdt_config) != ESP_OK) {
+        LOG_BLE("OTA: Unable to configure watchdog; update refused\n");
+        recover_failed_update();
+        return false;
+    }
+    watchdog_extended = true;
     LOG_OTA_DEBUG("Watchdog reconfigured successfully\n");
 
     // Suspend hardware tasks to prevent watchdog timeouts during OTA
     LOG_BLE("OTA: Suspending hardware tasks...\n");
     task_manager.suspend_hardware_tasks();
+    hardware_suspended = true;
 
     LOG_OTA_DEBUG("Calling start_update()...\n");
     if (!start_update()) {
@@ -154,7 +167,7 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
         
         // Resume hardware tasks on failure
         LOG_BLE("OTA: Resuming hardware tasks after failed start\n");
-        task_manager.resume_hardware_tasks();
+        recover_failed_update();
         return false;
     }
     LOG_OTA_DEBUG("start_update() SUCCESS\n");
@@ -169,11 +182,17 @@ bool OTAHandler::process_data_chunk(const uint8_t* data, size_t size) {
     if (!ota_in_progress) {
         return false;
     }
+    if (!data || size == 0 || size > patch_size - received_size) {
+        LOG_BLE("OTA: Invalid or oversized data chunk\n");
+        recover_failed_update();
+        return false;
+    }
     
     // Write patch data to patch partition
     if (delta_partition_write(&patch_writer, (const char*)data, size) != ESP_OK) {
         LOG_BLE("OTA: Patch write failed at offset %lu\n", (unsigned long)received_size);
         current_status = BLE_OTA_ERROR;
+        recover_failed_update();
         return false;
     }
     
@@ -207,9 +226,9 @@ bool OTAHandler::complete_ota() {
     LOG_OTA_DEBUG("Starting kamikaze mode shutdown sequence...\n");
     
     // Disable I2C operations (TouchDriver) - access through hardware_manager
-    extern HardwareManager hardware_manager;
     LOG_OTA_DEBUG("Disabling TouchDriver I2C operations...\n");
     hardware_manager.get_display()->get_touch_driver()->disable();
+    touch_disabled = true;
     LOG_OTA_DEBUG("TouchDriver disabled\n");
     
     // Skip BLE deinitialization - causes hang in kamikaze mode
@@ -255,7 +274,7 @@ bool OTAHandler::complete_ota() {
 
         // Resume hardware tasks on failure
         LOG_BLE("OTA: Resuming hardware tasks after failed finalization\n");
-        task_manager.resume_hardware_tasks();
+        recover_failed_update();
     }
     
     ota_in_progress = false;
@@ -266,14 +285,48 @@ bool OTAHandler::complete_ota() {
 void OTAHandler::abort_ota() {
     if (ota_in_progress) {
         LOG_BLE("OTA: Aborting update\n");
-        ota_in_progress = false;
-        received_size = 0;
-        patch_size = 0;
-        current_status = BLE_OTA_ERROR;
+        recover_failed_update();
+    }
+}
 
-        // Resume hardware tasks on abort
-        LOG_BLE("OTA: Resuming hardware tasks after abort\n");
+void OTAHandler::recover_failed_update() {
+    current_status = BLE_OTA_ERROR;
+    // The SDK initializes the watchdog with these settings at boot. Restore
+    // that exact policy, including which idle tasks are watched, on failure.
+    if (watchdog_extended) {
+        esp_task_wdt_config_t config{};
+        config.timeout_ms = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000U;
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+        config.idle_core_mask |= 1U;
+#endif
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+        config.idle_core_mask |= 2U;
+#endif
+#if CONFIG_ESP_TASK_WDT_PANIC
+        config.trigger_panic = true;
+#endif
+        if (esp_task_wdt_reconfigure(&config) != ESP_OK) {
+            // Do not resume normal operation with weakened watchdog protection.
+            LOG_BLE("OTA: Watchdog recovery failed; restarting\n");
+            esp_restart();
+            return;
+        }
+        watchdog_extended = false;
+    }
+    if (touch_disabled) {
+        hardware_manager.get_display()->get_touch_driver()->enable();
+        touch_disabled = false;
+    }
+    if (hardware_suspended) {
         task_manager.resume_hardware_tasks();
+        hardware_suspended = false;
+    }
+    ota_in_progress = false;
+    received_size = 0;
+    patch_size = 0;
+    if (preferences) {
+        preferences->remove("new_build_nr");
+        preferences->remove("new_fw_ver");
     }
 }
 
