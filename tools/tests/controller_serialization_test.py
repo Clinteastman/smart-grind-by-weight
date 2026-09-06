@@ -47,6 +47,7 @@ class ControllerSerializationTest(unittest.TestCase):
 #include <thread>
 #include <type_traits>
 #include "src/controllers/grind_session.h"
+#include "src/system/operation_interlock.h"
 #define LOG_BLE(...) ((void)0)
 constexpr int GRIND_PURGE_MODE_DEFAULT = 1;
 constexpr float GRIND_PURGE_AMOUNT_DEFAULT_G = 1;
@@ -73,6 +74,7 @@ struct Grinder {
 class GrindController {
 public:
     mutable std::recursive_mutex control_mutex_;
+    OperationInterlock::Token operation_token_ = operation_interlock().try_acquire();
     Grinder* grinder = nullptr;
     GrindMode mode = GrindMode::WEIGHT;
     GrindPhase phase = GrindPhase::PRIME;
@@ -130,6 +132,13 @@ int main() {
     assert(stopper.wait_for(20ms) == std::future_status::timeout);
     release_update.set_value(); updater.get(); stopper.get();
     assert(!motor.motor && !controller.is_active());
+    auto other_operation = operation_interlock().try_acquire();
+    assert(other_operation);
+    motor.motor = true;
+    controller.stop_grind();
+    assert(motor.motor && operation_interlock().owns(other_operation));
+    motor.motor = false;
+    operation_interlock().release(other_operation);
     controller.update(); // a later tick must not resurrect the stopped motor
     assert(!motor.motor);
 

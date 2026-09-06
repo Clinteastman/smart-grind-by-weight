@@ -11,6 +11,7 @@
 #include "net_weight_guard.h"
 #include "weight_grind_strategy.h"
 #include "time_grind_strategy.h"
+#include "../system/operation_interlock.h"
 #include <Preferences.h>
 #include <LittleFS.h>
 #include <mutex>
@@ -67,6 +68,7 @@ private:
     // Serialize complete state transitions, not just individual field writes.
     // Recursive because strategies/getters call back into the same controller.
     mutable std::recursive_mutex control_mutex_;
+    OperationInterlock::Token operation_token_ = 0;
     friend class WeightGrindStrategy;
     friend class TimeGrindStrategy;
 
