@@ -109,7 +109,6 @@ bool AutoTuneController::start() {
 
 void AutoTuneController::cancel() {
     if (!is_running) return;
-    LOG_BLE("AutoTune: User cancel requested\n");
     cancel_requested = true;
     // The UI leaves the tuning screen immediately. Do not depend on another
     // update tick to stop the motor, close the log and finish cancellation.
