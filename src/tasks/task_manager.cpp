@@ -256,6 +256,10 @@ bool TaskManager::create_file_io_task() {
 }
 
 void TaskManager::suspend_hardware_tasks() {
+    // Wait for an in-flight control/flash operation to finish before suspending
+    // its owner. Otherwise that task could retain the controller mutex forever.
+    auto control_lock = grind_controller ? grind_controller->lock_control()
+                                        : std::unique_lock<std::recursive_mutex>{};
     if (ota_suspended) return;
     
     LOG_BLE("TaskManager: Suspending hardware tasks for OTA operations\n");
@@ -280,6 +284,8 @@ void TaskManager::suspend_hardware_tasks() {
 }
 
 void TaskManager::resume_hardware_tasks() {
+    auto control_lock = grind_controller ? grind_controller->lock_control()
+                                        : std::unique_lock<std::recursive_mutex>{};
     if (!ota_suspended) return;
     
     LOG_BLE("TaskManager: Resuming hardware tasks after OTA operations\n");
