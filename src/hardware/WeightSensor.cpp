@@ -739,6 +739,18 @@ bool WeightSensor::sample_and_feed_filter() {
         
         // Raw ADC validation (24-bit range - valid for all supported ADCs)
         if (raw_adc >= 0 && raw_adc <= 0xFFFFFF) {  // Valid 24-bit range
+            // Responsive ADCs can still return unusable rail readings. Do not
+            // let these refresh freshness, contaminate filters, or complete tare.
+            if (raw_adc <= kAdcSaturationMargin ||
+                raw_adc >= kAdcMaximumRaw - kAdcSaturationMargin) {
+                static uint32_t last_saturation_log_ms = 0;
+                if (last_saturation_log_ms == 0 || timestamp - last_saturation_log_ms >= 5000) {
+                    LOG_BLE("WeightSensor: HX711 input near ADC rail - raw=%ld; check load-cell wiring and preload\n",
+                            (long)raw_adc);
+                    last_saturation_log_ms = timestamp;
+                }
+                return false;
+            }
             // Thread-safe sample feeding (CircularBufferMath is single-producer safe)
             raw_filter.add_sample(raw_adc, timestamp);
             last_sample_ms_.store(timestamp);
@@ -763,18 +775,6 @@ bool WeightSensor::sample_and_feed_filter() {
             current_raw_adc = raw_adc;
             current_weight = raw_to_weight(raw_adc);  // Convert using WeightSensor calibration
 
-            if (raw_adc <= kAdcSaturationMargin ||
-                raw_adc >= kAdcMaximumRaw - kAdcSaturationMargin) {
-                static uint32_t last_saturation_log_ms = 0;
-                if (last_saturation_log_ms == 0 || timestamp - last_saturation_log_ms >= 5000) {
-                    const uint32_t headroom = static_cast<uint32_t>(
-                        min(raw_adc, kAdcMaximumRaw - raw_adc));
-                    LOG_BLE("WeightSensor: HX711 input near ADC rail - raw=%ld, headroom=%lu counts; check load-cell wiring and preload\n",
-                            (long)raw_adc, (unsigned long)headroom);
-                    last_saturation_log_ms = timestamp;
-                }
-            }
-            
             // Update temperature if available
             update_temperature_if_available();
             

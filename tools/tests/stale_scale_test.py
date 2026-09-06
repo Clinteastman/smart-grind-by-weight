@@ -179,6 +179,19 @@ int main(){
  }
  sensor.read_ok=false;clock_ms+=500;assert(!sensor.sample_and_feed_filter());assert(!sensor.has_recent_sample());
  sensor.read_ok=true;sensor.raw=-1;assert(!sensor.sample_and_feed_filter());assert(!sensor.has_recent_sample());
+ // Rail faults must neither refresh time nor progress a tare.
+ sensor.doTare=true;
+ for(int32_t raw:{0,0xFFFF,0xFFFFFF-0xFFFF,0xFFFFFF}){
+  sensor.raw=raw;clock_ms+=100;
+  const auto before=sensor.last_sample_ms_.load();
+  assert(!sensor.sample_and_feed_filter());
+  assert(sensor.last_sample_ms_.load()==before && sensor.tareTimes==0);
+  assert(!sensor.has_recent_sample());
+ }
+ sensor.doTare=false;
+ for(int32_t raw:{0x10000,0xFFFFFF-0x10000}){
+  sensor.raw=raw;assert(sensor.sample_and_feed_filter());assert(sensor.has_recent_sample());
+ }
  sensor.raw=0x800000;clock_ms=UINT32_MAX-100;assert(sensor.sample_and_feed_filter());
  clock_ms=398;assert(sensor.has_recent_sample());clock_ms=399;assert(!sensor.has_recent_sample());
  for(auto phase:{GrindPhase::PRIME,GrindPhase::PREDICTIVE,GrindPhase::PULSE_EXECUTE,
