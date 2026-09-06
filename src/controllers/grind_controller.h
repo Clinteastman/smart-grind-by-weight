@@ -242,7 +242,7 @@ public:
     
     // Flash operation system
     void process_queued_flash_operations(); // Core 1: Process flash ops from Core 0 queue
-    void queue_flash_operation(const FlashOpRequest& request); // Core 0: Queue flash operation
+    bool queue_flash_operation(const FlashOpRequest& request); // Core 0: Queue flash operation
     
     // Log message system
     void process_queued_log_messages(); // Core 1: Process log messages from Core 0 queue
@@ -307,6 +307,7 @@ public:
     
     
 private:
+    bool queue_terminal_session();
     void switch_phase(GrindPhase new_phase, const GrindLoopData& loop_data = {});
     void final_measurement(const GrindLoopData& loop_data);
     void monitor_mechanical_instability(const GrindLoopData& loop_data);

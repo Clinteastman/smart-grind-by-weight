@@ -10,6 +10,9 @@ line. Earlier release history remains available in the original project's
   preventing an in-flight update from restarting the motor after stop returns.
   Web start acknowledgements now reflect whether the controller accepted the
   start, and firmware-update task suspension waits for controller access to end.
+- Finished and timed-out grinds queue their history record before notifying the
+  UI. Immediate dismissal, stop or an extra time-mode pulse preserves that
+  record; a full save queue is retried instead of silently losing completion.
 
 ## [1.5.7] - 2026-08-27
 

@@ -251,6 +251,11 @@ void GrindController::return_to_idle() {
     // This is called by the UI to acknowledge a completed or timed-out grind
     // and return the controller to the IDLE state.
     if (phase == GrindPhase::COMPLETED || phase == GrindPhase::TIMEOUT) {
+        // Do not release the single session buffer until its terminal record
+        // has been consumed. A full queue is drained and retried on this caller.
+        process_queued_flash_operations();
+        if (!queue_terminal_session()) return;
+        process_queued_flash_operations();
         LOG_BLE("[%lums CONTROLLER] UI acknowledged completion/timeout, returning to IDLE.\n", millis());
         time_grind_start_ms = 0;
         target_time_ms = 0;
@@ -269,6 +274,12 @@ void GrindController::return_to_idle() {
 void GrindController::stop_grind() {
     const auto control_lock = lock_control();
     if (!grinder) return;
+
+    if (phase == GrindPhase::COMPLETED || phase == GrindPhase::TIMEOUT) {
+        grinder->stop();
+        return_to_idle();
+        return;
+    }
     
     const uint32_t manual_runtime_ms =
         (mode == GrindMode::MANUAL && time_grind_start_ms > 0)
@@ -578,54 +589,10 @@ void GrindController::update() {
             break;
             
         case GrindPhase::COMPLETED:
-            if (grind_logger.is_logging_active() && !session_end_flash_queued) {
-                float error = final_weight - target_weight;
-                if (mode == GrindMode::TIME) {
-                    error = 0.0f;
-                }
-
-                const char* result_string = "COMPLETE";
-                switch (last_session_result_) {
-                    case GrindSessionResult::OVERSHOOT:
-                        result_string = "OVERSHOOT";
-                        LOG_BLE("--- RESULT: OVERSHOOT (Error: %+.2fg) ---\n", error);
-                        break;
-                    case GrindSessionResult::MAX_PULSES:
-                        result_string = "COMPLETE - MAX PULSES";
-                        LOG_BLE("--- RESULT: COMPLETE - MAX PULSES (Error: %+.2fg) ---\n", error);
-                        break;
-                    default:
-                        LOG_BLE("--- RESULT: COMPLETE (Error: %+.2fg) ---\n", error);
-                        break;
-                }
-
-                // Queue flash operation for Core 1 processing - no blocking on Core 0
-                FlashOpRequest request = {};
-                request.operation_type = FlashOpRequest::END_GRIND_SESSION;
-                strncpy(request.result_string, result_string, sizeof(request.result_string) - 1);
-                request.final_weight = final_weight;
-                request.pulse_count = pulse_attempts;
-                queue_flash_operation(request);
-                
-                // Mark flash operation as queued to prevent repeated calls
-                session_end_flash_queued = true;
-            }
-            break;
-            
         case GrindPhase::TIMEOUT:
-            if (grind_logger.is_logging_active() && !session_end_flash_queued) {
-                // Queue flash operation for Core 1 processing - no blocking on Core 0
-                FlashOpRequest request = {};
-                request.operation_type = FlashOpRequest::END_GRIND_SESSION;
-                strncpy(request.result_string, "TIMEOUT", sizeof(request.result_string) - 1);
-                request.final_weight = final_weight;
-                request.pulse_count = pulse_attempts;
-                queue_flash_operation(request);
-                
-                // Mark flash operation as queued to prevent repeated calls
-                session_end_flash_queued = true;
-            }
+            queue_terminal_session();
             break;
+
             
         default:
             break;
@@ -910,11 +877,17 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         event_data.error_message = last_error_message;
         // Use non-blocking high latency weight instead of precision settled weight
         event_data.error_weight = weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f;
+        final_weight = event_data.error_weight;
         event_data.error_progress = get_progress_percent();
     } else if (new_phase == GrindPhase::IDLE) {
         event_data.event = UIGrindEvent::STOPPED;
     }
     
+    // Queue the final record before exposing completion to another task.
+    // If the queue is full, terminal update ticks retry without blocking.
+    if (new_phase == GrindPhase::COMPLETED || new_phase == GrindPhase::TIMEOUT) {
+        queue_terminal_session();
+    }
     emit_ui_event(event_data);
 }
 
@@ -1094,7 +1067,24 @@ void GrindController::process_queued_ui_events() {
     }
 }
 
-void GrindController::queue_flash_operation(const FlashOpRequest& request) {
+bool GrindController::queue_terminal_session() {
+    if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT) return false;
+    if (session_end_flash_queued || !grind_logger.is_logging_active()) return true;
+
+    FlashOpRequest request = {};
+    request.operation_type = FlashOpRequest::END_GRIND_SESSION;
+    const char* result = "COMPLETE";
+    if (phase == GrindPhase::TIMEOUT) result = "TIMEOUT";
+    else if (last_session_result_ == GrindSessionResult::OVERSHOOT) result = "OVERSHOOT";
+    else if (last_session_result_ == GrindSessionResult::MAX_PULSES) result = "COMPLETE - MAX PULSES";
+    strncpy(request.result_string, result, sizeof(request.result_string) - 1);
+    request.final_weight = final_weight;
+    request.pulse_count = pulse_attempts;
+    session_end_flash_queued = queue_flash_operation(request);
+    return session_end_flash_queued;
+}
+
+bool GrindController::queue_flash_operation(const FlashOpRequest& request) {
     // Thread-safe Core 0 → Core 1 flash operation queuing
     if (flash_op_queue) {
         BaseType_t result = xQueueSend(flash_op_queue, &request, 0); // 0 = no wait (non-blocking)
@@ -1109,12 +1099,15 @@ void GrindController::queue_flash_operation(const FlashOpRequest& request) {
                                             ? "UPDATE_MANUAL_RUNTIME"
                                             : "START_GRIND_SESSION";
             LOG_BLE("[%lums FLASH_OP] QUEUED %s operation for Core 1 processing\n", millis(), op_name);
+            return true;
         }
     }
+    return false;
 }
 
 void GrindController::process_queued_flash_operations() {
     const auto control_lock = lock_control();
+    if (!flash_op_queue) return;
     FlashOpRequest request;
     
     // Process all queued flash operations from Core 0
@@ -1201,6 +1194,12 @@ void GrindController::start_additional_pulse() {
         LOG_BLE("ERROR: Cannot pulse - grinder not available\n");
         return;
     }
+
+    // Extra time-mode pulses are separate from the completed history record.
+    // Finish that record before resuming motor activity or logging new samples.
+    process_queued_flash_operations();
+    if (!queue_terminal_session()) return;
+    process_queued_flash_operations();
     
     additional_pulse_count++;
 

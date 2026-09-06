@@ -88,6 +88,7 @@ public:
     template<class... Args> void queue_log_message(Args...) {}
     void switch_phase(GrindPhase next, const GrindLoopData& = {}) { phase = next; }
     void stop_grind();
+    void return_to_idle() { phase = GrindPhase::IDLE; }
     bool is_active() const;
 ''' + lock + "\n" + snapshot + r'''
     void update() {
