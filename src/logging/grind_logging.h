@@ -93,6 +93,7 @@ enum class GrindTerminationReason : uint8_t {
     TIMEOUT = 1,
     OVERSHOOT = 2,
     MAX_PULSES = 3,
+    SCALE_ERROR = 4,
     UNKNOWN = 255
 };
 

@@ -17,6 +17,9 @@ GrindTerminationReason classify_termination_reason(const char* final_result) {
         return GrindTerminationReason::UNKNOWN;
     }
 
+    if (strcmp(final_result, "SCALE_ERROR") == 0) {
+        return GrindTerminationReason::SCALE_ERROR;
+    }
     if (strcmp(final_result, "TIMEOUT") == 0) {
         return GrindTerminationReason::TIMEOUT;
     }
