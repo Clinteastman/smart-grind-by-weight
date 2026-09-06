@@ -760,6 +760,9 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
     // Check if we have valid loop_data (non-zero timestamp indicates valid data)
     bool has_loop_data = (loop_data.now > 0);
     unsigned long now = has_loop_data ? loop_data.now : millis();
+    // Terminal transitions may follow logging or a motor stop in this tick.
+    // Use the transition clock, not the earlier sample clock, for the boundary.
+    if (new_phase == GrindPhase::COMPLETED || new_phase == GrindPhase::TIMEOUT) now = millis();
     
 #if ENABLE_GRIND_DEBUG
     // DEBUG: Log phase transition with boot time and proper phase duration
@@ -1084,6 +1087,8 @@ bool GrindController::queue_terminal_session() {
     strncpy(request.result_string, result, sizeof(request.result_string) - 1);
     request.final_weight = final_weight;
     request.pulse_count = pulse_attempts;
+    // The terminal phase timestamp survives queue-full retries and UI delays.
+    request.completed_at_ms = static_cast<uint32_t>(phase_start_time);
     session_end_flash_queued = queue_flash_operation(request);
     return session_end_flash_queued;
 }
@@ -1130,7 +1135,8 @@ void GrindController::process_queued_flash_operations() {
                 // Perform the blocking flash operation on Core 1
                 LOG_BLE("[%lums FLASH_OP] Processing END_GRIND_SESSION on Core 1: %s, %.2fg, %d pulses\n", 
                         millis(), request.result_string, request.final_weight, request.pulse_count);
-                grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count);
+                grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count,
+                                               request.completed_at_ms);
                 break;
 
             case FlashOpRequest::UPDATE_MANUAL_RUNTIME:
