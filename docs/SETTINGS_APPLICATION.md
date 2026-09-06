@@ -49,13 +49,25 @@ check busy/refused saves, partial-save refresh, completion ordering, bounded res
 retention, ID wrap and concurrent requests. They do not exercise a real HTTP
 server or rendered UI. All 18 host tests and three standalone policies pass.
 Native WSL V1/V2 builds passed in 39.128s/39.734s (local build 1).
-Browser-side integration is still required. No device flashing or
-physical acceptance test has been performed.
+The embedded web page now polls the result instead of assuming a queued save
+has finished. It blocks duplicate save submissions, distinguishes busy and
+partial-write failure from success, and reloads the stored values. Unknown,
+mismatched or timed-out results do not automatically resubmit the save. A saved
+result followed by a reload failure explicitly says the save succeeded but the
+values could not be reloaded.
+
+`node tools/tests/settings_web_test.mjs` syntax-checks the complete embedded
+JavaScript and executes the production save handler with API/DOM doubles. It
+passes pending/saved/failed/busy, unknown results, ID mismatch, polling timeout,
+duplicate submission and reload failure cases. This is not rendered-browser
+or hardware verification. The test runs in firmware CI.
+
+No device flashing or physical acceptance test has been performed.
 
 ## Remaining before this fix can ship
 
-- Replace the web page's fixed 250 ms delay and unconditional success message
-  with that actual result; report failures without claiming a rollback.
+- Bound the initial POST and reload network waits as well as result polling;
+  check that editing during a pending save cannot silently lose later edits.
 - Test the HTTP request/result lifecycle and the rendered web settings workflow,
   including runtime application failures and settings reload errors.
 - Complete V1/V2 builds, PR review and appropriate device acceptance before
