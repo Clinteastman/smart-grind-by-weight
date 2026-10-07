@@ -1,42 +1,56 @@
 #include <lvgl.h>
-#include <src/drivers/windows/lv_windows_display.h>
 
 #include "config/constants.h"
+#include "sim_platform.h"
 #include "ui/screens/grinding_screen_arc.h"
 #include "ui/screens/grinding_screen_chart.h"
+#include "ui/screens/grinding_screen_circle.h"
 #include "ui/screens/ready_screen.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <windows.h>
 
 namespace {
+
+using sim_platform::now_ms;
+using sim_platform::set_status;
 
 constexpr int kDisplayWidth = 280;
 constexpr int kDisplayHeight = 456;
 constexpr float kTargetWeight = USER_SINGLE_ESPRESSO_WEIGHT_G;
 constexpr uint64_t kArcPixelBudget = 800000;
 constexpr uint64_t kChartPixelBudget = 3500000;
-constexpr uint64_t kSwipePixelBudget = 1000000;
+// A tab swipe should only redraw the 280 x 364 tab area (101,920 px) per frame.
+// Budgeting per frame keeps the check independent of how many frames the host
+// manages to render during the animation.
+constexpr uint64_t kSwipePixelsPerRefreshBudget = 110000;
 constexpr uint32_t kSwipeDurationBudgetMs = 300;
+
+// A full grind on the circle layout takes about 9 seconds in the mock model.
+constexpr uint32_t kCircleSmokeTimeoutMs = 15000;
+// Lets the completion screen render before checking.
+constexpr uint32_t kCircleSettleMs = 400;
 
 ReadyScreen ready_screen;
 GrindingScreenArc arc_screen;
 GrindingScreenChart chart_screen;
+GrindingScreenCircle circle_screen;
+// Indexed by GrindScreenLayout, matching the firmware's layout order.
+IGrindingScreen* const grind_screens[] = {&arc_screen, &chart_screen, &circle_screen};
 lv_obj_t* grind_button = nullptr;
 lv_obj_t* grind_icon = nullptr;
 lv_obj_t* pulse_button = nullptr;
-bool chart_layout = false;
+GrindScreenLayout layout = GrindScreenLayout::MINIMAL_ARC;
 bool grinding = false;
 bool settling = false;
 bool manual_grinding = false;
+bool grind_completed = false;
 float weight_g = 0.0f;
 float flow_gps = 0.0f;
 uint32_t grind_started_ms = 0;
 uint32_t last_update_ms = 0;
-HWND simulator_window = nullptr;
 
 struct RenderMetrics {
     uint64_t flushed_pixels = 0;
@@ -47,10 +61,6 @@ struct RenderMetrics {
 };
 
 RenderMetrics render_metrics;
-
-uint32_t now_ms() {
-    return static_cast<uint32_t>(GetTickCount64());
-}
 
 void reset_render_metrics() {
     render_metrics = {};
@@ -95,14 +105,6 @@ void display_metrics_event(lv_event_t* event) {
     }
 }
 
-void set_status(const char* status) {
-    if (simulator_window) {
-        wchar_t title[160];
-        swprintf_s(title, L"Smart Grind Simulator - %S  [V: view, T: tare]", status);
-        SetWindowTextW(simulator_window, title);
-    }
-}
-
 void set_grind_button(const char* symbol, uint32_t color) {
     if (grind_icon) {
         lv_image_set_src(grind_icon, symbol);
@@ -112,43 +114,51 @@ void set_grind_button(const char* symbol, uint32_t color) {
     }
 }
 
+// As in the firmware: on the circle layout the finished screen is the same
+// green as the OK button, so the button gets a white outline.
+void update_grind_button_outline() {
+    const bool outline = grind_completed && layout == GrindScreenLayout::CIRCLE;
+    lv_obj_set_style_border_color(grind_button, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_border_width(grind_button, outline ? 4 : 0, 0);
+}
+
 void show_ready() {
     grinding = false;
     settling = false;
     manual_grinding = false;
-    arc_screen.hide();
-    chart_screen.hide();
+    grind_completed = false;
+    for (IGrindingScreen* screen : grind_screens) {
+        screen->hide();
+    }
     ready_screen.show();
     set_grind_button(LV_SYMBOL_PLAY, THEME_COLOR_PRIMARY);
+    update_grind_button_outline();
     set_status("READY");
 }
 
 void show_active_grind_screen() {
     ready_screen.hide();
-    if (chart_layout) {
-        arc_screen.hide();
-        chart_screen.show();
-    } else {
-        chart_screen.hide();
-        arc_screen.show();
+    IGrindingScreen* active = grind_screens[static_cast<int>(layout)];
+    for (IGrindingScreen* screen : grind_screens) {
+        if (screen != active) screen->hide();
     }
+    active->show();
 }
 
 void reset_grind_views() {
     const bool manual = lv_tabview_get_tab_act(ready_screen.get_tabview()) ==
                         ReadyScreen::MANUAL_TAB_INDEX;
-    arc_screen.update_profile_name(manual ? "MANUAL" : "SINGLE");
-    chart_screen.update_profile_name(manual ? "MANUAL" : "SINGLE");
-    if (manual) {
-        arc_screen.update_target_weight_text("Elapsed: 0.0s");
-        chart_screen.update_target_weight_text("Elapsed: 0.0s");
-    } else {
-        arc_screen.update_target_weight(kTargetWeight);
-        chart_screen.update_target_weight(kTargetWeight);
+    circle_screen.set_outcome(GrindScreenOutcome::IN_PROGRESS);
+    for (IGrindingScreen* screen : grind_screens) {
+        screen->update_profile_name(manual ? "MANUAL" : "SINGLE");
+        if (manual) {
+            screen->update_target_weight_text("Elapsed: 0.0s");
+        } else {
+            screen->update_target_weight(kTargetWeight);
+        }
+        screen->update_current_weight(0.0f);
+        screen->update_progress(0);
     }
-    arc_screen.update_current_weight(0.0f);
-    chart_screen.update_current_weight(0.0f);
-    arc_screen.update_progress(0);
     chart_screen.reset_chart_data();
 }
 
@@ -157,6 +167,7 @@ void start_grind() {
     flow_gps = 0.0f;
     grinding = true;
     settling = false;
+    grind_completed = false;
     manual_grinding = lv_tabview_get_tab_act(ready_screen.get_tabview()) ==
                       ReadyScreen::MANUAL_TAB_INDEX;
     grind_started_ms = now_ms();
@@ -164,21 +175,26 @@ void start_grind() {
     reset_grind_views();
     show_active_grind_screen();
     set_grind_button(LV_SYMBOL_STOP, THEME_COLOR_PRIMARY);
+    update_grind_button_outline();
     set_status("GRINDING");
 }
 
 void toggle_layout() {
-    chart_layout = !chart_layout;
+    layout = static_cast<GrindScreenLayout>(
+        (static_cast<int>(layout) + 1) % static_cast<int>(GrindScreenLayout::COUNT));
     if (!ready_screen.is_visible()) {
         show_active_grind_screen();
     }
-    set_status(chart_layout ? "CHART VIEW" : "ARC VIEW");
+    update_grind_button_outline();
+    const char* const names[] = {"ARC VIEW", "CHART VIEW", "CIRCLE VIEW"};
+    set_status(names[static_cast<int>(layout)]);
 }
 
 void tare() {
     weight_g = 0.0f;
-    arc_screen.update_tare_display();
-    chart_screen.update_tare_display();
+    for (IGrindingScreen* screen : grind_screens) {
+        screen->update_tare_display();
+    }
     set_status("TARE");
 }
 
@@ -242,8 +258,9 @@ void update_mock_grind() {
         if (manual_grinding) {
             char elapsed_text[32];
             std::snprintf(elapsed_text, sizeof(elapsed_text), "Elapsed: %.1fs", elapsed_s);
-            arc_screen.update_target_weight_text(elapsed_text);
-            chart_screen.update_target_weight_text(elapsed_text);
+            for (IGrindingScreen* screen : grind_screens) {
+                screen->update_target_weight_text(elapsed_text);
+            }
         } else if (weight_g >= kTargetWeight - 0.45f) {
             grinding = false;
             settling = true;
@@ -255,7 +272,10 @@ void update_mock_grind() {
         if (flow_gps < 0.015f) {
             settling = false;
             flow_gps = 0.0f;
+            grind_completed = true;
+            circle_screen.set_outcome(GrindScreenOutcome::COMPLETE);
             set_grind_button(LV_SYMBOL_OK, THEME_COLOR_SUCCESS);
+            update_grind_button_outline();
             set_status("COMPLETE");
         }
     }
@@ -263,9 +283,10 @@ void update_mock_grind() {
     const int progress = manual_grinding
                              ? 0
                              : std::clamp(static_cast<int>((weight_g / kTargetWeight) * 100.0f), 0, 100);
-    arc_screen.update_current_weight(weight_g);
-    chart_screen.update_current_weight(weight_g);
-    arc_screen.update_progress(progress);
+    for (IGrindingScreen* screen : grind_screens) {
+        screen->update_current_weight(weight_g);
+        screen->update_progress(progress);
+    }
     chart_screen.add_chart_data_point(weight_g, flow_gps, current_ms);
 }
 
@@ -285,6 +306,7 @@ int main(int argc, char** argv) {
     const bool benchmark = has_arg(argc, argv, "--benchmark");
     const bool swipe_benchmark = has_arg(argc, argv, "--swipe-benchmark");
     const bool manual_smoke = has_arg(argc, argv, "--manual-smoke");
+    const bool circle_smoke = has_arg(argc, argv, "--circle-smoke");
 
     if (smoke_test) {
         std::puts("[smoke] starting simulator");
@@ -294,27 +316,19 @@ int main(int argc, char** argv) {
     lv_init();
     lv_tick_set_cb(now_ms);
 
-    lv_display_t* display = lv_windows_create_display(
-        L"Smart Grind-by-Weight Simulator",
-        kDisplayWidth,
-        kDisplayHeight,
-        140,
-        true,
-        true);
+    const bool automated_run =
+        smoke_test || benchmark || swipe_benchmark || manual_smoke || circle_smoke;
+    lv_display_t* display =
+        sim_platform::create_display(kDisplayWidth, kDisplayHeight, automated_run);
     if (!display) {
         std::fprintf(stderr, "Could not create the simulator display.\n");
         return 1;
-    }
-
-    simulator_window = lv_windows_get_display_window_handle(display);
-    if (smoke_test || benchmark || swipe_benchmark || manual_smoke) {
-        ShowWindow(simulator_window, SW_HIDE);
     }
     lv_display_add_event_cb(display, display_metrics_event, LV_EVENT_ALL, nullptr);
 
     // The Windows driver creates its framebuffer on the first LVGL timer pass.
     // Let that happen before sizing and styling the production screen objects.
-    Sleep(LV_DEF_REFR_PERIOD + 1);
+    sim_platform::sleep_ms(LV_DEF_REFR_PERIOD + 1);
     lv_timer_handler();
 
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(THEME_COLOR_BACKGROUND), 0);
@@ -323,6 +337,7 @@ int main(int argc, char** argv) {
     ready_screen.create();
     arc_screen.create();
     chart_screen.create();
+    circle_screen.create();
     create_grinder_controls();
     show_ready();
     lv_obj_invalidate(lv_screen_active());
@@ -333,7 +348,6 @@ int main(int argc, char** argv) {
         std::fflush(stdout);
     }
 
-    HWND window = simulator_window;
     const uint32_t smoke_started_ms = now_ms();
     bool smoke_scenario_started = false;
     bool benchmark_switched_layout = false;
@@ -343,8 +357,10 @@ int main(int argc, char** argv) {
     bool view_key_down = false;
     bool tare_key_down = false;
     bool manual_stop_sent = false;
+    int32_t largest_grinding_diameter = 0;
+    uint32_t circle_completed_ms = 0;
 
-    while (IsWindow(window)) {
+    while (sim_platform::is_window_open()) {
         if (swipe_benchmark && !swipe_started && now_ms() - smoke_started_ms > 100) {
             reset_render_metrics();
             swipe_started_ms = now_ms();
@@ -362,51 +378,97 @@ int main(int argc, char** argv) {
         if (manual_smoke && !smoke_scenario_started && now_ms() - smoke_started_ms > 100) {
             if (lv_tabview_get_tab_act(ready_screen.get_tabview()) != ReadyScreen::MANUAL_TAB_INDEX) {
                 std::fprintf(stderr, "Manual page is not the first ready tab.\n");
-                ExitProcess(5);
+                sim_platform::exit_process(5);
             }
+            start_grind();
+            smoke_scenario_started = true;
+        }
+
+        if (circle_smoke && !smoke_scenario_started && now_ms() - smoke_started_ms > 100) {
+            lv_tabview_set_act(ready_screen.get_tabview(), ReadyScreen::PROFILE_TAB_START_INDEX, LV_ANIM_OFF);
+            layout = GrindScreenLayout::CIRCLE;
             start_grind();
             smoke_scenario_started = true;
         }
 
         update_mock_grind();
 
-        const bool view_pressed = (GetAsyncKeyState('V') & 0x8000) != 0;
+        const bool view_pressed = sim_platform::is_key_down('V');
         if (view_pressed && !view_key_down) {
             toggle_layout();
         }
         view_key_down = view_pressed;
 
-        const bool tare_pressed = (GetAsyncKeyState('T') & 0x8000) != 0;
+        const bool tare_pressed = sim_platform::is_key_down('T');
         if (tare_pressed && !tare_key_down) {
             tare();
         }
         tare_key_down = tare_pressed;
         const uint32_t wait_ms = std::clamp<uint32_t>(lv_timer_handler(), 1, 16);
-        Sleep(wait_ms);
+        sim_platform::sleep_ms(wait_ms);
 
         if (swipe_benchmark && swipe_started &&
             !lv_obj_is_scrolling(lv_tabview_get_content(ready_screen.get_tabview()))) {
             const uint32_t duration_ms = now_ms() - swipe_started_ms;
             print_render_metrics("swipe", duration_ms);
+            const uint64_t pixels_per_refresh = render_metrics.refresh_count > 0
+                ? render_metrics.flushed_pixels / render_metrics.refresh_count
+                : 0;
             if (lv_tabview_get_tab_act(ready_screen.get_tabview()) != 1 ||
                 duration_ms > kSwipeDurationBudgetMs ||
-                render_metrics.flushed_pixels > kSwipePixelBudget) {
+                pixels_per_refresh > kSwipePixelsPerRefreshBudget) {
                 std::fprintf(stderr, "Simulator swipe budget exceeded.\n");
                 std::fflush(stderr);
-                ExitProcess(4);
+                sim_platform::exit_process(4);
             }
-            ExitProcess(0);
+            sim_platform::exit_process(0);
+        }
+
+        if (circle_smoke && smoke_scenario_started) {
+            // The circle must grow while grinding, then the display must turn
+            // solid green once the grind completes.
+            lv_obj_t* circle = circle_screen.get_circle();
+            const int32_t diameter = lv_obj_get_style_width(circle, LV_PART_MAIN);
+            if (grinding) {
+                largest_grinding_diameter = std::max(largest_grinding_diameter, diameter);
+            }
+            if (grind_completed && circle_completed_ms == 0) {
+                circle_completed_ms = now_ms();
+            }
+            if (circle_completed_ms != 0 && now_ms() - circle_completed_ms > kCircleSettleMs) {
+                // Both the circle and the corners around it must end up green.
+                lv_obj_t* screen = circle_screen.get_screen();
+                const lv_color_t success = lv_color_hex(THEME_COLOR_SUCCESS);
+                const bool grew = largest_grinding_diameter > THEME_GRIND_CIRCLE_MIN_DIAMETER_PX;
+                const bool covers_display = lv_obj_get_style_bg_opa(screen, LV_PART_MAIN) == LV_OPA_COVER &&
+                                            lv_obj_get_width(screen) == kDisplayWidth &&
+                                            lv_obj_get_height(screen) == kDisplayHeight;
+                const bool green = lv_color_eq(lv_obj_get_style_bg_color(screen, LV_PART_MAIN), success) &&
+                                   lv_color_eq(lv_obj_get_style_bg_color(circle, LV_PART_MAIN), success);
+                std::printf("[circle-smoke] largest while grinding=%ldpx covered=%s green=%s\n",
+                            static_cast<long>(largest_grinding_diameter),
+                            covers_display ? "yes" : "no", green ? "yes" : "no");
+                if (!grew || !covers_display || !green) {
+                    std::fprintf(stderr, "Circle screen did not grow and fill green.\n");
+                    sim_platform::exit_process(8);
+                }
+                sim_platform::exit_process(0);
+            }
+            if (now_ms() - smoke_started_ms > kCircleSmokeTimeoutMs) {
+                std::fprintf(stderr, "Circle grind did not complete.\n");
+                sim_platform::exit_process(9);
+            }
         }
 
         if (smoke_test && now_ms() - smoke_started_ms > 750) {
             if (!arc_screen.is_visible() || ready_screen.is_visible() || weight_g <= 0.0f) {
                 std::fprintf(stderr, "Simulator scenario did not advance.\n");
                 std::fflush(stderr);
-                ExitProcess(2);
+                sim_platform::exit_process(2);
             }
             std::printf("[smoke] scenario advanced to %.2fg\n", weight_g);
             std::fflush(stdout);
-            ExitProcess(0);
+            sim_platform::exit_process(0);
         }
 
 
@@ -414,7 +476,7 @@ int main(int argc, char** argv) {
             now_ms() - smoke_started_ms > 650) {
             if (!manual_grinding || !arc_screen.is_visible() || weight_g <= 0.0f) {
                 std::fprintf(stderr, "Manual grind did not advance.\n");
-                ExitProcess(6);
+                sim_platform::exit_process(6);
             }
             grind_button_event(nullptr);
             manual_stop_sent = true;
@@ -423,10 +485,10 @@ int main(int argc, char** argv) {
         if (manual_smoke && manual_stop_sent && now_ms() - smoke_started_ms > 750) {
             if (grinding || settling || manual_grinding) {
                 std::fprintf(stderr, "Manual grind did not stop.\n");
-                ExitProcess(7);
+                sim_platform::exit_process(7);
             }
             std::printf("[manual-smoke] start/stop completed at %.2fg\n", weight_g);
-            ExitProcess(0);
+            sim_platform::exit_process(0);
         }
 
         if (benchmark && !benchmark_switched_layout && now_ms() - smoke_started_ms > 2600) {
@@ -443,9 +505,9 @@ int main(int argc, char** argv) {
                 render_metrics.flushed_pixels > kChartPixelBudget) {
                 std::fprintf(stderr, "Simulator render budget exceeded.\n");
                 std::fflush(stderr);
-                ExitProcess(3);
+                sim_platform::exit_process(3);
             }
-            ExitProcess(0);
+            sim_platform::exit_process(0);
         }
     }
 

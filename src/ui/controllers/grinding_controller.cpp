@@ -8,12 +8,20 @@
 #include "../../controllers/grind_events.h"
 #include "../../controllers/grind_mode.h"
 #include "../../logging/grind_logging.h"
+#include "../result_screen_settings.h"
 #include "../ui_manager.h"
+
+namespace {
+// Grounds keep landing for a moment after a time-mode pulse stops the motor.
+constexpr uint32_t kPulseWeightSettleMs = 2000;
+}
 
 GrindingUIController* GrindingUIController::instance_ = nullptr;
 
 GrindingUIController::GrindingUIController(UIManager* manager)
-    : ui_manager_(manager) {
+    : ui_manager_(manager),
+      hold_final_weight_(USER_RESULT_HOLD_FINAL_WEIGHT_DEFAULT),
+      result_screen_ms_(USER_RESULT_SCREEN_SECONDS_DEFAULT * 1000UL) {
     instance_ = this;
 }
 
@@ -56,6 +64,8 @@ void GrindingUIController::register_events() {
         return;
     }
 
+    load_result_screen_settings();
+
     if (grind_button_) {
         lv_obj_add_event_cb(grind_button_, [](lv_event_t* e) {
             if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
@@ -92,6 +102,16 @@ void GrindingUIController::register_events() {
 
     if (lv_obj_t* chart = ui_manager_->grinding_screen.get_chart_screen_obj()) {
         lv_obj_add_event_cb(chart, [](lv_event_t* e) {
+            if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+                if (auto* controller = static_cast<GrindingUIController*>(lv_event_get_user_data(e))) {
+                    controller->handle_layout_toggle();
+                }
+            }
+        }, LV_EVENT_CLICKED, this);
+    }
+
+    if (lv_obj_t* circle = ui_manager_->grinding_screen.get_circle_screen_obj()) {
+        lv_obj_add_event_cb(circle, [](lv_event_t* e) {
             if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
                 if (auto* controller = static_cast<GrindingUIController*>(lv_event_get_user_data(e))) {
                     controller->handle_layout_toggle();
@@ -154,15 +174,10 @@ void GrindingUIController::update(UIState current_state) {
     }
 
     switch (current_state) {
-        case UIState::GRIND_COMPLETE: {
-            WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
-            if (weight_sensor) {
-                float current_weight = weight_sensor->get_display_weight();
-                ui_manager_->grinding_screen.update_current_weight(current_weight);
-            }
+        case UIState::GRIND_COMPLETE:
+            show_result_weight();
             ui_manager_->grinding_screen.update_progress(final_grind_progress_);
             break;
-        }
         case UIState::GRIND_TIMEOUT: {
             ui_manager_->grinding_screen.update_current_weight(error_grind_weight_);
             ui_manager_->grinding_screen.update_progress(error_grind_progress_);
@@ -280,12 +295,8 @@ void GrindingUIController::handle_layout_toggle() {
     if (ui_manager_->state_machine->is_state(UIState::GRINDING) ||
         ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE) ||
         ui_manager_->state_machine->is_state(UIState::GRIND_TIMEOUT)) {
-        GrindScreenLayout current_layout = ui_manager_->grinding_screen.get_layout();
-        if (current_layout == GrindScreenLayout::MINIMAL_ARC) {
-            ui_manager_->grinding_screen.set_layout(GrindScreenLayout::NERDY_CHART);
-        } else {
-            ui_manager_->grinding_screen.set_layout(GrindScreenLayout::MINIMAL_ARC);
-        }
+        ui_manager_->grinding_screen.cycle_layout();
+        update_grind_button_icon(); // The button outline depends on the layout
     }
 }
 
@@ -348,6 +359,15 @@ void GrindingUIController::update_grind_button_icon() {
                                       : lv_color_hex(THEME_COLOR_PRIMARY),
                                   0);
     }
+
+    // The circle screen fills the display with the result colour, which
+    // matches the OK/error button, so outline the button to keep it visible.
+    const bool result_shown = ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE) ||
+                              ui_manager_->state_machine->is_state(UIState::GRIND_TIMEOUT);
+    const bool outline = result_shown &&
+                         ui_manager_->grinding_screen.get_layout() == GrindScreenLayout::CIRCLE;
+    lv_obj_set_style_border_color(grind_button_, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_border_width(grind_button_, outline ? 4 : 0, 0);
 
     update_button_layout();
 }
@@ -450,6 +470,9 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
     switch (event_data.event) {
         case UIGrindEvent::PHASE_CHANGED: {
             ui_manager_->current_mode = event_data.mode;
+            if (event_data.phase == GrindPhase::TIME_ADDITIONAL_PULSE) {
+                pulse_running_ = true;
+            }
 
             // Handle PURGE_CONFIRM phase specially - show purge confirmation popup
             if (event_data.phase == GrindPhase::PURGE_CONFIRM) {
@@ -501,7 +524,10 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             if (event_data.show_taring_text) {
                 ui_manager_->grinding_screen.update_tare_display();
             } else {
-                ui_manager_->grinding_screen.update_current_weight(event_data.current_weight);
+                // The finished screen picks its own weight in show_result_weight()
+                if (!ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE)) {
+                    ui_manager_->grinding_screen.update_current_weight(event_data.current_weight);
+                }
                 ui_manager_->grinding_screen.update_progress(event_data.progress_percent);
 
                 if (chart_updates_enabled_ &&
@@ -521,7 +547,10 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             } else {
                 ui_manager_->current_mode = event_data.mode;
                 ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
-                ui_manager_->grinding_screen.update_current_weight(event_data.current_weight);
+                // The finished screen picks its own weight in show_result_weight()
+                if (!ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE)) {
+                    ui_manager_->grinding_screen.update_current_weight(event_data.current_weight);
+                }
                 ui_manager_->grinding_screen.update_progress(event_data.progress_percent);
                 if (event_data.mode == GrindMode::MANUAL) {
                     char elapsed_text[32];
@@ -544,7 +573,17 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
         case UIGrindEvent::COMPLETED: {
             ui_manager_->current_mode = event_data.mode;
             ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
-            final_grind_weight_ = event_data.final_weight;
+            if (ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE)) {
+                // A time-mode pulse finished. Its weight is still the one from
+                // before the pulse, so follow the scale while the grounds settle.
+                pulse_running_ = false;
+                pulse_settling_ = true;
+                pulse_finished_ms_ = millis();
+            } else {
+                final_grind_weight_ = event_data.final_weight;
+                pulse_running_ = false;
+                pulse_settling_ = false;
+            }
             final_grind_progress_ = event_data.progress_percent;
             LOG_BLE("GRIND COMPLETE - Final settled weight captured: %.2fg (Progress: %d%%)\n",
                     final_grind_weight_, final_grind_progress_);
@@ -657,6 +696,7 @@ void GrindingUIController::enter_edit_state() {
 
 void GrindingUIController::enter_grinding_state() {
     WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
+    ui_manager_->grinding_screen.set_outcome(GrindScreenOutcome::IN_PROGRESS);
     ui_manager_->grinding_screen.reset_chart_data();
     ui_manager_->grinding_screen.update_profile_name(
         ui_manager_->current_mode == GrindMode::MANUAL
@@ -682,6 +722,7 @@ void GrindingUIController::enter_grind_complete_state() {
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);
     ui_manager_->grinding_screen.update_progress(final_grind_progress_);
+    ui_manager_->grinding_screen.set_outcome(GrindScreenOutcome::COMPLETE);
 }
 
 void GrindingUIController::enter_grind_timeout_state() {
@@ -696,6 +737,7 @@ void GrindingUIController::enter_grind_timeout_state() {
     ui_manager_->grinding_screen.update_target_weight_text(error_display);
     ui_manager_->grinding_screen.update_current_weight(error_grind_weight_);
     ui_manager_->grinding_screen.update_progress(error_grind_progress_);
+    ui_manager_->grinding_screen.set_outcome(GrindScreenOutcome::FAILED);
 }
 
 void GrindingUIController::enter_menu_state() {
@@ -707,11 +749,42 @@ void GrindingUIController::enter_menu_state() {
     }
 }
 
+void GrindingUIController::load_result_screen_settings() {
+    HardwareManager* hardware = ui_manager_ ? ui_manager_->get_hardware_manager() : nullptr;
+    Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
+    if (!prefs) {
+        return;
+    }
+    hold_final_weight_ = result_screen_settings::load_hold_final_weight(*prefs);
+    result_screen_ms_ = result_screen_settings::load_seconds(*prefs) * 1000UL;
+}
+
+// The finished screen shows the settled result, or the live scale reading
+// when holding is off. A time-mode pulse adds grounds after the result was
+// taken, so the weight follows the scale during the pulse and until the
+// grounds settle, then holds the last reading.
+void GrindingUIController::show_result_weight() {
+    if (pulse_settling_ && millis() - pulse_finished_ms_ >= kPulseWeightSettleMs) {
+        pulse_settling_ = false;
+    }
+
+    WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
+    if (weight_sensor && (!hold_final_weight_ || pulse_running_ || pulse_settling_)) {
+        const float live_weight = weight_sensor->get_display_weight();
+        if (hold_final_weight_) {
+            final_grind_weight_ = live_weight;
+        }
+        ui_manager_->grinding_screen.update_current_weight(live_weight);
+        return;
+    }
+    ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);
+}
+
 void GrindingUIController::start_grind_complete_timer() {
     if (grind_complete_timer_) {
         lv_timer_del(grind_complete_timer_);
     }
-    grind_complete_timer_ = lv_timer_create(grind_complete_timer_cb, 60000, this);
+    grind_complete_timer_ = lv_timer_create(grind_complete_timer_cb, result_screen_ms_, this);
     lv_timer_set_repeat_count(grind_complete_timer_, 1);
 }
 

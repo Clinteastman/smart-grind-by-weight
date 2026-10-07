@@ -116,7 +116,9 @@
  * - LV_OS_MQX
  * - LV_OS_SDL2
  * - LV_OS_CUSTOM */
-#ifdef SMART_GRIND_SIM
+/* The desktop simulator uses LVGL's Win32 driver on Windows (which needs the
+ * Windows OS layer) and its single-threaded SDL2 driver on macOS/Linux. */
+#if defined(SMART_GRIND_SIM) && defined(_WIN32)
 #define LV_USE_OS   LV_OS_WINDOWS
 #else
 #define LV_USE_OS   LV_OS_NONE
@@ -1182,9 +1184,15 @@
  *==================*/
 
 /** Use SDL to open window on PC and handle mouse and keyboard. */
+#if defined(SMART_GRIND_SIM) && !defined(_WIN32)
+#define LV_USE_SDL              1
+#else
 #define LV_USE_SDL              0
+#endif
 #if LV_USE_SDL
-    #define LV_SDL_INCLUDE_PATH     <SDL2/SDL.h>
+    /* SDL2's CMake package exposes its include/SDL2 directory, so use SDL's
+     * documented "SDL.h" include form. */
+    #define LV_SDL_INCLUDE_PATH     <SDL.h>
     #define LV_SDL_RENDER_MODE      LV_DISPLAY_RENDER_MODE_DIRECT   /**< LV_DISPLAY_RENDER_MODE_DIRECT is recommended for best performance */
     #define LV_SDL_BUF_COUNT        1    /**< 1 or 2 */
     #define LV_SDL_ACCELERATED      1    /**< 1: Use hardware acceleration*/
@@ -1309,7 +1317,7 @@
 #endif
 
 /** LVGL Windows backend */
-#ifdef SMART_GRIND_SIM
+#if defined(SMART_GRIND_SIM) && defined(_WIN32)
 #define LV_USE_WINDOWS    1
 #else
 #define LV_USE_WINDOWS    0

@@ -48,6 +48,9 @@ All profiles are fully customizable. Default grind-by-weight targets (fallback t
 Access **Menu → Grind Settings** to configure:
 - **Swipe Gestures**: Enable/disable vertical swipe gestures for mode switching (default: disabled)
 - **Time Mode**: Directly toggle between Weight and Time modes regardless of swipe setting
+- **Grind Screen**: Choose the layout shown while grinding: Arc (default), Chart or Circle
+- **Hold**: Keep the final weight on the finished screen after the cup is lifted (default: on). Turn it off to show the live scale reading instead
+- **Show for**: How long the finished screen stays before returning to Ready: 15 s, 30 s, 1 min (default), 2 min or 5 min. An error screen always stays for 1 minute
 - **Start on Cup**: Start the active profile automatically when the scale gains the configured cup threshold (50 g by default) after a short post-boot warmup
 - **Return on Removal**: Leave the completion screen as soon as that cup weight drops back off the scale
 - **Motor Latency** *(Advanced)*: View or manually adjust the minimum reliable
@@ -68,7 +71,7 @@ These steps describe the default grind-by-weight workflow:
 3. Place the dosing cup on the scale platform
 4. Press the GRIND button – the scale will tare automatically
 5. The system grinds to the precise target weight using the predictive algorithm
-6. GRIND COMPLETE shows the final settled weight in grams (with statistics)
+6. GRIND COMPLETE shows the final settled weight in grams (with statistics), which stays on screen after you lift the cup
 
 > Optional automation (Menu → Grind Settings): enable auto-start and set the cup threshold below the empty cup or portafilter weight. The system waits for the load cell to gather enough quiet samples before arming itself, then auto-return jumps back to Ready whenever that cup is lifted off again.
 
@@ -86,8 +89,9 @@ Need a simple live readout? Open **Menu → Scale** to jump into a full-screen w
 
 ### Display Modes
 - **Arc Layout**: Clean, minimal arc-based interface
-- **Nerdy Layout**: Detailed charts showing flow rates and real-time grinding analytics
-- **Switching**: Tap anywhere on grind screen to switch between layouts during grinding
+- **Chart Layout**: Detailed charts showing flow rates and real-time grinding analytics
+- **Circle Layout**: In the style of the Mahlkönig E64, a light circle around the weight grows from the middle as the grind progresses and covers the display at the target. When the grind finishes, the whole display turns green (amber if the grind failed)
+- **Switching**: Choose the layout in **Menu → Grind Settings → Grind Screen**, or tap anywhere on the grind screen to cycle Arc → Chart → Circle during grinding
 - **Screensaver**: A custom or built-in design can show on startup or when the
   display dims. An optional later panel-off stage protects the AMOLED during
   long idle periods.
@@ -140,6 +144,9 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   \-- Grind Settings
     |       |-- Swipe Gestures toggle (enable/disable vertical swipes)
     |       |-- Time Mode toggle (direct weight/time mode selection)
+    |       |-- Grind Screen (Arc/Chart/Circle radio buttons)
+    |       |-- Hold toggle (keep the final weight after the cup is lifted)
+    |       |-- Show for slider (finished screen time, 15 s-5 min)
     |       |-- Start on Cup toggle and configurable cup threshold
     |       |-- Return on Removal toggle (drop back to Ready when that weight leaves)
     |       |-- Purging (Prime/Purge radio buttons)
@@ -174,7 +181,7 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
 
 During Grinding:
 |-- Weight/elapsed display & progress
-|-- Tap anywhere: Arc ↔ Nerdy display modes
+|-- Tap anywhere: cycle Arc → Chart → Circle layouts
 |-- STOP button
 \-- Purge Confirmation (appears in Purge mode after grinder saturation)
     |-- "Grinder Purged" title

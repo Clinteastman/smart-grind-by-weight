@@ -63,21 +63,27 @@ This automatically creates a virtual environment and installs all required depen
 
 ## 🖥️ Desktop Simulator
 
-On Windows, the native simulator runs the production LVGL Ready and Grinding
-screens at the real display resolution, with mouse input and a deterministic
-grinder/load-cell scenario. It requires Visual Studio 2022 with the Desktop
-development with C++ workload, but no ESP32, display, load cell, PlatformIO, or
-SDL installation.
+The desktop simulator runs the production LVGL Ready and Grinding screens at
+the real display resolution, with mouse input and a deterministic
+grinder/load-cell scenario. No ESP32, display, load cell or PlatformIO is
+needed.
+
+On Windows it uses Visual Studio 2022 with the Desktop development with C++
+workload (no SDL installation):
 
 ```powershell
 .\sim\run.ps1
 ```
 
-Run its automated UI/grind smoke scenario with:
+On macOS (`brew install cmake sdl2`) or Linux (CMake and the SDL2 development
+package), run from the repository root:
 
-```powershell
-.\sim\build.ps1 -Test
+```bash
+sim/run.sh
 ```
+
+Run its automated UI/grind smoke scenario with `.\sim\build.ps1 -Test` on
+Windows or `sim/run.sh --test` on macOS/Linux.
 
 See [sim/README.md](../sim/README.md) for controls, capabilities, and the
 hardware-validation boundary.

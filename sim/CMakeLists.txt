@@ -26,13 +26,27 @@ target_compile_definitions(lvgl PUBLIC
 )
 target_include_directories(lvgl PUBLIC "${PROJECT_ROOT}/include")
 
+# Windows uses LVGL's native Win32 driver. macOS and Linux use LVGL's SDL2
+# driver, whose sources inside the LVGL library include SDL directly.
+if(WIN32)
+    set(SIM_PLATFORM_SOURCE platform/sim_platform_windows.cpp)
+    set(SIM_PLATFORM_LIBRARIES user32 gdi32 shell32)
+else()
+    find_package(SDL2 REQUIRED)
+    target_link_libraries(lvgl PUBLIC SDL2::SDL2)
+    set(SIM_PLATFORM_SOURCE platform/sim_platform_sdl.cpp)
+    set(SIM_PLATFORM_LIBRARIES SDL2::SDL2)
+endif()
+
 add_executable(smart-grind-sim
     main.cpp
+    ${SIM_PLATFORM_SOURCE}
     grind_mode_format.cpp
     "${PROJECT_ROOT}/src/ui/ui_helpers.cpp"
     "${PROJECT_ROOT}/src/ui/screens/ready_screen.cpp"
     "${PROJECT_ROOT}/src/ui/screens/grinding_screen_arc.cpp"
     "${PROJECT_ROOT}/src/ui/screens/grinding_screen_chart.cpp"
+    "${PROJECT_ROOT}/src/ui/screens/grinding_screen_circle.cpp"
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_56.c"
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_60.c"
 )
@@ -54,7 +68,7 @@ target_include_directories(smart-grind-sim PRIVATE
     "${PROJECT_ROOT}/include"
     "${lvgl_SOURCE_DIR}/src"
 )
-target_link_libraries(smart-grind-sim PRIVATE lvgl user32 gdi32 shell32)
+target_link_libraries(smart-grind-sim PRIVATE lvgl ${SIM_PLATFORM_LIBRARIES})
 
 add_executable(display-idle-policy-test
     display_idle_policy_test.cpp
@@ -83,6 +97,8 @@ if(BUILD_TESTING)
     set_tests_properties(simulator_swipe_budget PROPERTIES TIMEOUT 10)
     add_test(NAME simulator_manual_smoke COMMAND smart-grind-sim --manual-smoke)
     set_tests_properties(simulator_manual_smoke PROPERTIES TIMEOUT 15)
+    add_test(NAME simulator_circle_smoke COMMAND smart-grind-sim --circle-smoke)
+    set_tests_properties(simulator_circle_smoke PROPERTIES TIMEOUT 20)
     add_test(NAME display_idle_policy COMMAND display-idle-policy-test)
     set_tests_properties(display_idle_policy PROPERTIES TIMEOUT 5)
     add_test(NAME net_weight_guard COMMAND net-weight-guard-test)

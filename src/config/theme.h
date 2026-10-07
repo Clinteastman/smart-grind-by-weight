@@ -39,6 +39,13 @@
 // Progress and feedback elements
 #define THEME_PROGRESS_ARC_DIAMETER_PX 200                                    // Progress arc diameter
 
+// Circle grinding screen: a light circle grows with progress until it covers the display
+#define THEME_COLOR_GRIND_CIRCLE 0xD9D9D9                                     // Circle fill while grinding (light grey)
+#define THEME_COLOR_GRIND_CIRCLE_TEXT 0x141414                                // Weight text on the light circle
+#define THEME_COLOR_GRIND_CIRCLE_TEXT_SECONDARY 0x4D4D4D                      // Profile and target text on the light circle
+#define THEME_GRIND_CIRCLE_MIN_DIAMETER_PX 230                                // Size at 0% progress; holds the profile, weight and target
+#define THEME_GRIND_CIRCLE_MAX_DIAMETER_PX 540                                // Size at 100% progress; just reaches the display corners from the centre (2 x 268 px)
+
 // General layout
 #define THEME_CORNER_RADIUS_PX 20                                             // Standard UI element corner radius
 
