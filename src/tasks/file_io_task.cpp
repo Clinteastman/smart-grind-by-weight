@@ -297,15 +297,9 @@ void FileIOTask::check_filesystem_health() {
 }
 
 bool FileIOTask::validate_filesystem_access() {
-    // Try a simple filesystem operation to validate access
-    File test_file = LittleFS.open("/test_access", "w");
-    if (test_file) {
-        test_file.println("test");
-        test_file.close();
-        LittleFS.remove("/test_access");
-        return true;
-    }
-    return false;
+    // Read-only mount check. A write probe here wore flash every 30s and
+    // failed when the filesystem was merely full, which triggered a remount.
+    return LittleFS.totalBytes() > 0;
 }
 
 void FileIOTask::perform_filesystem_maintenance() {
@@ -331,11 +325,10 @@ void FileIOTask::handle_filesystem_error() {
 bool FileIOTask::attempt_filesystem_recovery() {
     LOG_BLE("FileIOTask: Attempting filesystem recovery...\n");
     
-    // Try to remount the filesystem
-    LittleFS.end();
-    vTaskDelay(pdMS_TO_TICKS(1000)); // Wait 1 second
-    
-    bool recovery_success = LittleFS.begin(true);
+    // Only mount if not mounted. Never end() a filesystem other tasks may be
+    // using, and never format here: that would erase history and the
+    // screensaver image. A failed attempt is retried on the next health check.
+    bool recovery_success = LittleFS.begin(false);
     if (recovery_success) {
         filesystem_available = true;
     }
