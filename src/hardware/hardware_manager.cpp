@@ -1,6 +1,5 @@
 #include "hardware_manager.h"
 #include "../controllers/grind_controller.h"
-#include <Arduino.h>
 #include "../config/constants.h"
 
 void HardwareManager::init() {
@@ -17,10 +16,9 @@ void HardwareManager::init() {
 void HardwareManager::update() {
     if (!initialized) return;
     
-    // All hardware components now updated independently by TaskScheduler:
-    // - weight_sensor.update() in "weight_sensor" task (10ms)  
-    // - display_manager.update() in "ui_display" task (16ms)
-    // No need for grinding mode switching - load cell runs at constant high speed
+    // Each peripheral is updated by its own FreeRTOS task: the weight sensor
+    // from WeightSamplingTask and the display from TaskManager's UI render
+    // task, so there is nothing left to poll here.
 }
 
 

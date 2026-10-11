@@ -41,10 +41,8 @@ $lvglCandidates = @()
 if ($env:SMART_GRIND_LVGL_SOURCE) {
     $lvglCandidates += $env:SMART_GRIND_LVGL_SOURCE
 }
-$lvglCandidates += @(
-    (Join-Path $projectRoot '.pio\libdeps\waveshare-esp32s3-touch-amoled-164\lvgl'),
-    (Join-Path $projectRoot '.pio\libdeps\waveshare-esp32s3-touch-amoled-164-v2\lvgl')
-)
+# A firmware build leaves the ESP Component Registry copy of LVGL here.
+$lvglCandidates += (Join-Path $projectRoot 'managed_components\lvgl__lvgl')
 
 $lvglSource = $lvglCandidates |
     Where-Object {

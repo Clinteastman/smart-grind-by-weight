@@ -1,10 +1,15 @@
-.pio
+# ESP-IDF build outputs: one directory per firmware variant, each with its own
+# sdkconfig
+/build/
+/sdkconfig
+/sdkconfig.old
+managed_components/
+dependencies.lock
 .vscode/
 sim/build/
 .cache/
 
 # Generated build info
-include/git_info.h
 src/config/git_info.h
 .build_number
 
@@ -25,6 +30,10 @@ grinder_database.db
 tools/database/
 tools/database/grinder_data.db
 failed_session_*.bin
+
+# Local agent/editor tool state
+.claude/
+.serena/
 
 # Git worktrees
 .worktrees/

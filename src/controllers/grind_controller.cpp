@@ -1,10 +1,14 @@
 #include "grind_controller.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <cstdint>
+#include <cstdio>
+#include "../system/timing.h"
 #include "grind_events.h"
 #include "../hardware/circular_buffer_math/circular_buffer_math.h"
 #include "../config/constants.h"
 #include "../system/diagnostics_controller.h"
 #include "../system/statistics_manager.h"
-#include <Arduino.h>
 #include <cstdarg>
 #include <cstring>
 #include <cmath>
@@ -904,8 +908,8 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         if (last_error_message[0] == '\0') {
             set_error_message("Error");
         }
-        std::strncpy(event_data.error_message, last_error_message,
-                     sizeof(event_data.error_message) - 1);
+        std::snprintf(event_data.error_message, sizeof(event_data.error_message), "%s",
+                      last_error_message);
         // Use non-blocking high latency weight instead of precision settled weight
         event_data.error_weight = weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f;
         final_weight = event_data.error_weight;
@@ -953,7 +957,7 @@ int GrindController::get_progress_percent() const {
                    : (weight_sensor ? weight_sensor->get_display_weight() : 0.0f);
     if (ground < 0) ground = 0;
     int progress = (int)((ground / target_weight) * 100);
-    return min(progress, 100);
+    return std::min(progress, 100);
 }
 
 float GrindController::get_grind_time() const {
@@ -1284,8 +1288,7 @@ bool GrindController::save_motor_latency(float value) {
         return false;
     }
 
-    size_t written = preferences->putFloat("motor_lat_ms", value);
-    if (written != sizeof(float)) {
+    if (!preferences->putFloat("motor_lat_ms", value)) {
         LOG_BLE("ERROR: Failed to save motor latency to NVS\n");
         return false;
     }
@@ -1345,8 +1348,7 @@ bool GrindController::save_coast_ratio(float value) {
         return false;
     }
 
-    size_t written = preferences->putFloat(PREF_KEY_COAST_RATIO, value);
-    if (written != sizeof(float)) {
+    if (!preferences->putFloat(PREF_KEY_COAST_RATIO, value)) {
         LOG_BLE("ERROR: Failed to save coast ratio to NVS\n");
         return false;
     }

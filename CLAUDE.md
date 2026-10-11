@@ -2,6 +2,11 @@
 
 ESP32-S3 intelligent coffee scale with grind-by-weight functionality. Features predictive grinding system, LVGL touch UI, and BLE OTA updates. Automatically grinds coffee beans to precise target weights using flow prediction and pulse correction algorithms.
 
+The firmware is a native **ESP-IDF** application, built with ESP-IDF v6.1's
+own tooling (`idf.py`, CMake and Ninja). There is no Arduino core: the entry
+point is `app_main()` in `src/main.cpp`, and every peripheral, storage and
+network API is an ESP-IDF one.
+
 ## Essential Commands
 
 The canonical checkout is `/home/cmossom/src/smart-grind-by-weight` on the
@@ -12,6 +17,11 @@ PowerShell, enter the canonical checkout with:
 ```powershell
 wsl.exe -d Ubuntu-24.04 --cd /home/cmossom/src/smart-grind-by-weight
 ```
+
+Building, flashing and monitoring need ESP-IDF v6.1 activated in the shell
+(`source ~/.espressif/tools/activate_idf_v6.1.sh` for an EIM install, or
+`. ~/esp/esp-idf/export.sh` for a git install; `idf.py --version` should print
+ESP-IDF v6.1). See `docs/DEVELOPMENT.md` for installation.
 
 All development tasks use the unified cross-platform Python tool:
 
@@ -24,22 +34,85 @@ python3 tools/grinder.py analyze
 ```
 
 **Common Commands:**
-- `tools/venv/bin/python3 tools/grinder.py build --hardware v1 --jobs 8` - Build V1 firmware
-- `tools/venv/bin/python3 tools/grinder.py build --hardware v2 --jobs 8` - Build V2 firmware
+- `python3 tools/grinder.py build --hardware v1 --jobs 8` - Build V1 firmware
+- `python3 tools/grinder.py build --hardware v2 --jobs 8` - Build V2 firmware
+- `python3 tools/grinder.py build --hardware debug|mock` - Build the V1 debug or mock firmware
 - `python3 tools/grinder.py upload` - Upload latest firmware via BLE
+- `python3 tools/grinder.py flash-usb --hardware v1|v2 --port <port>` - Flash the latest archived image over USB, keeping settings and data
+- `idf.py -B build/v2 -p <port> flash` - Full USB flash of a board (bootloader, partition table, OTA data, app)
+- `idf.py -B build/<variant> -p <port> monitor` - Serial monitor with backtrace decoding (exit with Ctrl+])
 - `python3 tools/grinder.py export` - Export grind data to database
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data
 - `python3 tools/grinder.py scan` - Scan for BLE devices
 - `python3 tools/grinder.py info` - Get device system information
-- `python3 tools/grinder.py clean` - Clean build artifacts
+- `python3 tools/grinder.py clean` - Remove every variant's build directory
+
+A build prints its build number and writes
+`build/<variant>/smart-grind-by-weight.bin`; V1 and V2 images are also archived
+as `firmware_cache/waveshare-164-v1/build_NNN.bin` and
+`firmware_cache/waveshare-164-v2/build_NNN.bin`.
 
 ## Architecture
 
-**4-Layer Architecture:**
+**Layered Architecture:**
 1. **Hardware Layer** (`src/hardware/`): ESP32-S3 peripheral abstraction
 2. **Control Layer** (`src/controllers/`): Business logic and algorithms  
-3. **System Layer** (`src/system/`): State management
-4. **UI Layer** (`src/ui/`): LVGL touchscreen interface
+3. **System Layer** (`src/system/`): State management, timing, chip info
+4. **Storage Layer** (`src/storage/`): NVS settings store and LittleFS access
+5. **Network Layer** (`src/network/`): Wi-Fi, HTTP server, JSON API, provisioning
+6. **UI Layer** (`src/ui/`): LVGL touchscreen interface
+
+**ESP-IDF build layout:**
+- `CMakeLists.txt` (root) registers `src/` as the application component
+  (`EXTRA_COMPONENT_DIRS`) and builds only it and its dependencies
+  (`COMPONENTS src`). It also adds `include/` to every component's search path
+  so LVGL picks up `lv_conf.h`. LVGL's Kconfig otherwise ignores it, which
+  silently drops the fonts the UI needs (`CONFIG_LV_CONF_SKIP=n`).
+- `src/CMakeLists.txt` registers the firmware sources and runs
+  `tools/build-scripts/build_info.py` before every build to write
+  `src/config/git_info.h` (build number and git commit).
+- `src/idf_component.yml` pins the managed dependencies: LVGL, littlefs,
+  esp-nimble-cpp, esp_delta_ota, mdns, esp_websocket_client, esp_lcd_co5300,
+  esp_lcd_sh8601, improv. They download to `managed_components/`.
+- `sdkconfig.defaults` carries CPU, PSRAM, partition, MAC address, Wi-Fi, BLE,
+  TLS and FreeRTOS settings shared by every variant. `CONFIG_FREERTOS_HZ=1000`
+  is required: the control loops run on 20/25/50 ms periods and would otherwise
+  quantise to 10 ms steps.
+- Four variants - `v1`, `v2`, `debug`, `mock` - each build in `build/<variant>/`
+  with their own `build/<variant>/sdkconfig`, generated from
+  `sdkconfig.defaults` plus an overlay: `sdkconfig.defaults.v2` (V2 board),
+  `sdkconfig.defaults.debug` (V1, debug optimisation, 2 s startup pause) or
+  `sdkconfig.defaults.mock` (V1, simulated load cell and motor, background
+  indicator). `v1` uses `sdkconfig.defaults` alone.
+- Board and debug switches are Kconfig options in the "Smart Grind" menu
+  (`src/Kconfig.projbuild`): board revision V1/V2, simulated load cell and
+  motor, background tint while the motor runs, startup pause.
+  `src/config/hardware.h` and `src/config/debug.h` map them onto
+  `HW_DISPLAY_VARIANT_V2`, `DEBUG_ENABLE_LOADCELL_MOCK`,
+  `DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR` and `UI_DEBUG_SERIAL_DELAY_MS`.
+  There are no `-D` build flags.
+- Kconfig changes go in `sdkconfig.defaults` (every variant) or a variant's
+  overlay. An existing `build/<variant>/sdkconfig` is reused as is: delete it,
+  or run `python3 tools/grinder.py clean`, to regenerate it after editing a
+  defaults file. `idf.py -B build/<variant> menuconfig` edits an already-built
+  variant's sdkconfig (options under "Smart Grind").
+
+**Key native replacements** (no Arduino compatibility layer):
+- Display: `esp_lcd` for both revisions - `esp_lcd_co5300` on V1,
+  `esp_lcd_sh8601` on V2, both from the ESP Component Registry. Same QSPI bus,
+  40 MHz, `esp_lcd_panel_set_gap` for the panel's 20-pixel column offset.
+- BLE: `esp-nimble-cpp` (`NimBLEDevice`/`NimBLEServer`/`NimBLECharacteristic`).
+- HTTP: `esp_http_server` behind `src/network/http_support.h`, which adapts
+  capturing lambdas into route handlers and provides request/response helpers.
+  `src/network/http_multipart.h` streams the firmware and screensaver uploads.
+- Settings: `Preferences` in `src/storage/preferences.h` over NVS. Its on-flash
+  encoding must not change - an existing grinder would lose calibration and
+  history.
+- Filesystem: `filesystem`/`FsFile` in `src/storage/filesystem.h` over
+  `esp_littlefs`, mounted at `/littlefs` from the `spiffs` partition.
+- Time: `millis()`/`micros()` from `src/system/timing.h` over `esp_timer`.
+  Use `vTaskDelay(pdMS_TO_TICKS(x))` for delays.
+- Strings: `std::string` plus the helpers in `src/system/string_utils.h`.
 
 **Key Components:**
 - **HardwareManager**: Central hardware coordinator
@@ -110,7 +183,8 @@ python3 tools/grinder.py analyze
 * You are an incredibly talented and experienced polyglot with decades of experience in diverse areas such as software architecture, system design, development, UI & UX, copywriting, and more.  
 * When doing UI & UX work, make sure your designs are both aesthetically pleasing, easy to use, and follow UI / UX best practices. You pay attention to interaction patterns, micro-interactions, and are proactive about creating smooth, engaging user interfaces that delight users.   
 * When you receive a task that is very large in scope or too vague, you will first try to break it down into smaller subtasks. If that feels difficult or still leaves you with too many open questions, push back to the user and ask them to consider breaking down the task for you, or guide them through that process. This is important because the larger the task, the more likely it is that things go wrong, wasting time and energy for everyone involved.
-- Touch polling now uses the IDF I2C master driver with ACK checking disabled so idle NACKs don't spam logs. Toggle `DEBUG_SUPPRESS_TOUCH_I2C_ERRORS` to 0 if you need the raw driver output for troubleshooting.
+- Touch polling uses the IDF I2C master driver with ACK checking disabled so idle NACKs don't spam logs. Toggle `DEBUG_SUPPRESS_TOUCH_I2C_ERRORS` to 0 if you need the raw driver output for troubleshooting.
+- Improv serial provisioning installs the USB-Serial-JTAG driver and points stdio at it, so console output and Improv frames share one ordered stream.
 - Use the src/config/constants.h aggregation file to include constants / settings - dont refer to config files directly.
 - When new features have been added and tested always update the docs as well
 - when making a commit, only focus on the end result not the process we went through to get to the end result

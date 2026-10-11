@@ -1,6 +1,6 @@
 #include "ota_data_export_controller.h"
+#include <cstdio>
 
-#include <Arduino.h>
 #include <cstring>
 
 #include "../../network/device_web_server.h"
@@ -175,7 +175,7 @@ void OtaDataExportController::stop_data_export_ui() {
     data_export_active_ = false;
 
     if (auto* bluetooth = ui_manager_->bluetooth_manager) {
-        Serial.printf("UI: Data export ended - progress was at %d%%\n",
+        printf("UI: Data export ended - progress was at %d%%\n",
                       static_cast<int>(bluetooth->get_data_export_progress()));
         bluetooth->stop_data_export();
     }

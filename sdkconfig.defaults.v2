@@ -1,0 +1,5 @@
+#
+# Waveshare ESP32-S3-Touch-AMOLED-1.64 V2 (SH8601 display), layered on
+# sdkconfig.defaults.
+#
+CONFIG_SMART_GRIND_BOARD_V2=y

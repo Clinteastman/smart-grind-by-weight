@@ -12,7 +12,7 @@ class SettingsResultTest(unittest.TestCase):
     def test_application_completion(self):
         source = (ROOT / "src/network/device_api.cpp").read_text()
         header = (ROOT / "src/network/device_api.h").read_text()
-        fields = header[header.index("    struct SettingsResult"):header.index("    std::atomic<uint32_t> client_ids_")]
+        fields = header[header.index("    struct SettingsResult"):header.index("    std::atomic<int> client_fds_")]
         branch = method(source, "case CommandAction::APPLY_SETTINGS:")
         methods = "\n".join(method(source, signature) for signature in [
             "uint32_t DeviceApi::reserve_settings_result(",

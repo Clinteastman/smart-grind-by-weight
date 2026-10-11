@@ -1,6 +1,7 @@
 #include "ota_update_failed_screen.h"
+#include <cstdio>
+#include <cstring>
 #include "../../config/build_info.h"
-#include <Arduino.h>
 #include "../../config/constants.h"
 #include "../../config/build_info.h"
 

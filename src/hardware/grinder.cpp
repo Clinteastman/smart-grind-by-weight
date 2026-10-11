@@ -1,7 +1,10 @@
 #include "grinder.h"
+#include <cstdint>
+#include "../system/timing.h"
 #include "../controllers/grind_events.h"
 #include "../config/constants.h"
 #include <driver/gpio.h>
+#include <esp_log.h>
 #include <algorithm>
 #include <iterator>
 #if DEBUG_ENABLE_LOADCELL_MOCK
@@ -27,17 +30,20 @@ void Grinder::init(int pin) {
 #endif
     
     // Initialize RMT for all motor control (both continuous and pulse)
-    rmt_tx_channel_config_t tx_chan_config = {
-        .gpio_num = (gpio_num_t)motor_pin,
-        .clk_src = RMT_CLK_SRC_DEFAULT,
-        .resolution_hz = 1000000, // 1MHz resolution = 1µs per tick
-        .mem_block_symbols = 64,
-        .trans_queue_depth = 4,
-    };
+    rmt_tx_channel_config_t tx_chan_config{};
+    tx_chan_config.gpio_num = static_cast<gpio_num_t>(motor_pin);
+    tx_chan_config.clk_src = RMT_CLK_SRC_DEFAULT;
+    tx_chan_config.resolution_hz = 1000000; // 1MHz resolution = 1µs per tick
+    tx_chan_config.mem_block_symbols = 64;
+    tx_chan_config.trans_queue_depth = 4;
     
     gpio_reset_pin(static_cast<gpio_num_t>(motor_pin));
     gpio_set_direction(static_cast<gpio_num_t>(motor_pin), GPIO_MODE_OUTPUT);
     gpio_set_level(static_cast<gpio_num_t>(motor_pin), 0);
+    // is_pulse_complete() polls with a zero timeout every control tick, and the
+    // driver logs each still-running transmission as an error. Real failures
+    // are reported from the return codes checked here and in the pulse paths.
+    esp_log_level_set("rmt", ESP_LOG_NONE);
     if (rmt_new_tx_channel(&tx_chan_config, &rmt_channel) != ESP_OK) return;
     rmt_copy_encoder_config_t encoder_config{};
     if (rmt_new_copy_encoder(&encoder_config, &current_encoder) != ESP_OK) {
@@ -78,9 +84,8 @@ void Grinder::start() {
     symbols[0].duration1 = 32767;
     symbols[0].level1 = 1;
     
-    rmt_transmit_config_t tx_config = {
-        .loop_count = -1, // Infinite loop
-    };
+    rmt_transmit_config_t tx_config{};
+    tx_config.loop_count = -1; // Infinite loop
     
     if (rmt_transmit(rmt_channel, current_encoder, symbols, sizeof(symbols[0]), &tx_config) != ESP_OK) {
         LOG_BLE("[Grinder] Failed to start continuous transmission\n");

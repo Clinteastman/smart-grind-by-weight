@@ -21,9 +21,13 @@ stop request does not touch a motor owned by a diagnostic operation.
 Wi-Fi holds ownership throughout its preparation window, upload/download and
 pending reboot. An expired window cannot accept a new upload. Recoverable failures
 abort the firmware writer before releasing ownership; failures requiring a reboot
-keep it. A generation token on each upload prevents a late disconnect or data
-callback from affecting a later upload. Preparation and upload transitions are
-serialized so expiry cannot release the slot after an upload starts.
+keep it. The ESP-IDF HTTP server handles a browser upload within one request
+handler call, so no disconnect or data callback can outlive it and touch a later
+upload: a dropped connection, or a peer silent for 15 seconds, ends the call,
+which aborts the writer and releases ownership. Claiming the prepared window and
+finishing an update are serialized with preparation and expiry, so expiry cannot
+release the slot after an upload starts. The body streams without that lock, so
+the service loop keeps running.
 
 Before shipping: independent review, combined release validation and hardware
 checks are still required. This branch is stacked on the other reliability fixes;
@@ -40,7 +44,8 @@ timer-allocation failure. They do not prove physical motor timing or OTA success
 
 The Wi-Fi test executes production preparation, update tick, readiness, upload,
 GitHub task admission and recovery methods. It covers simultaneous uploads,
-expiration, failed writes/validation/task creation, stale callbacks and reboot
+competing claims while an upload is streaming, expiration, failed
+writes/validation/task creation, dropped and stalled connections and reboot
 lockout. It also executes the real grind admission checks against that same
 reservation. Session tests cover release on dismissal, history queue failure and
 retention during an additional pulse.

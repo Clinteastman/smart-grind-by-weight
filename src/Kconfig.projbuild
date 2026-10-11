@@ -1,0 +1,40 @@
+menu "Smart Grind"
+
+    choice SMART_GRIND_BOARD
+        prompt "Board revision"
+        default SMART_GRIND_BOARD_V1
+        help
+            Revision of the Waveshare ESP32-S3-Touch-AMOLED-1.64 board. V2 has
+            an SH8601 display instead of the CO5300 and moves the display chip
+            select, HX711 clock and motor relay pins. sdkconfig.defaults.v2
+            selects V2.
+
+        config SMART_GRIND_BOARD_V1
+            bool "V1 (CO5300 display)"
+
+        config SMART_GRIND_BOARD_V2
+            bool "V2 (SH8601 display)"
+    endchoice
+
+    config SMART_GRIND_LOADCELL_MOCK
+        bool "Simulate the load cell and grinder motor"
+        default n
+        help
+            Replace the HX711 and the motor with a simulated grind, so the
+            firmware can be exercised on a bare board.
+
+    config SMART_GRIND_GRINDER_BACKGROUND_INDICATOR
+        bool "Tint the screen background while the motor runs"
+        default n
+        help
+            A visual check of motor timing during development.
+
+    config SMART_GRIND_STARTUP_DELAY_MS
+        int "Pause at startup (ms)"
+        range 0 10000
+        default 0
+        help
+            Wait this long at the start of setup() so a serial monitor can
+            attach before the first log lines.
+
+endmenu

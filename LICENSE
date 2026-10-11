@@ -28,9 +28,16 @@ The hardware designs are provided "as-is" without any warranty. Users are respon
 
 This project incorporates several third-party libraries and components:
 
-- LVGL: MIT License (https://github.com/lvgl/lvgl)
-- Arduino_GFX: BSD License (https://github.com/moononournation/Arduino_GFX)  
-- esp32-flashz: MIT License (https://github.com/vortigont/esp32-flashz)
 - ESP-IDF: Apache 2.0 License (https://github.com/espressif/esp-idf)
+- LVGL: MIT License (https://github.com/lvgl/lvgl)
+- esp-nimble-cpp: Apache 2.0 License (https://github.com/h2zero/esp-nimble-cpp)
+- esp_lcd_co5300: Apache 2.0 License (https://components.espressif.com/components/espressif/esp_lcd_co5300)
+- esp_lcd_sh8601: Apache 2.0 License (https://components.espressif.com/components/espressif/esp_lcd_sh8601)
+- esp_littlefs: MIT License (https://github.com/joltwallet/esp_littlefs)
+- littlefs: BSD 3-Clause License (https://github.com/littlefs-project/littlefs)
+- Improv Wi-Fi SDK: Apache 2.0 License (https://github.com/improv-wifi/sdk-cpp)
+- detools: BSD 2-Clause License (https://github.com/eerimoq/detools)
+- esp_delta_ota: Apache 2.0 License (https://components.espressif.com/components/espressif/esp_delta_ota)
+- HX711_ADC: MIT License (https://github.com/olkal/HX711_ADC)
 
 See individual component documentation for complete license information.

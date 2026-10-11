@@ -80,11 +80,11 @@ Both full images begin with the ESP32 image magic byte `0xE9` and fit the
 3,072 KiB application partitions. Generate and byte-verify release delta
 patches from these exact reviewed images only after the final source is frozen.
 
-The final local gate also exposed and fixed an unsafe shared PlatformIO object
-cache: V1 and V2 can compile LVGL with different flags, so their cached objects
-must never share a directory. Local tooling and both GitHub workflows now use
-hardware-target-specific cache paths. A clean V2 build passed after the old
-mixed cache was quarantined.
+The final local gate also exposed and fixed an unsafe shared compiled-object
+cache: V1 and V2 can compile LVGL with different configurations, so their
+objects must never share a directory. Local tooling and both GitHub workflows
+build each hardware target in its own build directory with its own sdkconfig.
+A clean V2 build passed after the old mixed cache was quarantined.
 
 The same V2 canary retained its Wi-Fi credentials and settings, served the
 updated page at `smartgrind.local`, returned exact 400/404 errors for malformed

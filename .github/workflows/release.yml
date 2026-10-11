@@ -27,47 +27,31 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Restore PlatformIO package cache
+      - name: Restore managed component cache
         uses: actions/cache@v5
         with:
-          path: |
-            ~/.platformio/.cache
-            ~/.platformio/packages
-            ~/.platformio/platforms
-          key: ${{ runner.os }}-pio-deps-${{ hashFiles('platformio.ini') }}
+          path: managed_components
+          key: ${{ runner.os }}-idf-components-${{ hashFiles('src/idf_component.yml') }}
           restore-keys: |
-            ${{ runner.os }}-pio-deps-
+            ${{ runner.os }}-idf-components-
 
-      - name: Restore compiled-object cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            .pio/build-cache/waveshare-esp32s3-touch-amoled-164
-            .pio/build-cache/waveshare-esp32s3-touch-amoled-164-v2
-          key: ${{ runner.os }}-pio-objects-release-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-pio-objects-release-
-            ${{ runner.os }}-pio-objects-
-    
-      - name: Install PlatformIO
-        run: |
-          pip install platformio==6.1.19
-    
       - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32s3
+          extra_docker_args: -e SMART_GRIND_BUILD_NUMBER=${{ github.run_number }}
+          command: python3 tools/grinder.py build --hardware v1 && python3 tools/grinder.py build --hardware v2
+
+      - name: Collect firmware images
         run: |
-          # Use platformio directly like local development to ensure identical build
-          # Install dependencies first to ensure exact versions
-          pio pkg install
-          mkdir -p release-builds/v1 release-builds/v2
-          PLATFORMIO_BUILD_CACHE_DIR=.pio/build-cache/waveshare-esp32s3-touch-amoled-164 pio run -e waveshare-esp32s3-touch-amoled-164
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin release-builds/v1/
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164/bootloader.bin release-builds/v1/
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164/partitions.bin release-builds/v1/
-          PLATFORMIO_BUILD_CACHE_DIR=.pio/build-cache/waveshare-esp32s3-touch-amoled-164-v2 pio run -e waveshare-esp32s3-touch-amoled-164-v2
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/firmware.bin release-builds/v2/
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/bootloader.bin release-builds/v2/
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/partitions.bin release-builds/v2/
-        
+          for variant in v1 v2; do
+            mkdir -p "release-builds/${variant}"
+            cp "build/${variant}/smart-grind-by-weight.bin" "release-builds/${variant}/firmware.bin"
+            cp "build/${variant}/bootloader/bootloader.bin" "release-builds/${variant}/bootloader.bin"
+            cp "build/${variant}/partition_table/partition-table.bin" "release-builds/${variant}/partitions.bin"
+          done
+
       - name: Prepare release artifacts
         run: |
           mkdir -p release-artifacts

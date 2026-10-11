@@ -1,7 +1,6 @@
 #pragma once
 
-#include <Arduino.h>
-#include <LittleFS.h>
+#include "../storage/filesystem.h"
 #include <cstdint>
 
 // Image upload command bytes (sent via data control characteristic)
@@ -83,7 +82,7 @@ public:
 
 private:
     OTAHandler* ota_handler_;
-    File temp_file_;
+    FsFile temp_file_;
     uint32_t expected_size_;
     uint32_t received_size_;
     bool upload_in_progress_;

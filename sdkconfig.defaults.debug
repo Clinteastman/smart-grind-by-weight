@@ -1,0 +1,6 @@
+#
+# V1 development build, layered on sdkconfig.defaults: built for the debugger,
+# and paused for two seconds at startup so a serial monitor can attach.
+#
+CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
+CONFIG_SMART_GRIND_STARTUP_DELAY_MS=2000

@@ -1,5 +1,6 @@
 #pragma once
 #include <driver/i2c_master.h>
+#include <cstdint>
 #include "../config/constants.h"
 
 struct TouchData {

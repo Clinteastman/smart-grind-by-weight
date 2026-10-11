@@ -9,14 +9,35 @@
 //------------------------------------------------------------------------------
 // MOST IMPORTANT DEBUG PARAMETERS
 //------------------------------------------------------------------------------
+// The switches below come from the Kconfig "Smart Grind" menu, which the
+// sdkconfig.defaults.debug and sdkconfig.defaults.mock overlays set. The
+// desktop simulator and host tests have no sdkconfig and use the defaults.
+#if __has_include("sdkconfig.h")
+#include "sdkconfig.h"
+#endif
+
 // Mock hardware (most critical for testing vs production)
 #ifndef DEBUG_ENABLE_LOADCELL_MOCK
-    #define DEBUG_ENABLE_LOADCELL_MOCK 0                                              // Default: use physical HX711, override with build flag
+#ifdef CONFIG_SMART_GRIND_LOADCELL_MOCK
+    #define DEBUG_ENABLE_LOADCELL_MOCK 1
+#else
+    #define DEBUG_ENABLE_LOADCELL_MOCK 0                                              // Default: use the physical HX711
+#endif
 #endif
 
 // UI visual feedback
 #ifndef DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR
-    #define DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR 0                             // Default: disabled, override with build flag
+#ifdef CONFIG_SMART_GRIND_GRINDER_BACKGROUND_INDICATOR
+    #define DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR 1
+#else
+    #define DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR 0                             // Default: disabled
+#endif
+#endif
+
+// Pause at startup so a serial monitor can attach before the first log lines.
+#if !defined(UI_DEBUG_SERIAL_DELAY_MS) && defined(CONFIG_SMART_GRIND_STARTUP_DELAY_MS) && \
+    CONFIG_SMART_GRIND_STARTUP_DELAY_MS > 0
+    #define UI_DEBUG_SERIAL_DELAY_MS CONFIG_SMART_GRIND_STARTUP_DELAY_MS
 #endif
 
 // Core debug logging settings

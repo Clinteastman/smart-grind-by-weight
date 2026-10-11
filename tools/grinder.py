@@ -37,6 +37,23 @@ except ImportError:
     # Fallback for systems without colorama
     COLORS = {k: '' for k in ['RED', 'GREEN', 'YELLOW', 'BLUE', 'PURPLE', 'CYAN', 'RESET']}
 
+# Firmware variants. Each builds in build/<name>/ with its own sdkconfig, made
+# from sdkconfig.defaults plus the variant's overlay. V1 and V2 images are
+# archived under firmware_cache/<archive>/ as Bluetooth delta bases and for
+# flash-usb.
+FIRMWARE_VARIANTS = {
+    "v1": {"overlay": None, "archive": "waveshare-164-v1"},
+    "v2": {"overlay": "sdkconfig.defaults.v2", "archive": "waveshare-164-v2"},
+    "debug": {"overlay": "sdkconfig.defaults.debug", "archive": None},
+    "mock": {"overlay": "sdkconfig.defaults.mock", "archive": None},
+}
+FIRMWARE_IMAGE = "smart-grind-by-weight.bin"
+IDF_ACTIVATION_HINT = (
+    "Activate ESP-IDF v6.1 in this shell first, for example "
+    "'source ~/.espressif/tools/activate_idf_v6.1.sh' (EIM) or "
+    "'. ~/esp/esp-idf/export.sh'"
+)
+
 class GrinderTool:
     """Unified grinder tool for cross-platform operations."""
     
@@ -59,7 +76,8 @@ class GrinderTool:
         self.streamlit_dir = self.script_dir / "streamlit-reports"
         self.db_path = self.script_dir / "database" / "grinder_data.db"
         self.requirements_txt = self.script_dir / "requirements.txt"
-        self.build_lock_path = self.project_dir / ".pio" / "smart-grind-build.lock"
+        self.build_root = self.project_dir / "build"
+        self.build_lock_path = self.build_root / ".smart-grind-build.lock"
     
     def safe_print(self, text: str):
         """Print text with proper encoding handling for all platforms."""
@@ -121,11 +139,11 @@ class GrinderTool:
         """Find orphaned compiler children still writing this checkout."""
         if platform.system() != "Windows":
             return []
-        build_path = str(self.project_dir / ".pio" / "build").replace("'", "''")
+        build_path = str(self.build_root).replace("'", "''")
         script = (
             "$p='" + build_path + "'; "
             "Get-CimInstance Win32_Process | Where-Object { "
-            "$_.Name -match 'platformio|python|cmd|xtensa|cc1plus|ld' -and "
+            "$_.Name -match 'ninja|cmake|python|cmd|xtensa|cc1plus|ld' -and "
             "$_.CommandLine -and $_.CommandLine.Contains($p) } | "
             "Select-Object -ExpandProperty ProcessId | ConvertTo-Json -Compress"
         )
@@ -179,22 +197,78 @@ class GrinderTool:
         except (OSError, ValueError, json.JSONDecodeError):
             pass
 
-    def _platformio_python(self) -> Optional[Path]:
-        """Return a Python interpreter that has PlatformIO/esptool installed."""
-        candidates = [self.venv_python]
-        if platform.system() == "Windows":
-            candidates.append(Path.home() / ".platformio" / "penv" / "Scripts" / "python.exe")
-        else:
-            candidates.append(Path.home() / ".platformio" / "penv" / "bin" / "python")
-        for candidate in candidates:
-            if candidate.exists():
+    def _idf_python(self) -> Optional[Path]:
+        """The Python interpreter of the ESP-IDF environment active in this shell."""
+        python_env = os.environ.get("IDF_PYTHON_ENV_PATH")
+        if python_env:
+            if platform.system() == "Windows":
+                return Path(python_env) / "Scripts" / "python.exe"
+            return Path(python_env) / "bin" / "python"
+        if os.environ.get("IDF_PATH"):
+            # Activation puts the ESP-IDF Python environment first on PATH.
+            found = shutil.which("python") or shutil.which("python3")
+            return Path(found) if found else None
+        return None
+
+    def _idf_command(self, variant: str, *actions: str) -> Optional[List[str]]:
+        """idf.py invocation for one firmware variant, or None without ESP-IDF."""
+        idf_path = os.environ.get("IDF_PATH")
+        python = self._idf_python()
+        if not idf_path or python is None:
+            return None
+        build_dir = self.build_root / variant
+        defaults = ["sdkconfig.defaults"]
+        if FIRMWARE_VARIANTS[variant]["overlay"]:
+            defaults.append(FIRMWARE_VARIANTS[variant]["overlay"])
+        return [
+            str(python), str(Path(idf_path) / "tools" / "idf.py"),
+            "-C", str(self.project_dir), "-B", str(build_dir),
+            "-D", f"SDKCONFIG={build_dir / 'sdkconfig'}",
+            "-D", "SDKCONFIG_DEFAULTS=" + ";".join(defaults),
+            *actions,
+        ]
+
+    def _esptool(self) -> Optional[List[str]]:
+        """esptool from the ESP-IDF environment, or from the project venv."""
+        for python in (self._idf_python(), self.venv_python):
+            if python is not None and python.exists():
                 probe = subprocess.run(
-                    [str(candidate), "-m", "esptool", "version"],
+                    [str(python), "-m", "esptool", "version"],
                     capture_output=True, text=True, check=False,
                 )
                 if probe.returncode == 0:
-                    return candidate
+                    return [str(python), "-m", "esptool"]
         return None
+
+    def _build_number(self) -> Optional[int]:
+        """BUILD_NUMBER of the most recent build, from src/config/git_info.h."""
+        import re
+        try:
+            header = (self.project_dir / "src" / "config" / "git_info.h").read_text()
+        except OSError:
+            return None
+        match = re.search(r"#define BUILD_NUMBER (\d+)", header)
+        return int(match.group(1)) if match else None
+
+    def _archive_firmware(self, variant: str):
+        """Keep a V1 or V2 image under its build number, as a delta base for
+        Bluetooth updates and for flash-usb."""
+        archive = FIRMWARE_VARIANTS[variant]["archive"]
+        image = self.build_root / variant / FIRMWARE_IMAGE
+        if not archive or not image.exists():
+            return
+        build_number = self._build_number()
+        if build_number is None:
+            self.print_warning("Could not read the build number; firmware was not archived")
+            return
+        archive_dir = self.project_dir / "firmware_cache" / archive
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        target = archive_dir / f"build_{build_number:03d}.bin"
+        shutil.copy2(image, target)
+        self.print_info(
+            f"Build #{build_number}: {image.stat().st_size:,} bytes, "
+            f"archived as firmware_cache/{archive}/{target.name}"
+        )
     
     def check_venv(self) -> bool:
         """Check if virtual environment exists and is properly set up."""
@@ -295,79 +369,40 @@ class GrinderTool:
             return 1
     
     def cmd_build(self, args: argparse.Namespace) -> int:
-        """Build firmware using PlatformIO."""
+        """Build one firmware variant with ESP-IDF's idf.py."""
         self.print_header("Building Firmware")
-
-        # Building only needs PlatformIO. Prefer the project environment when
-        # it is complete, but do not let a stale/partial venv hide a working
-        # PlatformIO installation already available on PATH.
-        platformio_cmd = None
-        if self.venv_python.exists():
-            probe = subprocess.run(
-                [str(self.venv_python), "-m", "platformio", "--version"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if probe.returncode == 0:
-                platformio_cmd = [str(self.venv_python), "-m", "platformio"]
-        if platformio_cmd is None:
-            pio = shutil.which("pio") or shutil.which("platformio")
-            if not pio:
-                self.print_error("PlatformIO is not installed in the project environment or on PATH")
-                return 1
-            platformio_cmd = [pio]
-
-        environment = (
-            "waveshare-esp32s3-touch-amoled-164-v2"
-            if getattr(args, "hardware", "v1") == "v2"
-            else "waveshare-esp32s3-touch-amoled-164"
-        )
-        if not self._acquire_build_lock(environment):
+        variant = getattr(args, "hardware", "v1")
+        command = self._idf_command(variant, "build")
+        if command is None:
+            self.print_error("ESP-IDF is not set up in this shell")
+            self.print_info(IDF_ACTIVATION_HINT)
+            return 1
+        if not self._acquire_build_lock(variant):
             return 2
         jobs = max(1, getattr(args, "jobs", min(8, os.cpu_count() or 1)))
-        self.print_info(f"Target: {args.hardware.upper()} ({jobs} parallel jobs)")
+        self.print_info(f"Target: {variant.upper()} in build/{variant} ({jobs} parallel jobs)")
 
         build_env = os.environ.copy()
-        # PlatformIO and some package scripts print Unicode status symbols.
-        # Force UTF-8 so redirected Windows builds do not lose their final
-        # output to a background cp1252 UnicodeEncodeError.
+        # ESP-IDF's tools print Unicode status symbols. Force UTF-8 so
+        # redirected Windows builds do not lose their final output to a
+        # background cp1252 UnicodeEncodeError.
         build_env.setdefault("PYTHONUTF8", "1")
         build_env.setdefault("PYTHONIOENCODING", "utf-8")
-        cache_override = build_env.get("SMART_GRIND_BUILD_CACHE_DIR")
-        if cache_override:
-            cache_base = Path(cache_override)
-        elif not build_env.get("PLATFORMIO_BUILD_CACHE_DIR"):
-            if platform.system() == "Windows":
-                cache_root = Path(build_env.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-            else:
-                cache_root = Path(build_env.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-            cache_base = cache_root / "smart-grind-by-weight" / "platformio-build-cache"
-        else:
-            cache_base = Path(build_env["PLATFORMIO_BUILD_CACHE_DIR"])
-        # PlatformIO's object cache is not safe to share between the V1 and V2
-        # environments: their display flags produce incompatible LVGL objects.
-        # Keep reuse across worktrees while isolating each hardware target.
-        build_env["PLATFORMIO_BUILD_CACHE_DIR"] = str(cache_base / environment)
-        self.print_info(f"Target-specific build cache: {build_env['PLATFORMIO_BUILD_CACHE_DIR']}")
-
-        # Keep local Windows builds responsive. PlatformIO otherwise uses every
-        # logical CPU, which can make this source-heavy project slower through
-        # compiler and filesystem contention.
+        # Keep local Windows builds responsive: ninja otherwise uses every
+        # logical CPU, which slows this source-heavy project through compiler
+        # and filesystem contention.
+        build_env["IDF_PY_BUILD_JOBS"] = str(jobs)
         try:
-            result = self.run_command(
-                platformio_cmd + ["run", "-e", environment, "-j", str(jobs)],
-                env=build_env,
-            )
+            result = self.run_command(command, env=build_env)
         finally:
             self._release_build_lock()
-        
-        if result.returncode == 0:
-            self.print_success("Firmware build completed")
-        else:
+
+        if result.returncode != 0:
             self.print_error("Build failed")
-        
-        return result.returncode
+            return result.returncode
+        self._archive_firmware(variant)
+        self.print_success("Firmware build completed")
+        return 0
     
     async def cmd_upload(self, args: argparse.Namespace) -> int:
         """Upload firmware via BLE OTA."""
@@ -375,14 +410,12 @@ class GrinderTool:
         
         if not firmware_path:
             self.print_info("Finding latest firmware file...")
-            build_dir = self.project_dir / ".pio" / "build"
-            
-            firmware_files = []
-            if build_dir.exists():
-                for firmware_file in build_dir.rglob("*.bin"):
-                    if firmware_file.name == "firmware.bin":
-                        firmware_files.append(firmware_file)
-            
+            firmware_files = [
+                self.build_root / variant / FIRMWARE_IMAGE
+                for variant in FIRMWARE_VARIANTS
+                if (self.build_root / variant / FIRMWARE_IMAGE).exists()
+            ]
+
             if not firmware_files:
                 self.print_error("No firmware file found")
                 self.print_info("Run: python3 grinder.py build")
@@ -413,15 +446,10 @@ class GrinderTool:
         if build_result != 0:
             return build_result
         
-        environment = (
-            "waveshare-esp32s3-touch-amoled-164-v2"
-            if getattr(args, "hardware", "v1") == "v2"
-            else "waveshare-esp32s3-touch-amoled-164"
-        )
         # Use the firmware just built for the requested hardware. Selecting the
-        # newest file across all environments can accidentally upload V1 to V2
+        # newest file across all variants can accidentally upload V1 to V2
         # (or vice versa) after a multi-target validation run.
-        args.firmware = str(self.project_dir / ".pio" / "build" / environment / "firmware.bin")
+        args.firmware = str(self.build_root / args.hardware / FIRMWARE_IMAGE)
         return await self.cmd_upload(args)
     
     async def cmd_export(self, args: argparse.Namespace) -> int:
@@ -560,10 +588,9 @@ class GrinderTool:
     def cmd_flash_usb(self, args: argparse.Namespace) -> int:
         """Flash a previously successful firmware image without rebuilding it."""
         self.print_header("Flashing Firmware over USB")
-        variant_dir = "waveshare-164-v2" if args.hardware == "v2" else "waveshare-164-v1"
         firmware_path = Path(args.firmware).resolve() if args.firmware else None
         if firmware_path is None:
-            cache_dir = self.project_dir / "firmware_cache" / variant_dir
+            cache_dir = self.project_dir / "firmware_cache" / FIRMWARE_VARIANTS[args.hardware]["archive"]
             candidates = sorted(cache_dir.glob("build_*.bin"), key=lambda path: path.stat().st_mtime)
             if not candidates and args.hardware == "v1":
                 # Compatibility with archives made before hardware-specific directories.
@@ -591,9 +618,10 @@ class GrinderTool:
         if not self._acquire_build_lock(environment):
             return 2
         try:
-            esptool_python = self._platformio_python()
-            if not esptool_python:
+            esptool = self._esptool()
+            if not esptool:
                 self.print_error("Could not find an esptool installation")
+                self.print_info(IDF_ACTIVATION_HINT + ", or run 'python3 tools/grinder.py install'")
                 return 1
             flash_env = os.environ.copy()
             flash_env["PYTHONUTF8"] = "1"
@@ -603,7 +631,7 @@ class GrinderTool:
             ota_file.close()
             try:
                 read_result = self.run_command(
-                    [str(esptool_python), "-m", "esptool", "--chip", "esp32s3",
+                    esptool + ["--chip", "esp32s3",
                      "--port", args.port, "--baud", str(args.baud),
                      "--before", "default-reset", "--after", "hard-reset",
                      "read-flash", "0x0000e000", "0x2000", str(ota_path)],
@@ -622,7 +650,7 @@ class GrinderTool:
                 "(NVS and LittleFS are preserved)"
             )
             result = self.run_command(
-                [str(esptool_python), "-m", "esptool", "--chip", "esp32s3",
+                esptool + ["--chip", "esp32s3",
                  "--port", args.port, "--baud", str(args.baud),
                  "--before", "default-reset", "--after", "hard-reset",
                  "write-flash", f"0x{app_offset:08x}", str(firmware_path)],
@@ -701,26 +729,20 @@ class GrinderTool:
             return 1
     
     def cmd_clean(self, args: argparse.Namespace) -> int:
-        """Clean build artifacts."""
+        """Remove every variant's build directory, including its sdkconfig."""
         self.print_header("Cleaning Build Artifacts")
-        
-        if not self.check_venv():
-            return 1
-        
-        # Use PlatformIO from the project venv
-        result = self.run_command([
-            str(self.venv_python), "-m", "platformio", "run", "--target", "clean"
-        ])
-        
-        # Also remove .pio/build directory
-        build_dir = self.project_dir / ".pio" / "build"
-        if build_dir.exists():
-            shutil.rmtree(build_dir)
-        
-        if result.returncode == 0:
-            self.print_success("Build artifacts cleaned")
-        
-        return result.returncode
+        if not self._acquire_build_lock("clean"):
+            return 2
+        try:
+            for variant in FIRMWARE_VARIANTS:
+                build_dir = self.build_root / variant
+                if build_dir.exists():
+                    shutil.rmtree(build_dir)
+                    self.print_info(f"Removed build/{variant}")
+        finally:
+            self._release_build_lock()
+        self.print_success("Build artifacts cleaned")
+        return 0
     
     def cmd_release(self, args: argparse.Namespace) -> int:
         """Create a tagged release using the release helper script."""
@@ -763,8 +785,9 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
     
     # Build & Upload Commands
-    build_parser = subparsers.add_parser('build', help='Build firmware using PlatformIO')
-    build_parser.add_argument('--hardware', choices=['v1', 'v2'], default='v1', help='Hardware generation to build')
+    build_parser = subparsers.add_parser('build', help='Build firmware with ESP-IDF (idf.py)')
+    build_parser.add_argument('--hardware', choices=list(FIRMWARE_VARIANTS), default='v1',
+                              help='Firmware variant to build: v1, v2, or the V1 debug and mock builds')
     build_parser.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1), help='Parallel compiler jobs (default: at most 8)')
     
     upload_parser = subparsers.add_parser('upload', help='Upload firmware via BLE OTA')
@@ -823,7 +846,7 @@ def create_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser('install', help='Manually install Python dependencies (auto-setup when needed)')
     monitor_parser = subparsers.add_parser('monitor', help='Monitor live debug output via BLE (alias for debug)')
     monitor_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
-    clean_parser = subparsers.add_parser('clean', help='Clean build artifacts')
+    clean_parser = subparsers.add_parser('clean', help='Remove the build directories of every variant')
     release_parser = subparsers.add_parser('release', help='Create tagged release (triggers automated GitHub release)')
     
     return parser

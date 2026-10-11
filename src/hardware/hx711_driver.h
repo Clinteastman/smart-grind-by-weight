@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../config/constants.h"
+#include <cstdint>
 #include "load_cell_driver.h"
-#include <Arduino.h>
 #include <math.h>
 
 /**
@@ -35,7 +35,6 @@ private:
     
     // HX711-specific timing constants
     static const uint8_t SCK_DELAY = 1;           // Microsecond delay after SCK toggle
-    static const uint16_t SIGNAL_TIMEOUT = 100;  // Signal timeout in ms
     
     // HX711 hardware methods
     bool conversion_24bit();

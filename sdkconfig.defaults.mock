@@ -1,0 +1,7 @@
+#
+# V1 build with a simulated load cell and grinder motor, layered on
+# sdkconfig.defaults, for exercising grinds on a bare board.
+#
+CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
+CONFIG_SMART_GRIND_LOADCELL_MOCK=y
+CONFIG_SMART_GRIND_GRINDER_BACKGROUND_INDICATOR=y

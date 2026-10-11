@@ -1,8 +1,9 @@
 #pragma once
 #include "grinding_screen_base.h"
+#include <cstdint>
 #include "grinding_screen_arc.h"
 #include "grinding_screen_chart.h"
-#include <Preferences.h>
+#include "../../storage/preferences.h"
 #include "../../controllers/grind_mode.h"
 
 // Unified grinding screen that wraps both implementations

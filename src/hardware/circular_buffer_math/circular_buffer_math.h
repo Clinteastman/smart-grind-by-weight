@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
 #include <algorithm>
+#include <cstdint>
 #include "../../config/constants.h"
 
 /**

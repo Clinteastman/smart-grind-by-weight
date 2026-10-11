@@ -15,16 +15,20 @@ From PowerShell, use:
 wsl.exe -d Ubuntu-24.04 --cd /home/cmossom/src/smart-grind-by-weight
 ```
 
-Firmware commands must use the project virtual environment:
+Firmware builds use ESP-IDF v6.1. Activate it in the shell first, then build
+through the grinder tool:
 
 ```bash
-tools/venv/bin/python3 tools/grinder.py build --hardware v1 --jobs 8
-tools/venv/bin/python3 tools/grinder.py build --hardware v2 --jobs 8
+source ~/.espressif/tools/activate_idf_v6.1.sh   # EIM; or: . ~/esp/esp-idf/export.sh
+python3 tools/grinder.py build --hardware v1 --jobs 8
+python3 tools/grinder.py build --hardware v2 --jobs 8
 ```
 
-The V1 and V2 PlatformIO caches are deliberately separate. Do not override them
-with one shared cache. The Windows desktop simulator is the exception: it uses
-Windows build tools, but its source of truth remains this WSL checkout.
+Each variant builds in its own `build/<variant>/` directory with its own
+sdkconfig. The V1 and V2 build directories are deliberately separate. Do not
+point both builds at one directory or sdkconfig. The Windows desktop simulator
+is the exception to building in WSL: it uses Windows build tools, but its
+source of truth remains this WSL checkout.
 
 Before changing code, read `CLAUDE.md` and the relevant complete source files.
 After changes, run the appropriate simulator tests, both firmware builds when

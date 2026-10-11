@@ -1,6 +1,9 @@
 #include "diagnostic_log.h"
 
+#include <freertos/FreeRTOS.h>
+
 #include <cstdarg>
+#include <cstdio>
 #include <cstring>
 
 namespace {
@@ -25,7 +28,7 @@ void retain_message(const char* message, size_t length) {
 
 void diagnostic_log_write(const char* message) {
     if (!message) return;
-    Serial.print(message);
+    printf("%s", message);
     retain_message(message, strlen(message));
 }
 
@@ -40,11 +43,11 @@ void diagnostic_log_printf(const char* format, ...) {
     const size_t length = static_cast<size_t>(written) < sizeof(message)
                               ? static_cast<size_t>(written)
                               : sizeof(message) - 1;
-    Serial.write(reinterpret_cast<const uint8_t*>(message), length);
+    fwrite(message, 1, length, stdout);
     retain_message(message, length);
 }
 
-String diagnostic_log_snapshot() {
+std::string diagnostic_log_snapshot() {
     char snapshot[DIAGNOSTIC_LOG_CAPACITY + 1];
     size_t size = 0;
     size_t start = 0;
@@ -57,5 +60,5 @@ String diagnostic_log_snapshot() {
     }
     portEXIT_CRITICAL(&log_mutex);
     snapshot[size] = '\0';
-    return String(snapshot);
+    return std::string(snapshot, size);
 }

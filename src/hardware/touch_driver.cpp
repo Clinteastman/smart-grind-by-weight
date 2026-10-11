@@ -1,5 +1,6 @@
 #include "touch_driver.h"
-#include <Arduino.h>
+#include <cstdint>
+#include "../system/timing.h"
 #include "esp_err.h"
 #include "esp_log.h"
 
@@ -15,8 +16,6 @@ void suppress_touch_i2c_logs() {
         return;
     }
     esp_log_level_set("i2c.master", ESP_LOG_NONE);
-    esp_log_level_set("esp32-hal-i2c-ng", ESP_LOG_NONE);
-    esp_log_level_set("Wire", ESP_LOG_NONE);
     configured = true;
 #endif
 }
@@ -90,7 +89,8 @@ void TouchDriver::update() {
     esp_err_t err = i2c_master_transmit_receive(device_handle, &reg, sizeof(reg), buf, sizeof(buf), kTouchI2CTimeoutMs);
     if (err != ESP_OK) {
         // Touch controller NACKs when no touch data - treat as no-touch without logging.
-        if (err != ESP_ERR_INVALID_STATE && err != ESP_ERR_TIMEOUT) {
+        // The I2C master driver reports a NACK as ESP_ERR_INVALID_RESPONSE.
+        if (err != ESP_ERR_INVALID_RESPONSE && err != ESP_ERR_TIMEOUT) {
             ESP_LOGW(kTag, "Touch poll failed: %s", esp_err_to_name(err));
         }
         last_touch.pressed = false;

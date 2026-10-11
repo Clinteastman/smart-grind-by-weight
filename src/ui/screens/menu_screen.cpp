@@ -1,10 +1,13 @@
 #include "menu_screen.h"
+#include <string>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include "../../system/timing.h"
 #include "../../config/build_info.h"
-#include <Arduino.h>
 #include <algorithm>
-#include <LittleFS.h>
-#include <Preferences.h>
-#include <WiFi.h>
+#include "../../storage/filesystem.h"
+#include "../../storage/preferences.h"
 #include "../../config/constants.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/statistics_manager.h"
@@ -326,8 +329,8 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
 }
 
 namespace {
-String escape_wifi_qr_value(const String& value) {
-    String escaped;
+std::string escape_wifi_qr_value(const std::string& value) {
+    std::string escaped;
     escaped.reserve(value.length() + 8);
     for (size_t i = 0; i < value.length(); ++i) {
         const char ch = value[i];
@@ -387,9 +390,9 @@ void MenuScreen::update_network_status() {
     if (!network_status_label || !network_detail_label || !network_qr ||
         !network_update_label || !network_update_button) return;
 
-    String status;
-    String detail;
-    String qr_payload;
+    std::string status;
+    std::string detail;
+    std::string qr_payload;
     switch (network_manager.state()) {
         case NetworkState::WIFI_DISABLED:
             status = "Wi-Fi disabled";
@@ -407,7 +410,7 @@ void MenuScreen::update_network_status() {
         case NetworkState::WIFI_CONNECTED:
             if (device_web_server.is_ota_active()) {
                 status = "Updating firmware";
-                detail = String(device_web_server.ota_progress_percent()) + "% received\nDo not remove power.";
+                detail = std::to_string(device_web_server.ota_progress_percent()) + "% received\nDo not remove power.";
             } else {
                 status = "Connected";
                 detail = network_manager.network_name() + "\nhttp://" + network_manager.hostname() + ".local\n" + network_manager.ip_address();
@@ -419,14 +422,14 @@ void MenuScreen::update_network_status() {
             break;
         case NetworkState::WIFI_SETUP_AP: {
             status = "Wi-Fi setup";
-            const String& ssid = provisioning_service.access_point_ssid();
-            const String& password = provisioning_service.access_point_password();
+            const std::string& ssid = provisioning_service.access_point_ssid();
+            const std::string& password = provisioning_service.access_point_password();
             detail = "Scan to join\n" + ssid + "\nPassword: " + password +
-                     "\nthen use the sign-in page or open " + WiFi.softAPIP().toString();
+                     "\nthen use the sign-in page or open " + network_manager.access_point_ip();
             qr_payload = "WIFI:T:";
-            qr_payload += password.isEmpty() ? "nopass" : "WPA";
+            qr_payload += password.empty() ? "nopass" : "WPA";
             qr_payload += ";S:" + escape_wifi_qr_value(ssid);
-            if (!password.isEmpty()) qr_payload += ";P:" + escape_wifi_qr_value(password);
+            if (!password.empty()) qr_payload += ";P:" + escape_wifi_qr_value(password);
             qr_payload += ";;";
             break;
         }
@@ -440,7 +443,7 @@ void MenuScreen::update_network_status() {
         lv_label_set_text(network_detail_label, detail.c_str());
         network_detail_text = detail;
     }
-    if (qr_payload.isEmpty()) {
+    if (qr_payload.empty()) {
         lv_obj_add_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
     } else {
         if (qr_payload != network_qr_payload) {
@@ -450,7 +453,7 @@ void MenuScreen::update_network_status() {
         lv_obj_clear_flag(network_qr, LV_OBJ_FLAG_HIDDEN);
     }
 
-    String update_text;
+    std::string update_text;
     bool show_update_button = false;
     if (network_manager.state() == NetworkState::WIFI_CONNECTED) {
         switch (device_web_server.firmware_update_state()) {
@@ -475,7 +478,7 @@ void MenuScreen::update_network_status() {
     if (update_text != network_update_text) {
         network_update_text = update_text;
         lv_label_set_text(network_update_label, update_text.c_str());
-        if (update_text.isEmpty()) {
+        if (update_text.empty()) {
             lv_obj_add_flag(network_update_label, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_clear_flag(network_update_label, LV_OBJ_FLAG_HIDDEN);
@@ -1204,7 +1207,7 @@ void MenuScreen::update_auto_start_threshold_label(float threshold_g) {
 }
 
 void MenuScreen::update_screensaver_toggles() {
-    bool image_exists = LittleFS.exists(BLE_IMAGE_FILENAME);
+    bool image_exists = filesystem.exists(BLE_IMAGE_FILENAME);
 
     Preferences prefs;
     prefs.begin("screensaver", true);

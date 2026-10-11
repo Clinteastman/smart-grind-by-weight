@@ -1,7 +1,9 @@
 #include "screen_timeout_controller.h"
+#include <algorithm>
+#include <cstdint>
+#include "../../system/timing.h"
 #include "screensaver_controller.h"
 
-#include <Arduino.h>
 
 #include "../../config/constants.h"
 #include "../../config/logging.h"
@@ -64,8 +66,8 @@ void ScreenTimeoutController::update() {
     // short weight window rejects isolated scale noise that could otherwise
     // wake the panel repeatedly from a long min/max history.
     const uint32_t ms_since_weight = now - last_weight_activity_ms_;
-    const uint32_t inactive_ms = min(min(ms_since_touch, ms_since_weight),
-                                     ms_since_settings_applied);
+    const uint32_t inactive_ms = std::min(std::min(ms_since_touch, ms_since_weight),
+                                          ms_since_settings_applied);
     const DisplayIdleState idle_state = display_idle_state(
         inactive_ms,
         idle_timeout_ms,

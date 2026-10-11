@@ -17,8 +17,17 @@
 #define HW_TOUCH_I2C_ADDRESS 0x38                                              // I2C address of FT3168 touch controller
 
 // Display Controller (QSPI)
+// The board revision comes from the Kconfig "Smart Grind" menu. The desktop
+// simulator and host tests have no sdkconfig and build for V1.
+#if __has_include("sdkconfig.h")
+#include "sdkconfig.h"
+#endif
 #ifndef HW_DISPLAY_VARIANT_V2
-#define HW_DISPLAY_VARIANT_V2 0                                               // V1 remains the default hardware target
+#ifdef CONFIG_SMART_GRIND_BOARD_V2
+#define HW_DISPLAY_VARIANT_V2 1
+#else
+#define HW_DISPLAY_VARIANT_V2 0
+#endif
 #endif
 
 #if HW_DISPLAY_VARIANT_V2 != 0 && HW_DISPLAY_VARIANT_V2 != 1
@@ -74,19 +83,7 @@
 //------------------------------------------------------------------------------
 #define HW_DISPLAY_WIDTH_PX 280                                                // LCD width in pixels
 #define HW_DISPLAY_HEIGHT_PX 456                                               // LCD height in pixels
-#define HW_DISPLAY_ROTATION_DEG 0                                              // Display rotation angle
-#if HW_DISPLAY_VARIANT_V2
-#define HW_DISPLAY_OFFSET_X_PX 20                                              // SH8601 framebuffer column offset
-#define HW_DISPLAY_QSPI_FREQUENCY_HZ 40000000                                  // Waveshare V2 reference QSPI clock
-#else
-#define HW_DISPLAY_OFFSET_X_PX 0                                               // V1 display positioning offset
-#define HW_DISPLAY_IPS_INVERT_X 180                                            // IPS X-axis inversion setting
-#define HW_DISPLAY_IPS_INVERT_Y 24                                             // IPS Y-axis inversion setting
-#define HW_DISPLAY_COLOR_ORDER 20                                              // Color channel ordering
-#endif
+#define HW_DISPLAY_OFFSET_X_PX 20                                              // Column of the first visible pixel in panel RAM (both revisions)
+#define HW_DISPLAY_QSPI_FREQUENCY_HZ 40000000                                  // Waveshare reference QSPI clock for both revisions
+#define HW_DISPLAY_DRAW_BUFFER_ROWS 16                                         // Rows per LVGL draw buffer; two buffers in internal DMA RAM (2 x 8,960 bytes). Must be even
 #define HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT 15                               // Minimum brightness percentage (to avoid too dim to see)
-
-//------------------------------------------------------------------------------
-// SERIAL COMMUNICATION
-//------------------------------------------------------------------------------
-#define HW_SERIAL_BAUD_RATE 115200                                             // UART baud rate for debug/logging output

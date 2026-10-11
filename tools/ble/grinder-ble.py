@@ -10,7 +10,7 @@ This single script handles:
 - Live debug logging
 
 Usage:
-    ./grinder-ble upload firmware.bin          # Upload firmware via BLE OTA
+    ./grinder-ble upload firmware.bin          # Upload firmware via BLE OTA (default: newest build/v1 or build/v2 image)
     ./grinder-ble export [--db file.db]        # Export grind data to SQLite
     ./grinder-ble analyse [--db file.db]       # Export data and launch Streamlit report
     ./grinder-ble scan                         # Scan for BLE devices
@@ -159,36 +159,38 @@ class GrinderBLETool:
         self.status_updated = asyncio.Event()
         self.data_chunks = []
         self.session_count = 0
+        # The session-count reply is two bytes, like the EXPORTING status, and
+        # its low byte can equal any status value. It is only read as a count
+        # while one has been asked for.
+        self.awaiting_session_count = False
         self.receiving_data = False
         self.debug_buffer = ""
         self.last_debug_flush = time.time()
         
-        self.firmware_cache_dir = Path(__file__).parent.parent.parent / "firmware_cache"
-    
-    @staticmethod
-    def find_firmware_file() -> Optional[str]:
-        project_root = Path(__file__).parent.parent.parent
-        build_dirs = [
-            project_root / ".pio" / "build" / "waveshare-esp32s3-touch-amoled-164",
-            project_root / ".pio" / "build" / "native",
+        self.project_root = Path(__file__).resolve().parent.parent.parent
+        self.firmware_cache_dir = self.project_root / "firmware_cache"
+
+    def find_firmware_file(self) -> Optional[str]:
+        """The newest V1 or V2 image built by tools/grinder.py build."""
+        candidates = [
+            self.project_root / "build" / variant / "smart-grind-by-weight.bin"
+            for variant in ("v1", "v2")
         ]
-        
-        for build_dir in build_dirs:
-            firmware_path = build_dir / "firmware.bin"
-            if firmware_path.exists():
-                self.safe_print(f"[INFO] Auto-detected firmware: {firmware_path}")
-                return str(firmware_path)
-        
-        pio_build_dir = project_root / ".pio" / "build"
-        if pio_build_dir.exists():
-            for env_dir in pio_build_dir.iterdir():
-                if env_dir.is_dir():
-                    firmware_path = env_dir / "firmware.bin"
-                    if firmware_path.exists():
-                        self.safe_print(f"[INFO] Auto-detected firmware: {firmware_path}")
-                        return str(firmware_path)
-        
-        return None
+        built = [path for path in candidates if path.exists()]
+        if not built:
+            return None
+        firmware_path = max(built, key=lambda path: path.stat().st_mtime)
+        self.safe_print(f"[INFO] Auto-detected firmware: {firmware_path}")
+        return str(firmware_path)
+
+    @staticmethod
+    def firmware_variant(firmware_path: str) -> str:
+        """Board revision an image is for: "v2" for a build/v2 image or a
+        release or archived V2 file, otherwise "v1"."""
+        path = Path(firmware_path)
+        if "waveshare-164-v2" in path.name or path.parent.name in ("v2", "waveshare-164-v2"):
+            return "v2"
+        return "v1"
     
     def _update_status(self, message: str):
         # Safe print that handles Unicode encoding issues on Windows
@@ -342,6 +344,12 @@ class GrinderBLETool:
     
     async def on_data_status(self, _: BleakGATTCharacteristic, data: bytearray):
         if not data: return
+        if self.awaiting_session_count and len(data) == 2:
+            self.awaiting_session_count = False
+            self.session_count = data[0] | (data[1] << 8)
+            self.safe_print(f"[INFO] Grinder has {self.session_count} sessions stored.")
+            return
+
         status = data[0]
         self.current_data_status = status
         
@@ -358,9 +366,6 @@ class GrinderBLETool:
         elif status == BLE_DATA_ERROR:
             self.receiving_data = False
             self.safe_print("\n[ERROR] Grinder reported an error during export.")
-        elif len(data) == 2:
-            self.session_count = data[0] | (data[1] << 8)
-            self.safe_print(f"[INFO] Grinder has {self.session_count} sessions stored.")
     
     async def wait_for_ota_status(self, expected_status: int, timeout: int = 30) -> bool:
         start_time = time.time()
@@ -393,47 +398,42 @@ class GrinderBLETool:
             return False
 
         self.safe_print(f"[OK] Installed firmware build: #{build_number}")
-        cached_firmware = self.find_cached_firmware(build_number)
-        if cached_firmware:
-            self.safe_print(f"[OK] Matching delta base: {cached_firmware.name}")
+        cached = [
+            path for path in (self.find_cached_firmware(build_number, variant)
+                              for variant in ("v1", "v2")) if path
+        ]
+        if cached:
+            for cached_firmware in cached:
+                self.safe_print(f"[OK] Matching delta base: "
+                                f"{cached_firmware.relative_to(self.firmware_cache_dir)}")
         else:
             self.safe_print(f"[WARNING] Matching delta base build_{int(build_number):03d}.bin is not cached")
         self.safe_print("[OK] OTA preflight passed; no firmware data was sent")
         return True
 
-    def find_cached_firmware(self, build_number: str) -> Optional[Path]:
-        firmware_file = self.firmware_cache_dir / f"build_{int(build_number):03d}.bin"
-        return firmware_file if firmware_file.exists() else None
+    def find_cached_firmware(self, build_number: str, variant: str) -> Optional[Path]:
+        """The archived image of an installed build, used as the delta base."""
+        name = f"build_{int(build_number):03d}.bin"
+        candidates = [self.firmware_cache_dir / f"waveshare-164-{variant}" / name]
+        if variant == "v1":
+            # V1 images archived before the per-board directories existed.
+            candidates.append(self.firmware_cache_dir / name)
+        return next((path for path in candidates if path.exists()), None)
 
     def _get_firmware_build_number(self, firmware_path: str) -> Optional[str]:
-        """Extract build number from git_info.h in project directory."""
+        """Build number of an image in this checkout's build/ directory.
+
+        src/config/git_info.h describes the most recent build, so it only
+        applies to images under build/; a release or copied file returns None.
+        """
         try:
-            # Firmware path: .pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin
-            # Project dir should be 3 levels up from firmware.bin
-            firmware_file = Path(firmware_path)
-            if ".pio" in firmware_file.parts:
-                # Find project root by going up until we find .pio, then up one more level
-                current = firmware_file.parent
-                while current.name != ".pio" and current.parent != current:
-                    current = current.parent
-                if current.name == ".pio":
-                    project_dir = current.parent
-                    # Try both possible locations for git_info.h
-                    git_info_paths = [
-                        project_dir / "include" / "git_info.h",
-                        project_dir / "src" / "config" / "git_info.h"
-                    ]
-                    for git_info_path in git_info_paths:
-                        if git_info_path.exists():
-                            with open(git_info_path, 'r') as f:
-                                content = f.read()
-                                import re
-                                match = re.search(r'#define BUILD_NUMBER (\d+)', content)
-                                if match:
-                                    return match.group(1)
-        except Exception:
-            pass
-        return None
+            Path(firmware_path).resolve().relative_to(self.project_root / "build")
+            header = (self.project_root / "src" / "config" / "git_info.h").read_text()
+        except (OSError, ValueError):
+            return None
+        import re
+        match = re.search(r'#define BUILD_NUMBER (\d+)', header)
+        return match.group(1) if match else None
 
     def generate_delta_patch(self, old_firmware_path: Path, new_firmware_data: bytes) -> Optional[bytes]:
         new_firmware_path = None
@@ -490,7 +490,8 @@ class GrinderBLETool:
                 self.safe_print(f"[INFO] Current device build: #{device_build}")
                 if new_build:
                     self.safe_print(f"[INFO] Upgrading to build: #{new_build}")
-                cached_firmware = self.find_cached_firmware(device_build)
+                cached_firmware = self.find_cached_firmware(
+                    device_build, self.firmware_variant(firmware_path))
                 if cached_firmware:
                     # detools performs CPU-bound compression in a subprocess.
                     # Keep it off the asyncio thread so Windows can continue
@@ -590,8 +591,10 @@ class GrinderBLETool:
 
     # === Data Export Functions (Refactored) ===
     async def get_session_count(self) -> int:
+        self.awaiting_session_count = True
         await self.client.write_gatt_char(BLE_DATA_CONTROL_CHAR_UUID, bytes([BLE_DATA_CMD_GET_COUNT]))
         await asyncio.sleep(1)
+        self.awaiting_session_count = False
         return self.session_count
     
     async def export_data(self, db_path: str = None) -> bool:

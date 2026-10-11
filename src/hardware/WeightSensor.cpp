@@ -1,11 +1,16 @@
 #include "WeightSensor.h"
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include "../system/timing.h"
 #include "../config/constants.h"
 #include "hx711_driver.h"
 #if DEBUG_ENABLE_LOADCELL_MOCK
 #include "mock_hx711_driver.h"
 #endif
-#include <Arduino.h>
-#include <math.h>
+#include <cmath>
 
 /*
  * WeightSensor Implementation
@@ -14,10 +19,6 @@
  * Uses factory pattern to create appropriate ADC driver based on hardware configuration.
  * Maintains backward compatibility with existing HX711-based code.
  */
-
-// General ADC timing constants
-#define SIGNAL_TIMEOUT 100             // Signal timeout in ms
-#define TARE_TIMEOUT_MS 2000           // Tare operation timeout
 
 namespace {
 constexpr int32_t kAdcMaximumRaw = 0xFFFFFF;
@@ -255,7 +256,7 @@ void WeightSensor::tare() {
         update();
 
         // Use load cell update interval from constants.h
-        delay(SYS_TASK_LOADCELL_INTERVAL_MS);
+        vTaskDelay(pdMS_TO_TICKS(SYS_TASK_WEIGHT_SAMPLING_INTERVAL_MS));
     }
 
     if (doTare) {
@@ -269,7 +270,7 @@ void WeightSensor::tare() {
         unsigned long sample_start = millis();
         while (raw_filter.get_sample_count() == 0 && millis() - sample_start < 1000) {
             update();
-            delay(SYS_TASK_LOADCELL_INTERVAL_MS);
+            vTaskDelay(pdMS_TO_TICKS(SYS_TASK_WEIGHT_SAMPLING_INTERVAL_MS));
         }
     }
 
@@ -302,7 +303,7 @@ void WeightSensor::calibrate(float known_weight) {
     
     unsigned long cal_start = millis();
     while(!update_async() && millis() - cal_start < GRIND_CALIBRATION_TIMEOUT_MS) {
-        delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
     
     // Calibration using raw ADC data - more precise than calibrated data
@@ -396,7 +397,7 @@ float WeightSensor::get_settled_weight(uint32_t window_ms, float* settle_time_ou
         }
         
         // Use load cell update interval from constants.h
-        delay(SYS_TASK_LOADCELL_INTERVAL_MS);
+        vTaskDelay(pdMS_TO_TICKS(SYS_TASK_WEIGHT_SAMPLING_INTERVAL_MS));
     }
     
     // Timeout occurred - return best available measurement
@@ -419,7 +420,7 @@ int32_t WeightSensor::get_raw_adc_smoothed(uint32_t window_ms) const {
 uint32_t WeightSensor::get_adc_headroom_counts() const {
     const int32_t raw = diagnostic_raw_adc_.load();
     if (raw < 0 || raw > kAdcMaximumRaw) return 0;
-    return static_cast<uint32_t>(min(raw, kAdcMaximumRaw - raw));
+    return static_cast<uint32_t>(std::min(raw, kAdcMaximumRaw - raw));
 }
 
 bool WeightSensor::is_adc_near_saturation() const {
@@ -590,7 +591,7 @@ void WeightSensor::load_calibration() {
         float saved_factor = prefs->getFloat("hx_cal", USER_DEFAULT_CALIBRATION_FACTOR);
         
         // Check for corrupted/invalid calibration data
-        if (isnan(saved_factor) || !isfinite(saved_factor) || saved_factor == 0.0) {
+        if (std::isnan(saved_factor) || !std::isfinite(saved_factor) || saved_factor == 0.0) {
             LOG_BLE("WARNING: Invalid calibration factor detected, using default\n");
             saved_factor = USER_DEFAULT_CALIBRATION_FACTOR;
             // Clear corrupted data and save default
@@ -803,7 +804,7 @@ float WeightSensor::get_saved_calibration_factor() {
         float saved_factor = prefs->getFloat("hx_cal", USER_DEFAULT_CALIBRATION_FACTOR);
         
         // Validate saved factor
-        if (isnan(saved_factor) || !isfinite(saved_factor) || saved_factor == 0.0) {
+        if (std::isnan(saved_factor) || !std::isfinite(saved_factor) || saved_factor == 0.0) {
             return USER_DEFAULT_CALIBRATION_FACTOR;
         }
         return saved_factor;
@@ -857,7 +858,7 @@ float WeightSensor::get_current_sps() const {
 float WeightSensor::get_standard_deviation_g(uint32_t window_ms) const {
     // Get raw standard deviation and convert to grams
     float raw_std_dev = raw_filter.get_standard_deviation_raw(window_ms);
-    return raw_std_dev / abs(cal_factor);  // Convert from raw ADC units to grams (use abs since noise magnitude is always positive)
+    return raw_std_dev / std::fabs(cal_factor);  // Convert from raw ADC units to grams (use abs since noise magnitude is always positive)
 }
 
 int32_t WeightSensor::get_standard_deviation_adc(uint32_t window_ms) const {

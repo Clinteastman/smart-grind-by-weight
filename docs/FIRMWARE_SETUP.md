@@ -71,8 +71,8 @@ Before flashing, verify that the selected image matches the display generation. 
 The `upload` command uses Bluetooth and therefore cannot install firmware on a
 new or unresponsive controller. For a first-time USB installation when the web
 flasher is unavailable, follow
-[Initial USB Flashing](DEVELOPMENT.md#initial-usb-flashing) to build and upload
-the matching V1 or V2 target with PlatformIO.
+[Initial USB Flashing](DEVELOPMENT.md#initial-usb-flashing) to build the
+matching V1 or V2 firmware with ESP-IDF and flash it with `idf.py`.
 
 For an existing Smart Grind installation, enable Bluetooth on the grinder and
 upload a matching release image with:

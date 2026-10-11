@@ -1,5 +1,8 @@
 #include "autotune_controller.h"
-#include <Arduino.h>
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include "../system/timing.h"
 #include <cmath>
 #include <cstring>
 #include <cstdarg>
@@ -92,8 +95,8 @@ bool AutoTuneController::start() {
     progress.previous_latency_ms = grind_controller->get_motor_response_latency();
 
     // Initialize autotune log file
-    LittleFS.remove("/autotune.log");
-    autotune_log_file = LittleFS.open("/autotune.log", "w");
+    filesystem.remove("/autotune.log");
+    autotune_log_file = filesystem.open("/autotune.log", "w");
     if (autotune_log_file) {
         autotune_log_file.println("=== Autotune Started ===");
         autotune_log_file.printf("Timestamp: %lums\n", millis());
@@ -209,6 +212,9 @@ void AutoTuneController::update_priming_phase() {
 
         case AutoTuneSubPhase::TARING:
             update_tare();
+            break;
+
+        default:
             break;
     }
 }
@@ -339,7 +345,7 @@ void AutoTuneController::update_binary_search_phase() {
             }
 
             // Bounds checking
-            current_pulse_ms = constrain(current_pulse_ms,
+            current_pulse_ms = std::clamp(current_pulse_ms,
                                           GRIND_AUTOTUNE_LATENCY_MIN_MS,
                                           GRIND_AUTOTUNE_LATENCY_MAX_MS);
 

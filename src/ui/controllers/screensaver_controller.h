@@ -1,7 +1,7 @@
 #pragma once
 
 #include <lvgl.h>
-#include <Arduino.h>
+#include <string>
 #include <cstdint>
 
 /**
@@ -45,13 +45,13 @@ private:
     lv_timer_t* animation_timer_;
     uint8_t* image_buffer_;
     lv_image_dsc_t image_dsc_;
-    String style_;
+    std::string style_;
     uint8_t animation_step_;
     bool visible_;
 
-    String selected_style() const;
+    std::string selected_style() const;
     bool has_custom_image() const;
-    bool create_builtin(const String& style);
+    bool create_builtin(const std::string& style);
     void update_builtin();
     static void animation_timer_callback(lv_timer_t* timer);
     bool load_image();

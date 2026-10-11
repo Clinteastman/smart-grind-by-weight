@@ -1,29 +1,42 @@
 #include "device_web_server.h"
 
-#include <Arduino.h>
-#include <HTTPClient.h>
-#include <LittleFS.h>
-#include <Update.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
+#include <esp_crt_bundle.h>
+#include <esp_err.h>
+#include <esp_http_client.h>
+#include <esp_https_ota.h>
+#include <esp_ota_ops.h>
+#include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <functional>
-#include <new>
-#include <esp_heap_caps.h>
-#include <esp_ota_ops.h>
+#include <memory>
 #include <vector>
 
+#include "../bluetooth/manager.h"
 #include "../config/build_info.h"
 #include "../config/constants.h"
 #include "../controllers/grind_controller.h"
-#include "../bluetooth/manager.h"
 #include "../hardware/hardware_manager.h"
-#include "../logging/grind_logging.h"
 #include "../logging/diagnostic_log.h"
-#include "network_manager.h"
+#include "../logging/grind_logging.h"
+#include "../logging/session_file.h"
+#include "../storage/filesystem.h"
+#include "../system/device_info.h"
+#include "../system/string_utils.h"
+#include "../system/timing.h"
 #include "device_api.h"
-#include "ota_stream.h"
+#include "firmware_image.h"
+#include "http_multipart.h"
+#include "http_support.h"
+#include "network_manager.h"
+#include "ota_writer.h"
+#include "provisioning_service.h"
 
 namespace {
 const char* network_state_name(NetworkState state) {
@@ -39,33 +52,6 @@ const char* network_state_name(NetworkState state) {
     return "unknown";
 }
 
-String json_escape(const String& value) {
-    String escaped;
-    escaped.reserve(value.length() + 8);
-    for (size_t i = 0; i < value.length(); ++i) {
-        const char ch = value[i];
-        switch (ch) {
-            case '"': escaped += "\\\""; break;
-            case '\\': escaped += "\\\\"; break;
-            case '\b': escaped += "\\b"; break;
-            case '\f': escaped += "\\f"; break;
-            case '\n': escaped += "\\n"; break;
-            case '\r': escaped += "\\r"; break;
-            case '\t': escaped += "\\t"; break;
-            default:
-                if (static_cast<uint8_t>(ch) >= 0x20) escaped += ch;
-                break;
-        }
-    }
-    return escaped;
-}
-
-bool request_origin_allowed(AsyncWebServerRequest* request) {
-    if (!request || !request->hasHeader("Origin")) return true;
-    const AsyncWebHeader* origin = request->getHeader("Origin");
-    return origin && origin->value() == ("http://" + request->host());
-}
-
 bool history_is_busy(const GrindController* controller) {
     if (!controller) return false;
     const GrindPhase phase = controller->get_phase();
@@ -75,17 +61,6 @@ bool history_is_busy(const GrindController* controller) {
     return (phase != GrindPhase::IDLE && !result_is_waiting) || grind_logger.is_logging_active();
 }
 
-struct OtaRequestState {
-    bool success;
-    bool complete;
-    OperationInterlock::Token token;
-};
-
-struct ScreensaverUploadState {
-    bool success;
-    bool complete;
-};
-
 constexpr uint32_t OTA_REBOOT_DELAY_MS = 1500;
 constexpr uint32_t OTA_PREPARE_TIMEOUT_MS = 15000;
 constexpr uint32_t OTA_READY_WINDOW_MS = 30000;
@@ -94,6 +69,12 @@ constexpr size_t OTA_DOWNLOAD_TASK_STACK = 12U * 1024U;
 constexpr uint32_t UPDATE_CHECK_INTERVAL_MS = 30U * 60U * 1000U;
 constexpr uint32_t UPDATE_CHECK_RETRY_MS = 5U * 60U * 1000U;
 constexpr size_t UPDATE_CHECK_TASK_STACK = 10U * 1024U;
+// esp_https_ota reads the release image this many bytes at a time.
+constexpr int OTA_DOWNLOAD_BUFFER = 1024;
+// A release read waits this long for body data before the download fails.
+constexpr int OTA_READ_TIMEOUT_MS = 15000;
+// Release requests follow at most this many redirects.
+constexpr int HTTP_MAX_REDIRECTS = 3;
 // GitHub Pages mirrors every published release beneath this versioned path.
 // Using the mirror avoids the github.com -> release-assets.githubusercontent.com
 // redirect during a memory-constrained TLS session while retaining the exact
@@ -102,13 +83,10 @@ constexpr char GITHUB_RELEASE_MIRROR_BASE[] =
     "https://clinteastman.github.io/smart-grind-by-weight/firmware/";
 constexpr char LATEST_RELEASE_MANIFEST_URL[] =
     "https://clinteastman.github.io/smart-grind-by-weight/firmware/latest.json";
-extern const uint8_t x509_crt_imported_bundle_bin_start[]
-    asm("_binary_x509_crt_bundle_start");
-extern const uint8_t x509_crt_imported_bundle_bin_end[]
-    asm("_binary_x509_crt_bundle_end");
-UpdateClass web_firmware_update;
 
-bool valid_release_tag(const String& tag) {
+OtaWriter web_firmware_update;
+
+bool valid_release_tag(const std::string& tag) {
     if (tag.length() < 6 || tag.length() > 24 || tag[0] != 'v') return false;
     uint8_t dots = 0;
     for (size_t i = 1; i < tag.length(); ++i) {
@@ -122,21 +100,22 @@ bool valid_release_tag(const String& tag) {
     return dots == 2;
 }
 
-bool parse_semver(const String& value, uint16_t& major, uint16_t& minor, uint16_t& patch) {
-    const size_t offset = value.startsWith("v") ? 1U : 0U;
-    const int first_dot = value.indexOf('.', static_cast<unsigned int>(offset));
-    const int second_dot = first_dot < 0 ? -1 : value.indexOf('.', first_dot + 1);
+bool parse_semver(const std::string& value, uint16_t& major, uint16_t& minor, uint16_t& patch) {
+    const size_t offset = strings::starts_with(value, "v") ? 1U : 0U;
+    const int first_dot = strings::index_of(value, '.', offset);
+    const int second_dot = first_dot < 0 ? -1 : strings::index_of(value, '.', first_dot + 1);
     if (first_dot <= static_cast<int>(offset) || second_dot <= first_dot + 1 ||
         second_dot + 1 >= static_cast<int>(value.length())) {
         return false;
     }
     for (size_t i = offset; i < value.length(); ++i) {
         if (i == static_cast<size_t>(first_dot) || i == static_cast<size_t>(second_dot)) continue;
-        if (!isDigit(value[i])) return false;
+        if (!isdigit(static_cast<unsigned char>(value[i]))) return false;
     }
-    const unsigned long parsed_major = value.substring(offset, first_dot).toInt();
-    const unsigned long parsed_minor = value.substring(first_dot + 1, second_dot).toInt();
-    const unsigned long parsed_patch = value.substring(second_dot + 1).toInt();
+    const unsigned long parsed_major = strings::to_uint32(strings::slice(value, offset, first_dot));
+    const unsigned long parsed_minor =
+        strings::to_uint32(strings::slice(value, first_dot + 1, second_dot));
+    const unsigned long parsed_patch = strings::to_uint32(value.substr(second_dot + 1));
     if (parsed_major > UINT16_MAX || parsed_minor > UINT16_MAX || parsed_patch > UINT16_MAX) {
         return false;
     }
@@ -146,55 +125,139 @@ bool parse_semver(const String& value, uint16_t& major, uint16_t& minor, uint16_
     return true;
 }
 
-String json_string_value(const String& json, const char* key) {
-    const String needle = String('"') + key + '"';
-    const int key_pos = json.indexOf(needle);
-    const int colon = key_pos < 0 ? -1 : json.indexOf(':', key_pos + needle.length());
-    const int opening_quote = colon < 0 ? -1 : json.indexOf('"', colon + 1);
-    const int closing_quote = opening_quote < 0 ? -1 : json.indexOf('"', opening_quote + 1);
-    if (opening_quote < 0 || closing_quote <= opening_quote + 1) return String();
-    return json.substring(opening_quote + 1, closing_quote);
+std::string json_string_value(const std::string& json, const char* key) {
+    const std::string needle = std::string("\"") + key + '"';
+    const int key_pos = strings::index_of(json, needle);
+    const int colon = key_pos < 0 ? -1 : strings::index_of(json, ':', key_pos + needle.length());
+    const int opening_quote = colon < 0 ? -1 : strings::index_of(json, '"', colon + 1);
+    const int closing_quote =
+        opening_quote < 0 ? -1 : strings::index_of(json, '"', opening_quote + 1);
+    if (opening_quote < 0 || closing_quote <= opening_quote + 1) return {};
+    return strings::slice(json, opening_quote + 1, closing_quote);
 }
 
-bool json_bool_value(const String& json, const char* key, bool& value) {
-    const String needle = String('"') + key + '"';
-    const int key_pos = json.indexOf(needle);
-    const int colon = key_pos < 0 ? -1 : json.indexOf(':', key_pos + needle.length());
+bool json_bool_value(const std::string& json, const char* key, bool& value) {
+    const std::string needle = std::string("\"") + key + '"';
+    const int key_pos = strings::index_of(json, needle);
+    const int colon = key_pos < 0 ? -1 : strings::index_of(json, ':', key_pos + needle.length());
     if (colon < 0) return false;
-    int value_pos = colon + 1;
-    while (value_pos < static_cast<int>(json.length()) && isspace(json[value_pos])) ++value_pos;
-    if (json.startsWith("true", value_pos)) {
+    size_t value_pos = static_cast<size_t>(colon) + 1;
+    while (value_pos < json.length() && isspace(static_cast<unsigned char>(json[value_pos]))) {
+        ++value_pos;
+    }
+    if (json.compare(value_pos, 4, "true") == 0) {
         value = true;
         return true;
     }
-    if (json.startsWith("false", value_pos)) {
+    if (json.compare(value_pos, 5, "false") == 0) {
         value = false;
         return true;
     }
     return false;
 }
+
+/** A response body esp_http_client_perform delivers in pieces, up to a limit. */
+struct TextResponse {
+    explicit TextResponse(size_t limit) : max_bytes(limit) {}
+    size_t max_bytes;
+    std::string body;
+    bool too_large = false;
+};
+
+esp_err_t collect_text(esp_http_client_event_t* event) {
+    auto* response = static_cast<TextResponse*>(event->user_data);
+    // A redirect's own body arrives here too; keep only the final response's.
+    if (event->event_id != HTTP_EVENT_ON_DATA ||
+        esp_http_client_get_status_code(event->client) != 200) {
+        return ESP_OK;
+    }
+    if (response->body.size() + static_cast<size_t>(event->data_len) > response->max_bytes) {
+        response->too_large = true;
+    } else {
+        response->body.append(static_cast<const char*>(event->data), event->data_len);
+    }
+    return ESP_OK;
 }
+
+/**
+ * Fetch a URL over TLS into `body`, following redirects, and refusing an empty
+ * response or one above `max_bytes`.
+ */
+bool fetch_text(const char* url, const char* user_agent, int timeout_ms, size_t max_bytes,
+                std::string& body) {
+    TextResponse response(max_bytes);
+    esp_http_client_config_t config = {};
+    config.url = url;
+    config.timeout_ms = timeout_ms;
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+    config.user_agent = user_agent;
+    config.max_redirection_count = HTTP_MAX_REDIRECTS;
+    config.event_handler = collect_text;
+    config.user_data = &response;
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) return false;
+    esp_http_client_set_header(client, "Cache-Control", "no-cache");
+    const bool success = esp_http_client_perform(client) == ESP_OK &&
+                         esp_http_client_get_status_code(client) == 200 &&
+                         !response.too_large && !response.body.empty();
+    esp_http_client_cleanup(client);
+    if (success) body = std::move(response.body);
+    return success;
+}
+
+/** The release mirror's CDN must not answer an update from a stale cache. */
+esp_err_t prepare_release_request(esp_http_client_handle_t client) {
+    return esp_http_client_set_header(client, "Cache-Control", "no-cache");
+}
+}  // namespace
 
 DeviceWebServer device_web_server;
 
 void DeviceWebServer::init(HardwareManager* hardware_manager, GrindController* grind_controller,
-                           BluetoothManager* bluetooth_manager, ProfileController* profile_controller) {
+                           BluetoothManager* bluetooth_manager,
+                           ProfileController* profile_controller) {
     if (initialized_) return;
     hardware_manager_ = hardware_manager;
     grind_controller_ = grind_controller;
     bluetooth_manager_ = bluetooth_manager;
-    device_api.init(&server_, hardware_manager_, grind_controller_, profile_controller);
-    configure_routes();
+    profile_controller_ = profile_controller;
     initialized_ = true;
 }
 
 void DeviceWebServer::begin() {
     if (!initialized_ || started_) return;
-    // AsyncServer::begin() enters lwIP immediately. Calling it while Wi-Fi is
-    // still WIFI_MODE_NULL reaches an uninitialised lwIP semaphore and aborts
-    // in xQueueSemaphoreTake on ESP32 Arduino 3.x.
-    if (WiFi.getMode() == WIFI_MODE_NULL) return;
-    server_.begin();
+    // The listener socket needs lwIP, which only exists once the Wi-Fi driver is
+    // running in station or access-point mode.
+    if (!network_manager.is_radio_started()) return;
+
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = SYS_HTTP_PORT;
+    config.max_uri_handlers = SYS_HTTP_MAX_URI_HANDLERS;
+    config.max_open_sockets = SYS_HTTP_MAX_OPEN_SOCKETS;
+    config.lru_purge_enable = true;
+    config.stack_size = SYS_HTTP_TASK_STACK_SIZE;
+    config.recv_wait_timeout = SYS_HTTP_SOCKET_TIMEOUT_S;
+    config.send_wait_timeout = SYS_HTTP_SOCKET_TIMEOUT_S;
+
+    const esp_err_t err = httpd_start(&server_, &config);
+    if (err != ESP_OK) {
+        server_ = nullptr;
+        // begin() is retried from the service loop, so only report the first
+        // failure rather than filling the diagnostic log every few milliseconds.
+        if (!start_failure_reported_) {
+            start_failure_reported_ = true;
+            LOG_BLE("[WEB] HTTP service failed to start: %s\n", esp_err_to_name(err));
+        }
+        return;
+    }
+
+    // Routes can only be registered against a running server, so all three
+    // route owners are attached here in one place.
+    configure_routes();
+    device_api.attach_routes(server_, hardware_manager_, grind_controller_, profile_controller_);
+    provisioning_service.attach_routes(server_);
+
     started_ = true;
     LOG_BLE("[WEB] HTTP service listening on port 80\n");
 }
@@ -204,10 +267,7 @@ void DeviceWebServer::update() {
     const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     OtaPreparationState preparation = ota_preparation_state_.load();
     if (preparation == OtaPreparationState::REQUESTED) {
-        const bool unsafe = ota_active_.load() || !grind_controller_ ||
-                            grind_controller_->is_active() ||
-                            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active());
-        if (unsafe) {
+        if (device_busy()) {
             recover_from_ota_failure();
         } else {
             if (bluetooth_manager_ && bluetooth_manager_->is_enabled()) {
@@ -215,8 +275,7 @@ void DeviceWebServer::update() {
                 bluetooth_manager_->disable();
                 ota_bluetooth_stopped_.store(true);
             }
-            if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >=
-                OTA_MIN_INTERNAL_HEAP) {
+            if (internal_heap_ok()) {
                 ota_preparation_deadline_ms_.store(millis() + OTA_READY_WINDOW_MS);
                 ota_preparation_state_.store(OtaPreparationState::READY);
                 LOG_BLE("[WEB OTA] Update preparation complete\n");
@@ -232,9 +291,9 @@ void DeviceWebServer::update() {
     }
 
     if (on_device_update_pending_.load() && is_ota_ready()) {
-        const String tag = latest_release_tag();
+        const std::string tag = latest_release_tag();
         on_device_update_pending_.store(false);
-        if (tag.isEmpty() || !start_github_ota(tag)) {
+        if (tag.empty() || !start_github_ota(tag)) {
             LOG_BLE("[WEB OTA] Could not start requested on-device update\n");
             recover_from_ota_failure();
         }
@@ -246,13 +305,8 @@ void DeviceWebServer::update() {
                                   : UPDATE_CHECK_INTERVAL_MS;
     const uint32_t last_check = last_firmware_update_check_ms_.load();
     const bool check_due = last_check == 0 || now - last_check >= interval;
-    const bool check_safe = network_manager.is_connected() && !is_ota_active() &&
-                            ota_preparation_state_.load() == OtaPreparationState::IDLE &&
-                            (!grind_controller_ || !grind_controller_->is_active()) &&
-                            (!bluetooth_manager_ || !bluetooth_manager_->is_transfer_active()) &&
-                            heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >=
-                                OTA_MIN_INTERNAL_HEAP;
-    if (check_due && check_safe) {
+    if (check_due && network_manager.is_connected() && !device_busy() &&
+        ota_preparation_state_.load() == OtaPreparationState::IDLE && internal_heap_ok()) {
         bool expected_inactive = false;
         if (firmware_update_check_active_.compare_exchange_strong(expected_inactive, true)) {
             firmware_update_state_.store(FirmwareUpdateState::CHECKING);
@@ -267,32 +321,28 @@ void DeviceWebServer::update() {
     if (reboot_pending_.load() &&
         static_cast<int32_t>(millis() - reboot_at_ms_.load()) >= 0) {
         LOG_BLE("[WEB OTA] Restarting device\n");
-        Serial.flush();
-        ESP.restart();
+        fflush(stdout);
+        esp_restart();
     }
 }
 
-String DeviceWebServer::latest_release_tag() const {
+std::string DeviceWebServer::latest_release_tag() const {
     if (latest_version_major_.load() == 0 && latest_version_minor_.load() == 0 &&
         latest_version_patch_.load() == 0) {
-        return String();
+        return {};
     }
     char tag[25];
     snprintf(tag, sizeof(tag), "v%u.%u.%u", latest_version_major_.load(),
              latest_version_minor_.load(), latest_version_patch_.load());
-    return String(tag);
+    return tag;
 }
 
 bool DeviceWebServer::install_available_update() {
     const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
-    if (!firmware_update_available() || latest_release_tag().isEmpty() ||
-        !network_manager.is_connected() || ota_active_.load() ||
-        ota_preparation_state_.load() != OtaPreparationState::IDLE ||
-        (grind_controller_ && grind_controller_->is_active()) ||
-        (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
+    if (!firmware_update_available() || latest_release_tag().empty() ||
+        !request_ota_preparation()) {
         return false;
     }
-    if (!request_ota_preparation()) return false;
     on_device_update_pending_.store(true);
     return true;
 }
@@ -305,86 +355,60 @@ void DeviceWebServer::firmware_update_check_task(void*) {
 
 void DeviceWebServer::perform_firmware_update_check() {
     FirmwareUpdateState result = FirmwareUpdateState::FAILED;
-    WiFiClientSecure secure_client;
-    secure_client.setCACertBundle(
-        x509_crt_imported_bundle_bin_start,
-        static_cast<size_t>(x509_crt_imported_bundle_bin_end -
-                            x509_crt_imported_bundle_bin_start));
-    secure_client.setTimeout(10000);
-    secure_client.setHandshakeTimeout(10);
 
-    HTTPClient http;
-    http.useHTTP10(true);
-    http.setConnectTimeout(10000);
-    http.setTimeout(10000);
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    http.setUserAgent("SmartGrind-UpdateCheck/1");
-    http.addHeader("Cache-Control", "no-cache");
-    if (http.begin(secure_client, LATEST_RELEASE_MANIFEST_URL)) {
-        const int status = http.GET();
-        if (status == HTTP_CODE_OK) {
-            const int content_length = http.getSize();
-            if (content_length > 0 && content_length <= 512) {
-                const String manifest = http.getString();
-                const String tag = json_string_value(manifest, "tag");
-                bool v1_available = false;
-                bool v2_available = false;
-                uint16_t major = 0;
-                uint16_t minor = 0;
-                uint16_t patch = 0;
-                if (valid_release_tag(tag) && parse_semver(tag, major, minor, patch) &&
-                    json_bool_value(manifest, "v1", v1_available) &&
-                    json_bool_value(manifest, "v2", v2_available)) {
-                    const bool asset_available = HW_DISPLAY_VARIANT_V2
-                                                     ? v2_available
-                                                     : v1_available;
-                    uint16_t current_major = 0;
-                    uint16_t current_minor = 0;
-                    uint16_t current_patch = 0;
-                    if (asset_available && parse_semver(BUILD_FIRMWARE_VERSION, current_major,
-                                                        current_minor, current_patch)) {
-                        latest_version_major_.store(major);
-                        latest_version_minor_.store(minor);
-                        latest_version_patch_.store(patch);
-                        const bool newer = major > current_major ||
-                                           (major == current_major && minor > current_minor) ||
-                                           (major == current_major && minor == current_minor &&
-                                            patch > current_patch);
-                        result = newer ? FirmwareUpdateState::AVAILABLE
-                                       : FirmwareUpdateState::CURRENT;
-                    }
-                }
+    std::string manifest;
+    if (fetch_text(LATEST_RELEASE_MANIFEST_URL, "SmartGrind-UpdateCheck/1", 10000, 512,
+                   manifest)) {
+        const std::string tag = json_string_value(manifest, "tag");
+        bool v1_available = false;
+        bool v2_available = false;
+        uint16_t major = 0;
+        uint16_t minor = 0;
+        uint16_t patch = 0;
+        if (valid_release_tag(tag) && parse_semver(tag, major, minor, patch) &&
+            json_bool_value(manifest, "v1", v1_available) &&
+            json_bool_value(manifest, "v2", v2_available)) {
+            const bool asset_available = HW_DISPLAY_VARIANT_V2 ? v2_available : v1_available;
+            uint16_t current_major = 0;
+            uint16_t current_minor = 0;
+            uint16_t current_patch = 0;
+            if (asset_available &&
+                parse_semver(BUILD_FIRMWARE_VERSION, current_major, current_minor,
+                             current_patch)) {
+                latest_version_major_.store(major);
+                latest_version_minor_.store(minor);
+                latest_version_patch_.store(patch);
+                const bool newer = major > current_major ||
+                                   (major == current_major && minor > current_minor) ||
+                                   (major == current_major && minor == current_minor &&
+                                    patch > current_patch);
+                result = newer ? FirmwareUpdateState::AVAILABLE : FirmwareUpdateState::CURRENT;
             }
         }
-        http.end();
     }
+
     last_firmware_update_check_ms_.store(millis());
     firmware_update_state_.store(result);
-    const String latest_tag = latest_release_tag();
+    const std::string latest_tag = latest_release_tag();
     LOG_BLE("[WEB OTA] Firmware update check: %s%s%s\n",
             result == FirmwareUpdateState::AVAILABLE ? "available" :
             result == FirmwareUpdateState::CURRENT ? "current" : "failed",
-            latest_tag.isEmpty() ? "" : " ", latest_tag.c_str());
+            latest_tag.empty() ? "" : " ", latest_tag.c_str());
 }
 
 bool DeviceWebServer::is_ota_ready() const {
     const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     return ota_preparation_state_.load() == OtaPreparationState::READY &&
            static_cast<int32_t>(millis() - ota_preparation_deadline_ms_.load()) < 0 &&
-           operation_interlock().owns(operation_token_) &&
-           initialized_ && network_manager.is_connected() && !is_ota_active() &&
-           (!grind_controller_ || !grind_controller_->is_active()) &&
-           (!bluetooth_manager_ || !bluetooth_manager_->is_transfer_active()) &&
-           heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >= OTA_MIN_INTERNAL_HEAP;
+           operation_interlock().owns(operation_token_) && initialized_ &&
+           network_manager.is_connected() && !device_busy() && internal_heap_ok();
 }
 
 bool DeviceWebServer::request_ota_preparation() {
     const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
-    if (!initialized_ || !network_manager.is_connected() || is_ota_active() ||
+    if (!initialized_ || !network_manager.is_connected() || device_busy() ||
         firmware_update_check_active_.load() ||
-        ota_preparation_state_.load() != OtaPreparationState::IDLE ||
-        !grind_controller_ || grind_controller_->is_active() ||
-        (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) return false;
+        ota_preparation_state_.load() != OtaPreparationState::IDLE) return false;
     const auto token = operation_interlock().try_acquire();
     if (!token) return false;
     operation_token_ = token;
@@ -401,9 +425,9 @@ void DeviceWebServer::recover_from_ota_failure() {
     on_device_update_pending_.store(false);
     ota_preparation_state_.store(OtaPreparationState::IDLE);
     if (ota_bluetooth_stopped_.exchange(false)) {
-        // Arduino BLE retains its server singleton across deinit(false). Re-enabling
-        // in the same boot duplicates services and leaks heap, so recover through a
-        // clean reboot into the still-valid running firmware instead.
+        // Bluetooth was torn down to free internal memory for the update. After
+        // a failed attempt, restarting the still-valid running firmware is a
+        // cheaper way back to a known-good state than unwinding by hand.
         LOG_BLE("[WEB OTA] Scheduling clean recovery restart\n");
         reboot_at_ms_.store(millis() + OTA_REBOOT_DELAY_MS);
         reboot_pending_.store(true);
@@ -414,6 +438,21 @@ void DeviceWebServer::recover_from_ota_failure() {
     }
 }
 
+const char* DeviceWebServer::busy_reason() const {
+    if (is_ota_active()) return "A firmware update is already active";
+    if (!grind_controller_ || grind_controller_->is_active()) return "Stop the grinder first";
+    if (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) {
+        return "Wait for the Bluetooth transfer to finish";
+    }
+    return nullptr;
+}
+
+bool DeviceWebServer::device_busy() const { return busy_reason() != nullptr; }
+
+bool DeviceWebServer::internal_heap_ok() const {
+    return device_info::free_internal_heap_bytes() >= OTA_MIN_INTERNAL_HEAP;
+}
+
 uint8_t DeviceWebServer::ota_progress_percent() const {
     const size_t total = ota_total_.load();
     if (!ota_active_.load() || total == 0) return 0;
@@ -422,13 +461,14 @@ uint8_t DeviceWebServer::ota_progress_percent() const {
 }
 
 void DeviceWebServer::configure_routes() {
-    server_.on(AsyncURIMatcher::exact("/api/v1/status"), HTTP_GET, [](AsyncWebServerRequest* request) {
-        AsyncResponseStream* response = request->beginResponseStream("application/json");
-        const String hostname = json_escape(network_manager.hostname());
-        const String device_id = json_escape(network_manager.device_id());
-        const String network_name = json_escape(network_manager.network_name());
-        const String ip_address = json_escape(network_manager.ip_address());
-        response->printf(
+    http::route(server_, "/api/v1/status", HTTP_GET, [](httpd_req_t* request) {
+        char body[1024];
+        const std::string hostname = http::json_escape(network_manager.hostname());
+        const std::string device_id = http::json_escape(network_manager.device_id());
+        const std::string network_name = http::json_escape(network_manager.network_name());
+        const std::string ip_address = http::json_escape(network_manager.ip_address());
+        snprintf(
+            body, sizeof(body),
             "{\"api\":\"v1\",\"device\":{\"id\":\"%s\",\"model\":\"ESP32-S3-Touch-AMOLED-1.64\",\"hardware_revision\":\"%s\"},"
             "\"capabilities\":{\"protocol\":1,\"transport\":\"websocket\",\"path\":\"/ws\",\"state_interval_ms\":100,"
             "\"commands\":[\"start\",\"start_manual\",\"stop\",\"dismiss\",\"tare\",\"select_profile\",\"set_mode\"]},"
@@ -447,314 +487,206 @@ void DeviceWebServer::configure_routes() {
             network_name.c_str(),
             ip_address.c_str(),
             static_cast<unsigned long>(millis()),
-            static_cast<unsigned int>(ESP.getFreeHeap()),
-            static_cast<unsigned int>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-            static_cast<unsigned int>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-            static_cast<unsigned int>(ESP.getFreePsram()),
+            static_cast<unsigned int>(device_info::free_heap_bytes()),
+            static_cast<unsigned int>(device_info::free_internal_heap_bytes()),
+            static_cast<unsigned int>(device_info::largest_free_internal_block_bytes()),
+            static_cast<unsigned int>(device_info::free_psram_bytes()),
             device_web_server.is_ota_active() ? "true" : "false",
             device_web_server.is_ota_preparing() ? "true" : "false",
             device_web_server.is_ota_ready() ? "true" : "false",
             device_web_server.ota_progress_percent(),
             device_web_server.ota_failed() ? "true" : "false");
-        response->addHeader("Cache-Control", "no-store");
-        request->send(response);
+        return http::send_json(request, 200, body);
     });
 
-    server_.on(AsyncURIMatcher::exact("/health"), HTTP_GET, [](AsyncWebServerRequest* request) {
-        request->send(200, "text/plain", "ok");
+    http::route(server_, "/health", HTTP_GET, [](httpd_req_t* request) {
+        return http::send(request, 200, "text/plain", "ok");
     });
 
-    server_.on(AsyncURIMatcher::exact("/api/v1/logs"), HTTP_GET, [](AsyncWebServerRequest* request) {
-        AsyncWebServerResponse* response = request->beginResponse(
-            200, "text/plain; charset=utf-8", diagnostic_log_snapshot());
-        response->addHeader("Cache-Control", "private, no-store");
-        request->send(response);
+    http::route(server_, "/api/v1/logs", HTTP_GET, [](httpd_req_t* request) {
+        httpd_resp_set_hdr(request, "Cache-Control", "private, no-store");
+        return http::send(request, 200, "text/plain; charset=utf-8", diagnostic_log_snapshot());
     });
 
-    server_.on(AsyncURIMatcher::exact("/api/v1/history"), HTTP_GET, [this](AsyncWebServerRequest* request) {
+    http::route(server_, "/api/v1/history", HTTP_GET, [this](httpd_req_t* request) {
         if (history_is_busy(grind_controller_) || ota_active_.load() ||
             (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
-            request->send(409, "application/json", "{\"error\":\"History is busy; try again when the grinder is idle\"}");
-            return;
+            return http::send_error(request, 409,
+                                    "History is busy; try again when the grinder is idle");
         }
 
         std::vector<uint32_t> session_ids;
-        File directory = LittleFS.open(GRIND_SESSIONS_DIR);
+        FsFile directory = filesystem.open(GRIND_SESSIONS_DIR);
         if (directory && directory.isDirectory()) {
-            File entry = directory.openNextFile();
+            FsFile entry = directory.openNextFile();
             while (entry) {
-                const String name = entry.name();
-                const int marker = name.lastIndexOf("session_");
-                const int suffix = name.lastIndexOf(".bin");
-                if (!entry.isDirectory() && marker >= 0 && suffix > marker + 8) {
-                    const uint32_t id = name.substring(marker + 8, suffix).toInt();
-                    if (id > 0) session_ids.push_back(id);
+                uint32_t id = 0;
+                if (!entry.isDirectory() && parse_session_filename(entry.name(), id)) {
+                    session_ids.push_back(id);
                 }
-                entry.close();
                 entry = directory.openNextFile();
             }
-            directory.close();
         }
         std::sort(session_ids.begin(), session_ids.end(), std::greater<uint32_t>());
         if (session_ids.size() > MAX_STORED_SESSIONS_FLASH) {
             session_ids.resize(MAX_STORED_SESSIONS_FLASH);
         }
 
-        AsyncResponseStream* response = request->beginResponseStream("application/json");
-        response->printf("{\"api\":\"v1\",\"storage_version\":%lu,\"sessions\":[",
-                         static_cast<unsigned long>(grind_logger.get_session_storage_version()));
+        // Chunked: the session list can exceed what fits in one response buffer.
+        httpd_resp_set_type(request, "application/json");
+        httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+        char chunk[512];
+        snprintf(chunk, sizeof(chunk), "{\"api\":\"v1\",\"storage_version\":%lu,\"sessions\":[",
+                 static_cast<unsigned long>(grind_logger.get_session_storage_version()));
+        httpd_resp_send_chunk(request, chunk, HTTPD_RESP_USE_STRLEN);
+
         bool first = true;
         for (uint32_t id : session_ids) {
             if (!grind_logger.validate_stored_session(id)) continue;
             char path[48];
             snprintf(path, sizeof(path), SESSION_FILE_FORMAT, static_cast<unsigned long>(id));
-            File file = LittleFS.open(path, "r");
+            FsFile file = filesystem.open(path, "r");
             TimeSeriesSessionHeader header{};
             GrindSession session{};
-            if (!file || file.read(reinterpret_cast<uint8_t*>(&header), sizeof(header)) != sizeof(header) ||
-                file.read(reinterpret_cast<uint8_t*>(&session), sizeof(session)) != sizeof(session) ||
+            if (!file ||
+                file.read(reinterpret_cast<uint8_t*>(&header), sizeof(header)) != sizeof(header) ||
+                file.read(reinterpret_cast<uint8_t*>(&session), sizeof(session)) !=
+                    sizeof(session) ||
                 header.session_id != id || session.session_id != id) {
-                if (file) file.close();
                 continue;
             }
-            file.close();
             char result[sizeof(session.result_status) + 1]{};
             memcpy(result, session.result_status, sizeof(session.result_status));
-            if (!first) response->print(',');
-            first = false;
-            response->printf(
-                "{\"id\":%lu,\"timestamp\":%lu,\"profile\":%u,\"mode\":\"%s\","
+            snprintf(
+                chunk, sizeof(chunk),
+                "%s{\"id\":%lu,\"timestamp\":%lu,\"profile\":%u,\"mode\":\"%s\","
                 "\"target_weight\":%.2f,\"target_time_ms\":%lu,\"final_weight\":%.2f,"
                 "\"error_grams\":%.2f,\"time_error_ms\":%ld,\"duration_ms\":%lu,"
                 "\"motor_time_ms\":%lu,\"pulses\":%u,\"result\":\"%s\","
                 "\"events\":%u,\"measurements\":%u,\"schema\":%u}",
+                first ? "" : ",",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(session.session_timestamp),
                 session.profile_id, session.grind_mode == 1 ? "time" : "weight",
                 session.target_weight, static_cast<unsigned long>(session.target_time_ms),
                 session.final_weight, session.error_grams, static_cast<long>(session.time_error_ms),
                 static_cast<unsigned long>(session.total_time_ms),
                 static_cast<unsigned long>(session.total_motor_on_time_ms), session.pulse_count,
-                json_escape(String(result)).c_str(), header.event_count, header.measurement_count,
+                http::json_escape(result).c_str(), header.event_count, header.measurement_count,
                 header.schema_version);
+            first = false;
+            httpd_resp_send_chunk(request, chunk, HTTPD_RESP_USE_STRLEN);
         }
-        response->print("]}");
-        response->addHeader("Cache-Control", "no-store");
-        request->send(response);
+        httpd_resp_send_chunk(request, "]}", HTTPD_RESP_USE_STRLEN);
+        return httpd_resp_send_chunk(request, nullptr, 0);
     });
 
-    server_.on(AsyncURIMatcher::exact("/api/v1/history/session"), HTTP_GET, [this](AsyncWebServerRequest* request) {
-        if (!request->hasParam("id")) {
-            request->send(400, "application/json", "{\"error\":\"Session id is required\"}");
-            return;
+    http::route(server_, "/api/v1/history/session", HTTP_GET, [this](httpd_req_t* request) {
+        std::string text_id;
+        if (!http::query_param(request, "id", text_id)) {
+            return http::send_error(request, 400, "Session id is required");
         }
         if (history_is_busy(grind_controller_) || ota_active_.load() ||
             (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
-            request->send(409, "application/json", "{\"error\":\"History is busy; try again when the grinder is idle\"}");
-            return;
+            return http::send_error(request, 409,
+                                    "History is busy; try again when the grinder is idle");
         }
-        const String text_id = request->getParam("id")->value();
-        for (size_t i = 0; i < text_id.length(); ++i) {
-            if (!isDigit(text_id[i])) {
-                request->send(400, "application/json", "{\"error\":\"Invalid session id\"}");
-                return;
+        for (const char digit : text_id) {
+            if (!isdigit(static_cast<unsigned char>(digit))) {
+                return http::send_error(request, 400, "Invalid session id");
             }
         }
-        const uint32_t id = text_id.toInt();
-        if (id == 0) {
-            request->send(400, "application/json", "{\"error\":\"Invalid session id\"}");
-            return;
-        }
+        const uint32_t id = strings::to_uint32(text_id);
+        if (id == 0) return http::send_error(request, 400, "Invalid session id");
+
         char path[48];
         snprintf(path, sizeof(path), SESSION_FILE_FORMAT, static_cast<unsigned long>(id));
-        if (!LittleFS.exists(path) || !grind_logger.validate_stored_session(id)) {
-            request->send(404, "application/json", "{\"error\":\"Session not found\"}");
-            return;
+        if (!filesystem.exists(path) || !grind_logger.validate_stored_session(id)) {
+            return http::send_error(request, 404, "Session not found");
         }
-        const bool download = request->hasParam("download");
-        AsyncWebServerResponse* response = request->beginResponse(
-            LittleFS, path, "application/vnd.smartgrind.session", download);
-        response->addHeader("Cache-Control", "private, no-store");
-        request->send(response);
+        return http::send_file(request, path, "application/vnd.smartgrind.session",
+                               http::has_query_param(request, "download"));
     });
 
-    server_.on(
-        AsyncURIMatcher::exact("/api/v1/screensaver/image"), HTTP_POST,
-        [](AsyncWebServerRequest* request) {
-            if (request->getResponse()) return;
-            auto* state = static_cast<ScreensaverUploadState*>(request->_tempObject);
-            if (!state || !state->complete) {
-                request->send(400, "application/json", "{\"error\":\"Screensaver image was not received\"}");
-                return;
-            }
-            request->send(state->success ? 200 : 500, "application/json",
-                          state->success ? "{\"saved\":true}" : "{\"error\":\"Screensaver upload failed\"}");
-        },
-        [this](AsyncWebServerRequest* request, String, size_t index,
-               uint8_t* data, size_t len, bool final) {
-            if (request->getResponse()) return;
-            auto* state = static_cast<ScreensaverUploadState*>(request->_tempObject);
-            if (index == 0) {
-                if (!request_origin_allowed(request)) {
-                    request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
-                    return;
-                }
-                state = static_cast<ScreensaverUploadState*>(calloc(1, sizeof(ScreensaverUploadState)));
-                request->_tempObject = state;
-                if (!state) {
-                    request->send(503, "application/json", "{\"error\":\"Not enough memory to start upload\"}");
-                    return;
-                }
-                if (!bluetooth_manager_ || ota_active_.load() ||
-                    (grind_controller_ && grind_controller_->is_active()) ||
-                    bluetooth_manager_->is_transfer_active()) {
-                    request->send(409, "application/json", "{\"error\":\"Stop the grinder and other transfers before uploading\"}");
-                    return;
-                }
-                if (!bluetooth_manager_->begin_screensaver_image_upload(BLE_IMAGE_EXPECTED_SIZE)) {
-                    request->send(400, "application/json", "{\"error\":\"Image must be a 280 x 456 RGB565 frame\"}");
-                    return;
-                }
-                request->onDisconnect([this, state]() {
-                    if (state && !state->complete && bluetooth_manager_) {
-                        bluetooth_manager_->abort_screensaver_image_upload();
-                    }
-                });
-            }
-            if (!state || !bluetooth_manager_) return;
-            if (len && !bluetooth_manager_->write_screensaver_image_chunk(data, len)) {
-                state->complete = true;
-                state->success = false;
-                bluetooth_manager_->abort_screensaver_image_upload();
-                request->send(500, "application/json", "{\"error\":\"Could not store image data\"}");
-                return;
-            }
-            if (final) {
-                state->complete = true;
-                state->success = bluetooth_manager_->finish_screensaver_image_upload();
-                if (state->success) device_api.mark_settings_dirty();
-            }
-        });
+    http::route(server_, "/api/v1/screensaver/image", HTTP_POST, http::same_origin([this](httpd_req_t* request) {
+        return handle_screensaver_upload(request);
+    }));
 
-    server_.on(AsyncURIMatcher::exact("/api/v1/screensaver/image"), HTTP_GET, [this](AsyncWebServerRequest* request) {
-        if ((grind_controller_ && grind_controller_->is_active()) || ota_active_.load() ||
-            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) {
-            request->send(409, "application/json", "{\"error\":\"Screensaver image is busy\"}");
-            return;
+    http::route(server_, "/api/v1/screensaver/image", HTTP_GET, [this](httpd_req_t* request) {
+        if (const char* reason = busy_reason()) return http::send_error(request, 409, reason);
+        if (!filesystem.exists(BLE_IMAGE_FILENAME)) {
+            return http::send_error(request, 404, "No custom screensaver is stored");
         }
-        if (!LittleFS.exists(BLE_IMAGE_FILENAME)) {
-            request->send(404, "application/json", "{\"error\":\"No custom screensaver is stored\"}");
-            return;
-        }
-        AsyncWebServerResponse* response = request->beginResponse(
-            LittleFS, BLE_IMAGE_FILENAME, "application/vnd.smartgrind.rgb565", false);
-        response->addHeader("Cache-Control", "private, no-store");
-        request->send(response);
+        return http::send_file(request, BLE_IMAGE_FILENAME,
+                               "application/vnd.smartgrind.rgb565", false);
     });
 
-    server_.on(AsyncURIMatcher::exact("/api/v1/screensaver/image"), HTTP_DELETE, [this](AsyncWebServerRequest* request) {
-        if (!request_origin_allowed(request)) {
-            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
-            return;
-        }
-        if (!bluetooth_manager_ || ota_active_.load() ||
-            (grind_controller_ && grind_controller_->is_active()) ||
-            bluetooth_manager_->is_transfer_active()) {
-            request->send(409, "application/json", "{\"error\":\"Screensaver image is busy\"}");
-            return;
-        }
-        const bool deleted = bluetooth_manager_->delete_screensaver_image();
+    http::route(server_, "/api/v1/screensaver/image", HTTP_DELETE, http::same_origin([this](httpd_req_t* request) {
+        if (const char* reason = busy_reason()) return http::send_error(request, 409, reason);
+        const bool deleted = bluetooth_manager_ && bluetooth_manager_->delete_screensaver_image();
         if (deleted) device_api.mark_settings_dirty();
-        request->send(deleted ? 200 : 500, "application/json",
-                      deleted ? "{\"deleted\":true}" : "{\"error\":\"Could not delete screensaver\"}");
-    });
+        return deleted ? http::send_json(request, 200, "{\"deleted\":true}")
+                       : http::send_error(request, 500, "Could not delete screensaver");
+    }));
 
-    server_.on(AsyncURIMatcher::exact("/api/v1/ota/prepare"), HTTP_POST, [this](AsyncWebServerRequest* request) {
-        const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
-        if (is_ota_active()) {
-            request->send(409, "application/json", "{\"error\":\"A firmware update is already active\"}");
-            return;
-        }
+    // The checks below only choose the response. request_ota_preparation() and
+    // is_ota_ready() re-check under ota_mutex_, which is not held across sends.
+    http::route(server_, "/api/v1/ota/prepare", HTTP_POST, http::same_origin([this](httpd_req_t* request) {
         const OtaPreparationState preparation = ota_preparation_state_.load();
         if (preparation == OtaPreparationState::READY) {
-            const bool ready = is_ota_ready();
-            request->send(ready ? 200 : 409, "application/json",
-                          ready ? "{\"ready\":true}" : "{\"error\":\"Update preparation is no longer ready\"}");
-            return;
+            return is_ota_ready()
+                       ? http::send_json(request, 200, "{\"ready\":true}")
+                       : http::send_error(request, 409, "Update preparation is no longer ready");
         }
         if (preparation == OtaPreparationState::REQUESTED) {
-            request->send(202, "application/json", "{\"preparing\":true}");
-            return;
+            return http::send_json(request, 202, "{\"preparing\":true}");
         }
+        if (const char* reason = busy_reason()) return http::send_error(request, 409, reason);
         if (firmware_update_check_active_.load()) {
-            request->send(409, "application/json", "{\"error\":\"Wait for the firmware update check to finish\"}");
-            return;
-        }
-        if (!grind_controller_ || grind_controller_->is_active()) {
-            request->send(409, "application/json", "{\"error\":\"Stop the grinder before updating firmware\"}");
-            return;
-        }
-        if (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) {
-            request->send(409, "application/json", "{\"error\":\"Wait for the Bluetooth transfer to finish\"}");
-            return;
+            return http::send_error(request, 409,
+                                    "Wait for the firmware update check to finish");
         }
         if (!request_ota_preparation()) {
-            request->send(409, "application/json", "{\"error\":\"Another operation is using the grinder\"}");
-            return;
+            return http::send_error(request, 409, "Another operation is using the grinder");
         }
-        request->send(202, "application/json", "{\"preparing\":true}");
-    });
+        return http::send_json(request, 202, "{\"preparing\":true}");
+    }));
 
-    server_.on(AsyncURIMatcher::exact("/api/v1/ota/github"), HTTP_POST, [this](AsyncWebServerRequest* request) {
-        if (!request_origin_allowed(request)) {
-            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
-            return;
+    http::route(server_, "/api/v1/ota/github", HTTP_POST, http::same_origin([this](httpd_req_t* request) {
+        std::string form;
+        std::string tag;
+        if (!http::read_body(request, form, 256) || !http::form_field(form, "tag", tag)) {
+            return http::send_error(request, 400, "Release tag is required");
         }
-        if (!request->hasParam("tag", true)) {
-            request->send(400, "application/json", "{\"error\":\"Release tag is required\"}");
-            return;
-        }
-        const String tag = request->getParam("tag", true)->value();
         if (!valid_release_tag(tag)) {
-            request->send(400, "application/json", "{\"error\":\"Release tag is invalid\"}");
-            return;
+            return http::send_error(request, 400, "Release tag is invalid");
         }
         if (!start_github_ota(tag)) {
-            request->send(409, "application/json", "{\"error\":\"Prepare the update before installing\"}");
-            return;
+            return http::send_error(request, 409, "Prepare the update before installing");
         }
-        request->send(202, "application/json", "{\"accepted\":true}");
-    });
+        return http::send_json(request, 202, "{\"accepted\":true}");
+    }));
 
-    server_.on(
-        AsyncURIMatcher::exact("/api/v1/ota"), HTTP_POST,
-        [](AsyncWebServerRequest* request) {
-            if (request->getResponse()) return;
-            OtaRequestState* state = static_cast<OtaRequestState*>(request->_tempObject);
-            if (!state || !state->complete) {
-                request->send(400, "text/plain", "Firmware file was not received");
-                return;
-            }
-            if (!state->success) {
-                request->send(500, "text/plain", "Firmware update failed");
-                return;
-            }
-            request->send(200, "text/plain", "Firmware accepted; Smart Grind is restarting");
-        },
-        [this](AsyncWebServerRequest* request, String filename, size_t index,
-               uint8_t* data, size_t len, bool final) {
-            handle_ota_upload(request, filename, index, data, len, final);
-        });
+    http::route(server_, "/api/v1/ota", HTTP_POST, http::same_origin([this](httpd_req_t* request) {
+        return handle_ota_upload(request);
+    }));
 }
 
-bool DeviceWebServer::start_github_ota(const String& tag) {
+bool DeviceWebServer::claim_prepared_update() {
     const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
     if (!is_ota_ready()) return false;
-    bool expected_inactive = false;
-    if (!ota_active_.compare_exchange_strong(expected_inactive, true)) return false;
+    // Every writer of ota_active_ holds ota_mutex_, and is_ota_ready() has just
+    // seen it clear, so no other claim can be in progress.
+    ota_active_.store(true);
     ota_preparation_state_.store(OtaPreparationState::IDLE);
     ota_received_.store(0);
     ota_total_.store(0);
-    String* task_tag = new (std::nothrow) String(tag);
+    return true;
+}
+
+bool DeviceWebServer::start_github_ota(const std::string& tag) {
+    if (!claim_prepared_update()) return false;
+
+    auto* task_tag = new (std::nothrow) std::string(tag);
     if (!task_tag || xTaskCreate(github_ota_task, "github_ota", OTA_DOWNLOAD_TASK_STACK,
                                  task_tag, 1, nullptr) != pdPASS) {
         delete task_tag;
@@ -765,121 +697,82 @@ bool DeviceWebServer::start_github_ota(const String& tag) {
 }
 
 void DeviceWebServer::github_ota_task(void* parameter) {
-    String* task_tag = static_cast<String*>(parameter);
-    const String tag = task_tag ? *task_tag : String();
-    delete task_tag;
-    device_web_server.perform_github_ota(tag);
+    std::unique_ptr<std::string> task_tag(static_cast<std::string*>(parameter));
+    device_web_server.perform_github_ota(task_tag ? *task_tag : std::string());
     vTaskDelete(nullptr);
 }
 
-void DeviceWebServer::perform_github_ota(const String& tag) {
-    const String filename =
+void DeviceWebServer::perform_github_ota(const std::string& tag) {
+    const std::string filename =
         "smart-grind-by-weight-" + tag + HW_RELEASE_FIRMWARE_SUFFIX + ".bin";
-    const String url = String(GITHUB_RELEASE_MIRROR_BASE) + tag + "/" + filename;
+    const std::string url = std::string(GITHUB_RELEASE_MIRROR_BASE) + tag + "/" + filename;
     LOG_BLE("[WEB OTA] Downloading %s from release mirror\n", filename.c_str());
     if (hardware_manager_ && hardware_manager_->get_grinder()) {
         hardware_manager_->get_grinder()->stop();
     }
 
-    WiFiClientSecure secure_client;
-    secure_client.setCACertBundle(
-        x509_crt_imported_bundle_bin_start,
-        static_cast<size_t>(x509_crt_imported_bundle_bin_end -
-                            x509_crt_imported_bundle_bin_start));
-    secure_client.setTimeout(15000);
-    secure_client.setHandshakeTimeout(15);
-    HTTPClient http;
-    http.useHTTP10(true);
-    http.setConnectTimeout(15000);
-    http.setTimeout(15000);
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    http.setUserAgent("SmartGrind-OTA/1");
-    http.addHeader("Cache-Control", "no-cache");
-    if (!http.begin(secure_client, url)) {
-        LOG_BLE("[WEB OTA] Could not initialise release-mirror connection\n");
+    esp_http_client_config_t http_config = {};
+    http_config.url = url.c_str();
+    http_config.timeout_ms = OTA_READ_TIMEOUT_MS;
+    http_config.crt_bundle_attach = esp_crt_bundle_attach;
+    http_config.user_agent = "SmartGrind-OTA/1";
+    http_config.buffer_size = OTA_DOWNLOAD_BUFFER;
+    http_config.max_redirection_count = HTTP_MAX_REDIRECTS;
+    http_config.keep_alive_enable = true;
+    esp_https_ota_config_t ota_config = {};
+    ota_config.http_config = &http_config;
+    ota_config.http_client_init_cb = prepare_release_request;
+
+    // esp_https_ota follows redirects, checks the image's chip, revision and
+    // flash mode, erases the inactive partition as the image arrives, and
+    // validates the image before making it the boot partition.
+    esp_https_ota_handle_t download = nullptr;
+    esp_err_t err = esp_https_ota_begin(&ota_config, &download);
+    if (err != ESP_OK) {
+        LOG_BLE("[WEB OTA] Release download failed: %s, epoch %lld, heap %u, largest %u\n",
+                esp_err_to_name(err), static_cast<long long>(time(nullptr)),
+                static_cast<unsigned int>(device_info::free_internal_heap_bytes()),
+                static_cast<unsigned int>(device_info::largest_free_internal_block_bytes()));
         finish_ota(false);
         return;
     }
-    const int status = http.GET();
-    if (status != HTTP_CODE_OK) {
-        char tls_error[128]{};
-        const int tls_error_code = secure_client.lastError(tls_error, sizeof(tls_error));
-        LOG_BLE("[WEB OTA] Release download failed: HTTP %d (%s), TLS %d (%s), "
-                "epoch %lld, heap %u, largest %u\n",
-                status, HTTPClient::errorToString(status).c_str(), tls_error_code, tls_error,
-                static_cast<long long>(time(nullptr)),
-                static_cast<unsigned int>(
-                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-                static_cast<unsigned int>(
-                    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
-        http.end();
-        finish_ota(false);
-        return;
-    }
-    const int content_length = http.getSize();
+
+    // Decide on the image before esp_https_ota_perform() erases any flash.
+    esp_app_desc_t description;
+    const char* refusal = esp_https_ota_get_img_desc(download, &description) == ESP_OK
+                              ? firmware_image::check_description(description)
+                              : "Not a valid ESP32 firmware image";
+    const int image_size = esp_https_ota_get_image_size(download);
     const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
-    if (!target || content_length <= 0 || static_cast<size_t>(content_length) > target->size) {
-        LOG_BLE("[WEB OTA] Invalid image size: %d\n", content_length);
-        http.end();
+    if (!refusal && (image_size <= 0 || !target || static_cast<size_t>(image_size) > target->size)) {
+        refusal = "Invalid image size";
+    }
+    if (refusal) {
+        LOG_BLE("[WEB OTA] Release image refused: %s\n", refusal);
+        esp_https_ota_abort(download);
         finish_ota(false);
         return;
     }
-    WiFiClient* stream = http.getStreamPtr();
-    uint8_t first_byte = 0;
-    if (!stream || !ota_wait_for_data(*stream, [] { return millis(); },
-                                      [] { delay(2); }, 15000) ||
-        stream->readBytes(&first_byte, 1) != 1) {
-        LOG_BLE("[WEB OTA] Download timed out or disconnected before the first image byte\n");
-        http.end();
-        finish_ota(false);
-        return;
-    }
-    if (first_byte != 0xE9) {
-        LOG_BLE("[WEB OTA] Download is not an ESP32 application image\n");
-        http.end();
-        finish_ota(false);
-        return;
-    }
-    if (!web_firmware_update.begin(static_cast<size_t>(content_length), U_FLASH) ||
-        web_firmware_update.write(&first_byte, 1) != 1) {
-        LOG_BLE("[WEB OTA] Could not open or write inactive partition: %s\n",
-                web_firmware_update.errorString());
-        http.end();
-        finish_ota(false);
-        return;
-    }
-    ota_total_.store(static_cast<size_t>(content_length));
-    ota_received_.store(1);
-    uint8_t buffer[4096];
-    uint32_t idle_deadline = millis() + 15000;
-    while (http.connected() && ota_received_.load() < ota_total_.load()) {
-        const size_t available = stream->available();
-        if (available == 0) {
-            if (static_cast<int32_t>(millis() - idle_deadline) >= 0) break;
-            delay(2);
-            continue;
-        }
-        const size_t wanted = std::min(available, sizeof(buffer));
-        const int read = stream->readBytes(buffer, wanted);
-        if (read <= 0) break;
-        if (web_firmware_update.write(buffer, static_cast<size_t>(read)) != static_cast<size_t>(read)) {
-            LOG_BLE("[WEB OTA] Flash write failed: %s\n", web_firmware_update.errorString());
-            web_firmware_update.abort();
-            http.end();
-            finish_ota(false);
-            return;
-        }
-        ota_received_.fetch_add(static_cast<size_t>(read));
-        idle_deadline = millis() + 15000;
-    }
-    http.end();
-    const bool complete = ota_received_.load() == ota_total_.load();
-    const bool valid = complete && web_firmware_update.end(true);
-    if (!valid) {
-        if (!complete) web_firmware_update.abort();
-        LOG_BLE("[WEB OTA] Download incomplete or invalid (%lu/%lu): %s\n",
+
+    ota_total_.store(static_cast<size_t>(image_size));
+    ota_received_.store(0);
+    do {
+        err = esp_https_ota_perform(download);
+        const int read = esp_https_ota_get_image_len_read(download);
+        ota_received_.store(read > 0 ? static_cast<size_t>(read) : 0);
+    } while (err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+
+    if (err != ESP_OK || !esp_https_ota_is_complete_data_received(download)) {
+        LOG_BLE("[WEB OTA] Download incomplete (%lu/%lu): %s\n",
                 static_cast<unsigned long>(ota_received_.load()),
-                static_cast<unsigned long>(ota_total_.load()), web_firmware_update.errorString());
+                static_cast<unsigned long>(ota_total_.load()), esp_err_to_name(err));
+        esp_https_ota_abort(download);
+        finish_ota(false);
+        return;
+    }
+    err = esp_https_ota_finish(download);
+    if (err != ESP_OK) {
+        LOG_BLE("[WEB OTA] Release image failed validation: %s\n", esp_err_to_name(err));
         finish_ota(false);
         return;
     }
@@ -888,107 +781,138 @@ void DeviceWebServer::perform_github_ota(const String& tag) {
     finish_ota(true);
 }
 
-void DeviceWebServer::handle_ota_upload(AsyncWebServerRequest* request, const String& filename,
-                                         size_t index, uint8_t* data, size_t len, bool final) {
-    const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
-    if (request->getResponse()) return;
-
-    OtaRequestState* state = static_cast<OtaRequestState*>(request->_tempObject);
-    if (index == 0) {
-        if (!is_ota_ready()) {
-            request->send(409, "text/plain", "Prepare the firmware update before uploading");
-            return;
-        }
-        bool expected_inactive = false;
-        if (!ota_active_.compare_exchange_strong(expected_inactive, true)) {
-            request->send(409, "text/plain", "Another firmware update is already active");
-            return;
-        }
-        ota_preparation_state_.store(OtaPreparationState::IDLE);
-        state = static_cast<OtaRequestState*>(calloc(1, sizeof(OtaRequestState)));
-        request->_tempObject = state;
-        if (!state) {
-            finish_ota(false);
-            request->send(503, "text/plain", "Not enough memory to start firmware update");
-            return;
-        }
-        state->token = operation_token_;
-        if (!filename.endsWith(".bin") || len == 0 || data[0] != 0xE9) {
-            finish_ota(false);
-            request->send(400, "text/plain", "Not a valid ESP32 firmware image");
-            return;
-        }
-        if (!grind_controller_ || grind_controller_->is_active()) {
-            finish_ota(false);
-            request->send(409, "text/plain", "Stop the grinder before updating firmware");
-            return;
-        }
-        if (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) {
-            finish_ota(false);
-            request->send(409, "text/plain", "Wait for the Bluetooth transfer to finish");
-            return;
-        }
-        const size_t internal_heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        if (internal_heap < OTA_MIN_INTERNAL_HEAP) {
-            finish_ota(false);
-            request->send(503, "text/plain", "Prepare the update first so Bluetooth can release memory");
-            return;
-        }
-        const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
-        if (!target || request->contentLength() > target->size + 8192U) {
-            finish_ota(false);
-            request->send(413, "text/plain", "Firmware image is too large");
-            return;
-        }
-        if (hardware_manager_ && hardware_manager_->get_grinder()) {
-            hardware_manager_->get_grinder()->stop();
-        }
-        if (!web_firmware_update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
-            LOG_BLE("[WEB OTA] Update.begin failed: %s\n", web_firmware_update.errorString());
-            finish_ota(false);
-            request->send(500, "text/plain", "Could not open the inactive firmware partition");
-            return;
-        }
-        ota_received_.store(0);
-        ota_total_.store(request->contentLength());
-        request->onDisconnect([this, state]() {
-            const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
-            if (ota_active_.load() && state && !state->complete &&
-                operation_interlock().owns(state->token) && state->token == operation_token_) {
-                LOG_BLE("[WEB OTA] Client disconnected; aborting incomplete upload\n");
-                web_firmware_update.abort();
-                finish_ota(false);
-            }
-        });
-        LOG_BLE("[WEB OTA] Receiving %s\n", filename.c_str());
+esp_err_t DeviceWebServer::handle_ota_upload(httpd_req_t* request) {
+    // The claim takes ota_mutex_, but the body streams without it: an upload
+    // takes many seconds and the service loop needs the lock meanwhile.
+    if (!claim_prepared_update()) {
+        return http::send(request, 409, "text/plain",
+                          "Prepare the firmware update before uploading");
     }
 
-    if (!state || state->complete || !ota_active_.load() ||
-        state->token != operation_token_ || !operation_interlock().owns(state->token)) return;
-    if (len > 0 && web_firmware_update.write(data, len) != len) {
-        LOG_BLE("[WEB OTA] Write failed at %lu: %s\n",
-                static_cast<unsigned long>(ota_received_.load()), web_firmware_update.errorString());
-        web_firmware_update.abort();
-        state->complete = true;
-        state->success = false;
+    // The claim has just applied busy_reason() under the lock, and holding the
+    // operation interlock keeps a grind from starting. Only memory can change.
+    if (!internal_heap_ok()) {
         finish_ota(false);
-        request->send(500, "text/plain", "Firmware write failed");
-        return;
+        return http::send(request, 503, "text/plain",
+                          "Prepare the update first so Bluetooth can release memory");
     }
-    ota_received_.fetch_add(len);
+    const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
+    if (!target || request->content_len > target->size + 8192U) {
+        finish_ota(false);
+        return http::send(request, 413, "text/plain", "Firmware image is too large");
+    }
 
-    if (final) {
-        state->complete = true;
-        state->success = web_firmware_update.end(true);
-        if (!state->success) {
-            LOG_BLE("[WEB OTA] Image validation failed: %s\n", web_firmware_update.errorString());
-            finish_ota(false);
-            return;
-        }
-        LOG_BLE("[WEB OTA] Firmware validated (%lu bytes)\n",
-                static_cast<unsigned long>(ota_received_.load()));
-        finish_ota(true);
+    MultipartReader reader;
+    if (!reader.begin(http::header(request, "Content-Type"))) {
+        finish_ota(false);
+        return http::send(request, 400, "text/plain",
+                          "Expected a multipart/form-data firmware upload");
     }
+
+    if (hardware_manager_ && hardware_manager_->get_grinder()) {
+        hardware_manager_->get_grinder()->stop();
+    }
+
+    ota_received_.store(0);
+    ota_total_.store(request->content_len);
+
+    // The sink records why it stopped the upload, so the response can say so.
+    struct Refusal {
+        int status = 0;
+        const char* message = nullptr;
+    } refusal;
+    bool started = false;
+    const auto sink = [this, &reader, &started, &refusal](const uint8_t* data, size_t length) {
+        if (!started) {
+            // Firmware is uploaded as a .bin file, and an ESP32 application image
+            // always begins with the 0xE9 magic byte.
+            if (!strings::ends_with_ignore_case(reader.filename(), ".bin") || length == 0 ||
+                data[0] != 0xE9) {
+                refusal = {400, "Not a valid ESP32 firmware image"};
+                return false;
+            }
+            if (!web_firmware_update.begin(0)) {
+                refusal = {500, "Could not open the inactive firmware partition"};
+                return false;
+            }
+            started = true;
+        }
+        if (!web_firmware_update.write(data, length)) {
+            // The writer refuses an image whose header rules it out before any
+            // of it reaches flash; anything else is a flash failure.
+            refusal = web_firmware_update.image_refused()
+                          ? Refusal{400, web_firmware_update.error()}
+                          : Refusal{500, "Firmware write failed"};
+            return false;
+        }
+        ota_received_.fetch_add(length);
+        return true;
+    };
+
+    const bool stream_ok = http::stream_body(request, [&](const uint8_t* data, size_t length) {
+        return reader.feed(data, length, sink);
+    });
+
+    if (!stream_ok || !reader.saw_file()) {
+        web_firmware_update.abort();
+        if (!refusal.message) {
+            refusal = reader.saw_file() ? Refusal{500, "Firmware update failed"}
+                                        : Refusal{400, "Firmware file was not received"};
+        }
+        LOG_BLE("[WEB OTA] Upload aborted at %lu bytes: %s\n",
+                static_cast<unsigned long>(ota_received_.load()), refusal.message);
+        finish_ota(false);
+        return http::send(request, refusal.status, "text/plain", refusal.message);
+    }
+
+    if (!web_firmware_update.end()) {
+        LOG_BLE("[WEB OTA] Image validation failed: %s\n", web_firmware_update.error());
+        finish_ota(false);
+        if (web_firmware_update.image_refused()) {
+            return http::send(request, 400, "text/plain", web_firmware_update.error());
+        }
+        return http::send(request, 500, "text/plain", "Firmware update failed");
+    }
+
+    LOG_BLE("[WEB OTA] Firmware validated (%lu bytes)\n",
+            static_cast<unsigned long>(ota_received_.load()));
+    finish_ota(true);
+    return http::send(request, 200, "text/plain",
+                      "Firmware accepted; Smart Grind is restarting");
+}
+
+esp_err_t DeviceWebServer::handle_screensaver_upload(httpd_req_t* request) {
+    if (const char* reason = busy_reason()) return http::send_error(request, 409, reason);
+    if (!bluetooth_manager_) return http::send_error(request, 500, "Screensaver upload failed");
+
+    MultipartReader reader;
+    if (!reader.begin(http::header(request, "Content-Type"))) {
+        return http::send_error(request, 400, "Expected a multipart/form-data image upload");
+    }
+    if (!bluetooth_manager_->begin_screensaver_image_upload(BLE_IMAGE_EXPECTED_SIZE)) {
+        return http::send_error(request, 400, "Image must be a 280 x 456 RGB565 frame");
+    }
+
+    const auto sink = [this](const uint8_t* data, size_t length) {
+        return bluetooth_manager_->write_screensaver_image_chunk(data, length);
+    };
+
+    const bool stream_ok = http::stream_body(request, [&](const uint8_t* data, size_t length) {
+        return reader.feed(data, length, sink);
+    });
+
+    if (!stream_ok || !reader.saw_file()) {
+        bluetooth_manager_->abort_screensaver_image_upload();
+        return http::send_error(request, stream_ok ? 400 : 500,
+                                stream_ok ? "Screensaver image was not received"
+                                          : "Could not store image data");
+    }
+
+    if (!bluetooth_manager_->finish_screensaver_image_upload()) {
+        return http::send_error(request, 500, "Screensaver upload failed");
+    }
+    device_api.mark_settings_dirty();
+    return http::send_json(request, 200, "{\"saved\":true}");
 }
 
 void DeviceWebServer::finish_ota(bool success) {

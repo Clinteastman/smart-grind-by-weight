@@ -1,6 +1,6 @@
 #include "autotune_screen.h"
+#include <cstdio>
 #include "../ui_helpers.h"
-#include <Arduino.h>
 #include <algorithm>
 #include <cstring>
 

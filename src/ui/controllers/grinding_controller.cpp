@@ -1,6 +1,7 @@
 #include "grinding_controller.h"
+#include <cstdint>
+#include "../../system/timing.h"
 
-#include <Arduino.h>
 #include <cstdio>
 #include <cstring>
 

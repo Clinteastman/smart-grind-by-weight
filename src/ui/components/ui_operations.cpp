@@ -1,5 +1,4 @@
 #include "ui_operations.h"
-#include <Arduino.h>
 
 void UIOperations::execute_tare(HardwareManager* hw_manager, OperationCallback completion) {
     auto& overlay = BlockingOperationOverlay::getInstance();

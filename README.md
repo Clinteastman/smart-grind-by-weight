@@ -215,10 +215,10 @@ uses lessons from mature ESP32 appliance projects without copying their source.
 
 ## Development and contributing
 
-See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for the PlatformIO targets, simulator,
-tests and contribution workflow. Build and flash operations use a project lock,
-and V1/V2 compiled-object caches are isolated to prevent board-specific LVGL
-objects from mixing.
+See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for the ESP-IDF build variants,
+simulator, tests and contribution workflow. Build and flash operations use a
+project lock, and each firmware variant builds in its own directory with its
+own configuration, so board-specific LVGL objects never mix.
 
 The complete editable Fusion 360 design is included at
 `3d_files/smart-grind-by-weight. Eureka Mignon.f3z`.

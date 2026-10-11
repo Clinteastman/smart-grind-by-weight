@@ -1,4 +1,6 @@
 #include "ui_helpers.h"
+#include <cstdint>
+#include "../system/timing.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -9,6 +11,9 @@ void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_f
     lv_obj_set_style_text_color(object, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_font(object, font, 0);
     lv_obj_set_style_border_width(object, 0, 0);
+    // The light default theme gives buttons a drop shadow, which is barely
+    // visible on black but is recalculated on every frame that redraws them.
+    lv_obj_set_style_shadow_width(object, 0, 0);
     lv_obj_set_style_pad_hor(object, 20, 0);
     if (width >= 0){
         lv_obj_set_style_width(object, width, 0);
@@ -204,18 +209,18 @@ static void radio_button_event_handler(lv_event_t* e) {
 static void radio_button_group_delete_handler(lv_event_t* e) {
     lv_obj_t* group = (lv_obj_t*)lv_event_get_target(e);
     if (!group) {
-        Serial.println("[RADIO_BTN] Delete handler called with null group");
+        printf("%s\n", "[RADIO_BTN] Delete handler called with null group");
         return;
     }
 
     RadioButtonGroupData* data = (RadioButtonGroupData*)lv_obj_get_user_data(group);
     // Check if already freed (user_data is nullptr)
     if (!data) {
-        Serial.println("[RADIO_BTN] Delete handler called but data already freed");
+        printf("%s\n", "[RADIO_BTN] Delete handler called but data already freed");
         return;
     }
 
-    Serial.printf("[%lums RADIO_BTN] Freeing radio button group data\n", millis());
+    printf("[%lums RADIO_BTN] Freeing radio button group data\n", millis());
 
     // Clear user data first to prevent double-free if this handler is called again
     lv_obj_set_user_data(group, nullptr);
@@ -227,7 +232,7 @@ static void radio_button_group_delete_handler(lv_event_t* e) {
     }
     free(data);
 
-    Serial.printf("[%lums RADIO_BTN] Radio button group freed successfully\n", millis());
+    printf("[%lums RADIO_BTN] Radio button group freed successfully\n", millis());
 }
 
 lv_obj_t* create_radio_button_group(
