@@ -4,6 +4,21 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [Unreleased]
+
+### Smoother display
+
+- V2 boards draw the next part of the screen while the previous part is still
+  being sent to the panel, so menu scrolling and animations run at a higher
+  frame rate. If internal memory is short at startup, the grinder falls back
+  to smaller draw buffers instead of failing.
+- Screen updates no longer occasionally skip a frame because of timing jitter
+  (V1 and V2).
+- Buttons no longer carry a barely visible drop shadow that was recalculated
+  on every redraw, and LVGL's style cache is enabled.
+- Developers can print frame rate, frame time and free internal memory once a
+  second over USB serial by setting `DEBUG_DISPLAY_PERFORMANCE` to 1.
+
 ## [1.5.9] - 2026-09-06
 
 ### Firmware update hotfix

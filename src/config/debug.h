@@ -26,6 +26,7 @@
 #define DEBUG_UI_SYSTEM 0                                                 // Enable detailed UI debugging
 #define DEBUG_CALIBRATION 0                                               // Enable detailed calibration debugging
 #define DEBUG_WEIGHT_SETTLING 0                                           // Enable weight settling debugging
+#define DEBUG_DISPLAY_PERFORMANCE 0                                       // Print display FPS, render/panel time and free internal RAM each second the screen redraws (USB serial only)
 
 // Touch I2C polling creates expected NACKs when the controller has no data.
 // Suppress noisy low-level logs while keeping higher-level drivers quiet.

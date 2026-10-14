@@ -78,6 +78,8 @@
 #if HW_DISPLAY_VARIANT_V2
 #define HW_DISPLAY_OFFSET_X_PX 20                                              // SH8601 framebuffer column offset
 #define HW_DISPLAY_QSPI_FREQUENCY_HZ 40000000                                  // Waveshare V2 reference QSPI clock
+#define HW_DISPLAY_DRAW_BUFFER_ROWS 20                                         // Rows per LVGL draw buffer; two buffers in internal DMA RAM (2 x 11,200 bytes)
+#define HW_DISPLAY_DRAW_BUFFER_MIN_ROWS 8                                      // Smallest strip tried before falling back to a single buffer
 #else
 #define HW_DISPLAY_OFFSET_X_PX 0                                               // V1 display positioning offset
 #define HW_DISPLAY_IPS_INVERT_X 180                                            // IPS X-axis inversion setting

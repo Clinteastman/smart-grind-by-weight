@@ -7,11 +7,11 @@
 #include "../config/logging.h"
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <algorithm>
 #include <esp_heap_caps.h>
 #if HW_DISPLAY_VARIANT_V2
 #include <driver/spi_master.h>
 #else
-#include <algorithm>
 #include <cstring>
 #endif
 
@@ -37,6 +37,11 @@ static const sh8601_lcd_init_cmd_t kV2InitCommands[] = {
     {0x29, nullptr, 0, 10},
     {0x51, kBrightnessFull, sizeof(kBrightnessFull), 0},
 };
+
+lv_color_t* allocate_internal_dma_buffer(size_t bytes) {
+    return static_cast<lv_color_t*>(heap_caps_aligned_alloc(
+        LV_DRAW_BUF_ALIGN, bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+}
 }
 #endif
 
@@ -113,17 +118,12 @@ void DisplayManager::init() {
     screen_height = gfx_device->height();
 #endif
 
-    // Full screen buffer, but only partial updates used
-    // RGB565 format (16bit per pixel)
+    // Partial rendering: LVGL draws each refresh as horizontal strips that fit
+    // the draw buffer. RGB565 format (16bit per pixel)
     draw_buffer = nullptr;
+    second_draw_buffer = nullptr;
 #if HW_DISPLAY_VARIANT_V2
-    // Keep the DMA-capable buffer small enough to leave internal RAM for the UI
-    // FreeRTOS task. LVGL splits larger invalidated areas into strips.
-    const size_t draw_rows = 8; // 280 * 8 * 2 = 4,480 bytes
-    buffer_size = screen_width * draw_rows * sizeof(uint16_t);
-    draw_buffer = static_cast<lv_color_t*>(
-        heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, buffer_size,
-                                MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+    allocate_draw_buffers();
 #else
     dma_staging_buffer = nullptr;
     dma_staging_rows = 16;
@@ -170,20 +170,59 @@ void DisplayManager::init() {
 
     lvgl_display = lv_display_create(screen_width, screen_height);
     lv_display_set_flush_cb(lvgl_display, display_flush_cb);
-    lv_display_set_buffers(lvgl_display, draw_buffer, NULL,
+    lv_display_set_buffers(lvgl_display, draw_buffer, second_draw_buffer,
                           buffer_size , LV_DISPLAY_RENDER_MODE_PARTIAL);
 
     lv_display_add_event_cb(lvgl_display, display_rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     lv_display_add_event_cb(lvgl_display, display_metrics_cb, LV_EVENT_ALL, NULL);
-    
+
     // Initialize touch
     touch_driver.init();
     lvgl_input = lv_indev_create();
     lv_indev_set_type(lvgl_input, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(lvgl_input, touchpad_read_cb);
-    
+
+    // The UI task already runs LVGL every SYS_TASK_UI_INTERVAL_MS. LVGL's own
+    // refresh, input and animation timers default to that same period, so a
+    // little scheduling jitter made them skip a UI cycle and a frame waited
+    // twice as long. With shorter periods every UI cycle can draw a frame.
+    lv_timer_set_period(lv_display_get_refr_timer(lvgl_display), SYS_LVGL_TIMER_PERIOD_MS);
+    lv_timer_set_period(lv_indev_get_read_timer(lvgl_input), SYS_LVGL_TIMER_PERIOD_MS);
+    lv_timer_set_period(lv_anim_get_timer(), SYS_LVGL_TIMER_PERIOD_MS);
+
     initialized = true;
 }
+
+#if HW_DISPLAY_VARIANT_V2
+// Two buffers let LVGL render the next strip while the previous one is still
+// being sent to the panel; with one buffer every transfer stalls rendering.
+// Internal RAM is scarce once Wi-Fi and Bluetooth run, so shorter strips are
+// tried before giving up the second buffer.
+void DisplayManager::allocate_draw_buffers() {
+    for (size_t rows = HW_DISPLAY_DRAW_BUFFER_ROWS;
+         rows >= HW_DISPLAY_DRAW_BUFFER_MIN_ROWS;
+         rows /= 2) {
+        const size_t bytes = screen_width * rows * sizeof(uint16_t);
+        draw_buffer = allocate_internal_dma_buffer(bytes);
+        second_draw_buffer = draw_buffer ? allocate_internal_dma_buffer(bytes) : nullptr;
+        if (second_draw_buffer) {
+            buffer_size = bytes;
+            LOG_BLE("[DISPLAY] Draw buffers: 2 x %u rows (%u bytes internal RAM)\n",
+                    static_cast<unsigned>(rows), static_cast<unsigned>(2 * bytes));
+            return;
+        }
+        heap_caps_free(draw_buffer);
+        draw_buffer = nullptr;
+    }
+
+    buffer_size = screen_width * HW_DISPLAY_DRAW_BUFFER_MIN_ROWS * sizeof(uint16_t);
+    draw_buffer = allocate_internal_dma_buffer(buffer_size);
+    if (draw_buffer) {
+        LOG_BLE("[DISPLAY] Draw buffer: 1 x %u rows; not enough internal RAM for two\n",
+                static_cast<unsigned>(HW_DISPLAY_DRAW_BUFFER_MIN_ROWS));
+    }
+}
+#endif
 
 void DisplayManager::update() {
     if (!initialized) return;
@@ -202,9 +241,31 @@ void DisplayManager::update() {
         portENTER_CRITICAL(&metrics_mux);
         metrics_snapshot = metrics_window;
         portEXIT_CRITICAL(&metrics_mux);
+        log_performance_window(metrics_window);
         metrics_window = {};
         metrics_window_started_ms = now_ms;
     }
+}
+
+void DisplayManager::log_performance_window(const DisplayPerformanceSnapshot& window) const {
+#if DEBUG_DISPLAY_PERFORMANCE
+    // Skip idle seconds so the log only covers periods when the screen redraws.
+    if (window.rendered_frames == 0 || window.window_ms == 0) return;
+
+    const unsigned long frames = window.rendered_frames;
+    const unsigned long fps_x10 = (frames * 10000UL) / window.window_ms;
+    LOG_DISPLAY_PERF(
+        "[DISPLAY] %lu.%lu fps | frame %lu us | panel %lu us/frame | %lu px/frame | "
+        "internal RAM %u KiB free (largest block %u KiB)\n",
+        fps_x10 / 10, fps_x10 % 10,
+        static_cast<unsigned long>(window.render_time_us) / frames,
+        static_cast<unsigned long>(window.flush_time_us) / frames,
+        static_cast<unsigned long>(window.pixels) / frames,
+        static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+        static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
+#else
+    (void)window;
+#endif
 }
 
 DisplayPerformanceSnapshot DisplayManager::get_performance_snapshot() {
@@ -291,11 +352,15 @@ bool DisplayManager::draw_rgb565_file(const char* path, uint16_t width, uint16_t
 
 // Update the refresh area to be full width
 // This avoids weird artifacts when partial row updates are used
+// Rows start on an even line and end on an odd one: the SH8601 (V2) only
+// accepts drawing windows on 2-pixel boundaries.
 void DisplayManager::display_rounder_cb(lv_event_t* e) {
     lv_area_t* area = (lv_area_t*)lv_event_get_param(e);
-    
+
     area->x1 = 0;
     area->x2 = g_display_manager->screen_width - 1;
+    area->y1 &= ~1;
+    area->y2 = std::min<int32_t>(area->y2 | 1, g_display_manager->screen_height - 1);
 }
 
 void DisplayManager::display_metrics_cb(lv_event_t* e) {
@@ -316,6 +381,17 @@ void DisplayManager::display_metrics_cb(lv_event_t* e) {
                 g_display_manager->render_started_us = 0;
             }
             break;
+#if HW_DISPLAY_VARIANT_V2
+        // V2 transfers run in the background, so the panel only costs the UI
+        // the time LVGL waits for a transfer to free a draw buffer.
+        case LV_EVENT_FLUSH_WAIT_START:
+            g_display_manager->flush_wait_started_us = micros();
+            break;
+        case LV_EVENT_FLUSH_WAIT_FINISH:
+            g_display_manager->metrics_window.flush_time_us +=
+                micros() - g_display_manager->flush_wait_started_us;
+            break;
+#endif
         default:
             break;
     }
@@ -327,6 +403,9 @@ void DisplayManager::display_flush_cb(lv_display_t* disp, const lv_area_t* area,
         lv_display_flush_ready(disp);
         return;
     }
+
+    g_display_manager->metrics_window.flushes++;
+    g_display_manager->metrics_window.pixels += lv_area_get_size(area);
 
     g_display_manager->pending_flush_display = disp;
     esp_err_t result = esp_lcd_panel_draw_bitmap(
