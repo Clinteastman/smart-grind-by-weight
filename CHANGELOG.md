@@ -4,6 +4,15 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [Unreleased]
+
+### Desktop simulator
+
+- The desktop simulator also runs on macOS and Linux using SDL2. Run
+  `sim/run.sh` to open it or `sim/run.sh --test` for the test suite.
+- The tab-swipe redraw budget is checked per frame, so the result no longer
+  depends on how many frames the host computer renders.
+
 ## [1.5.9] - 2026-09-06
 
 ### Firmware update hotfix

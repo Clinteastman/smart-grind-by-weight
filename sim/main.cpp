@@ -1,7 +1,7 @@
 #include <lvgl.h>
-#include <src/drivers/windows/lv_windows_display.h>
 
 #include "config/constants.h"
+#include "sim_platform.h"
 #include "ui/screens/grinding_screen_arc.h"
 #include "ui/screens/grinding_screen_chart.h"
 #include "ui/screens/ready_screen.h"
@@ -10,16 +10,21 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <windows.h>
 
 namespace {
+
+using sim_platform::now_ms;
+using sim_platform::set_status;
 
 constexpr int kDisplayWidth = 280;
 constexpr int kDisplayHeight = 456;
 constexpr float kTargetWeight = USER_SINGLE_ESPRESSO_WEIGHT_G;
 constexpr uint64_t kArcPixelBudget = 800000;
 constexpr uint64_t kChartPixelBudget = 3500000;
-constexpr uint64_t kSwipePixelBudget = 1000000;
+// A tab swipe should only redraw the 280 x 364 tab area (101,920 px) per frame.
+// Budgeting per frame keeps the check independent of how many frames the host
+// manages to render during the animation.
+constexpr uint64_t kSwipePixelsPerRefreshBudget = 110000;
 constexpr uint32_t kSwipeDurationBudgetMs = 300;
 
 ReadyScreen ready_screen;
@@ -36,7 +41,6 @@ float weight_g = 0.0f;
 float flow_gps = 0.0f;
 uint32_t grind_started_ms = 0;
 uint32_t last_update_ms = 0;
-HWND simulator_window = nullptr;
 
 struct RenderMetrics {
     uint64_t flushed_pixels = 0;
@@ -47,10 +51,6 @@ struct RenderMetrics {
 };
 
 RenderMetrics render_metrics;
-
-uint32_t now_ms() {
-    return static_cast<uint32_t>(GetTickCount64());
-}
 
 void reset_render_metrics() {
     render_metrics = {};
@@ -92,14 +92,6 @@ void display_metrics_event(lv_event_t* event) {
             break;
         default:
             break;
-    }
-}
-
-void set_status(const char* status) {
-    if (simulator_window) {
-        wchar_t title[160];
-        swprintf_s(title, L"Smart Grind Simulator - %S  [V: view, T: tare]", status);
-        SetWindowTextW(simulator_window, title);
     }
 }
 
@@ -294,27 +286,18 @@ int main(int argc, char** argv) {
     lv_init();
     lv_tick_set_cb(now_ms);
 
-    lv_display_t* display = lv_windows_create_display(
-        L"Smart Grind-by-Weight Simulator",
-        kDisplayWidth,
-        kDisplayHeight,
-        140,
-        true,
-        true);
+    const bool automated_run = smoke_test || benchmark || swipe_benchmark || manual_smoke;
+    lv_display_t* display =
+        sim_platform::create_display(kDisplayWidth, kDisplayHeight, automated_run);
     if (!display) {
         std::fprintf(stderr, "Could not create the simulator display.\n");
         return 1;
-    }
-
-    simulator_window = lv_windows_get_display_window_handle(display);
-    if (smoke_test || benchmark || swipe_benchmark || manual_smoke) {
-        ShowWindow(simulator_window, SW_HIDE);
     }
     lv_display_add_event_cb(display, display_metrics_event, LV_EVENT_ALL, nullptr);
 
     // The Windows driver creates its framebuffer on the first LVGL timer pass.
     // Let that happen before sizing and styling the production screen objects.
-    Sleep(LV_DEF_REFR_PERIOD + 1);
+    sim_platform::sleep_ms(LV_DEF_REFR_PERIOD + 1);
     lv_timer_handler();
 
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(THEME_COLOR_BACKGROUND), 0);
@@ -333,7 +316,6 @@ int main(int argc, char** argv) {
         std::fflush(stdout);
     }
 
-    HWND window = simulator_window;
     const uint32_t smoke_started_ms = now_ms();
     bool smoke_scenario_started = false;
     bool benchmark_switched_layout = false;
@@ -344,7 +326,7 @@ int main(int argc, char** argv) {
     bool tare_key_down = false;
     bool manual_stop_sent = false;
 
-    while (IsWindow(window)) {
+    while (sim_platform::is_window_open()) {
         if (swipe_benchmark && !swipe_started && now_ms() - smoke_started_ms > 100) {
             reset_render_metrics();
             swipe_started_ms = now_ms();
@@ -362,7 +344,7 @@ int main(int argc, char** argv) {
         if (manual_smoke && !smoke_scenario_started && now_ms() - smoke_started_ms > 100) {
             if (lv_tabview_get_tab_act(ready_screen.get_tabview()) != ReadyScreen::MANUAL_TAB_INDEX) {
                 std::fprintf(stderr, "Manual page is not the first ready tab.\n");
-                ExitProcess(5);
+                sim_platform::exit_process(5);
             }
             start_grind();
             smoke_scenario_started = true;
@@ -370,43 +352,46 @@ int main(int argc, char** argv) {
 
         update_mock_grind();
 
-        const bool view_pressed = (GetAsyncKeyState('V') & 0x8000) != 0;
+        const bool view_pressed = sim_platform::is_key_down('V');
         if (view_pressed && !view_key_down) {
             toggle_layout();
         }
         view_key_down = view_pressed;
 
-        const bool tare_pressed = (GetAsyncKeyState('T') & 0x8000) != 0;
+        const bool tare_pressed = sim_platform::is_key_down('T');
         if (tare_pressed && !tare_key_down) {
             tare();
         }
         tare_key_down = tare_pressed;
         const uint32_t wait_ms = std::clamp<uint32_t>(lv_timer_handler(), 1, 16);
-        Sleep(wait_ms);
+        sim_platform::sleep_ms(wait_ms);
 
         if (swipe_benchmark && swipe_started &&
             !lv_obj_is_scrolling(lv_tabview_get_content(ready_screen.get_tabview()))) {
             const uint32_t duration_ms = now_ms() - swipe_started_ms;
             print_render_metrics("swipe", duration_ms);
+            const uint64_t pixels_per_refresh = render_metrics.refresh_count > 0
+                ? render_metrics.flushed_pixels / render_metrics.refresh_count
+                : 0;
             if (lv_tabview_get_tab_act(ready_screen.get_tabview()) != 1 ||
                 duration_ms > kSwipeDurationBudgetMs ||
-                render_metrics.flushed_pixels > kSwipePixelBudget) {
+                pixels_per_refresh > kSwipePixelsPerRefreshBudget) {
                 std::fprintf(stderr, "Simulator swipe budget exceeded.\n");
                 std::fflush(stderr);
-                ExitProcess(4);
+                sim_platform::exit_process(4);
             }
-            ExitProcess(0);
+            sim_platform::exit_process(0);
         }
 
         if (smoke_test && now_ms() - smoke_started_ms > 750) {
             if (!arc_screen.is_visible() || ready_screen.is_visible() || weight_g <= 0.0f) {
                 std::fprintf(stderr, "Simulator scenario did not advance.\n");
                 std::fflush(stderr);
-                ExitProcess(2);
+                sim_platform::exit_process(2);
             }
             std::printf("[smoke] scenario advanced to %.2fg\n", weight_g);
             std::fflush(stdout);
-            ExitProcess(0);
+            sim_platform::exit_process(0);
         }
 
 
@@ -414,7 +399,7 @@ int main(int argc, char** argv) {
             now_ms() - smoke_started_ms > 650) {
             if (!manual_grinding || !arc_screen.is_visible() || weight_g <= 0.0f) {
                 std::fprintf(stderr, "Manual grind did not advance.\n");
-                ExitProcess(6);
+                sim_platform::exit_process(6);
             }
             grind_button_event(nullptr);
             manual_stop_sent = true;
@@ -423,10 +408,10 @@ int main(int argc, char** argv) {
         if (manual_smoke && manual_stop_sent && now_ms() - smoke_started_ms > 750) {
             if (grinding || settling || manual_grinding) {
                 std::fprintf(stderr, "Manual grind did not stop.\n");
-                ExitProcess(7);
+                sim_platform::exit_process(7);
             }
             std::printf("[manual-smoke] start/stop completed at %.2fg\n", weight_g);
-            ExitProcess(0);
+            sim_platform::exit_process(0);
         }
 
         if (benchmark && !benchmark_switched_layout && now_ms() - smoke_started_ms > 2600) {
@@ -443,9 +428,9 @@ int main(int argc, char** argv) {
                 render_metrics.flushed_pixels > kChartPixelBudget) {
                 std::fprintf(stderr, "Simulator render budget exceeded.\n");
                 std::fflush(stderr);
-                ExitProcess(3);
+                sim_platform::exit_process(3);
             }
-            ExitProcess(0);
+            sim_platform::exit_process(0);
         }
     }
 
