@@ -4,6 +4,7 @@
 
 - [Motor Does Not Start](#motor-does-not-start)
 - [Display Stays Black After Flashing (Waveshare 1.64 V2)](#display-stays-black-after-flashing-waveshare-164-v2)
+- [Wi-Fi Setup Does Not Connect](#wi-fi-setup-does-not-connect)
 - [HX711 Not Detected / Wrong Sample Rate](#hx711-not-detected--wrong-sample-rate)
 - [Suspected HX711 or Load Cell Damage](#suspected-hx711-or-load-cell-damage)
 - [Unknown board ID 'esp32-s3-devkitc-1'](#unknown-board-id-esp32-s3-devkitc-1)
@@ -418,3 +419,30 @@ python3 tools/grinder.py diagnostics --save diagnostics.txt
 3. **Generate diagnostics:** Use one of the methods above (Web Flasher or Command Line)
 
 The diagnostic report will automatically include your recent grind session data, which is essential for troubleshooting accuracy issues, pulse corrections, timeout problems, and other grind behavior issues. Without recent grind data, it's much harder to diagnose what's going wrong.
+
+---
+
+## Wi-Fi Setup Does Not Connect
+
+**Applies to:** the grinder brings its `SmartGrind-xxxxxx` setup network back about 15 seconds after you save your Wi-Fi details.
+
+### Read the reason
+
+After a failed attempt the grinder says why. The full explanation is on the sign-in page (rejoin the `SmartGrind-xxxxxx` network) and on **Menu → Wi-Fi**; the ready screen's Wi-Fi tab shows a one-line summary.
+
+| Message | What to check |
+|---|---|
+| Network not found | The name is exact, including capitals. The network has 2.4 GHz switched on, because the grinder cannot use 5 GHz. The grinder is within range. |
+| Password rejected | The password. |
+| Signal too weak | Move the grinder or the access point closer together. |
+| Connection refused | Usually a weak signal. Also check router features that turn away weak or unknown devices, such as UniFi's **Minimum RSSI** or MAC filtering. |
+| Security type not supported | Use WPA2 or WPA3 Personal security. Enterprise and WEP networks are not supported. |
+| No response | As for "Network not found". |
+
+### Hidden networks
+
+Hidden networks never appear in the scanned list. Open **Hidden network or manual entry** on the sign-in page and type the name exactly.
+
+### Signal strength
+
+The scanned list shows each network's signal in dBm. Around -70 dBm or stronger (closer to zero) is reliable; weaker than about -80 dBm, joining can fail or the connection can drop. A metal grinder body weakens the signal considerably, so test with the grinder near the access point if a network is missing or weak.

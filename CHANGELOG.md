@@ -4,6 +4,20 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [Unreleased]
+
+### Wi-Fi setup
+
+- The setup page shows the padlock for secured networks instead of garbled
+  characters.
+- iPhones no longer autocorrect or capitalise a network name typed into the
+  setup page.
+- When the grinder cannot join the saved network, it says why: network not
+  found, password rejected, signal too weak, connection refused, unsupported
+  security or no response. The explanation appears on the setup page and on
+  **Menu → Wi-Fi**, with a one-line summary on the ready screen's Wi-Fi tab.
+  See [Troubleshooting](docs/TROUBLESHOOTING.md#wi-fi-setup-does-not-connect).
+
 ## [1.5.9] - 2026-09-06
 
 ### Firmware update hotfix

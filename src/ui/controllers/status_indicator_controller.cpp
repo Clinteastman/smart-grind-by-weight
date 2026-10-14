@@ -28,7 +28,8 @@ void StatusIndicatorController::build() {
     lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ble_status_icon_, LV_OBJ_FLAG_CLICKABLE);
 
-    // Wi-Fi is grey while enabled but offline/setup, white when connected.
+    // Wi-Fi is grey while enabled but offline/setup, green when connected
+    // (the same "connected" colour as the Bluetooth icon).
     wifi_status_icon_ = lv_label_create(lv_scr_act());
     lv_label_set_text(wifi_status_icon_, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_font(wifi_status_icon_, &lv_font_montserrat_24, 0);
@@ -146,7 +147,7 @@ void StatusIndicatorController::update_wifi_status_icon() {
 
     lv_obj_clear_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_text_color(wifi_status_icon_,
-                                state == 2 ? lv_color_hex(THEME_COLOR_TEXT_PRIMARY)
+                                state == 2 ? lv_color_hex(THEME_COLOR_SUCCESS)
                                            : lv_color_hex(THEME_COLOR_TEXT_SECONDARY),
                                 0);
 }

@@ -227,7 +227,10 @@ void ReadyScreen::update_network_status() {
             status = "CONNECT WI-FI";
             const String& ssid = provisioning_service.access_point_ssid();
             const String& password = provisioning_service.access_point_password();
-            detail = "Scan with your phone, then use the sign-in page.\n" + ssid;
+            // The full explanation is on the menu's Wi-Fi page and the sign-in page.
+            const String join_failure = network_manager.join_failure_summary();
+            if (!join_failure.isEmpty()) detail = join_failure + "\n";
+            detail += "Scan with your phone, then use the sign-in page.\n" + ssid;
             qr_payload = "WIFI:T:";
             qr_payload += password.isEmpty() ? "nopass" : "WPA";
             qr_payload += ";S:" + escape_wifi_qr_value(ssid);
