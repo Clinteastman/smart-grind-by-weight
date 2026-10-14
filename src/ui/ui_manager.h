@@ -30,6 +30,7 @@
 #include "controllers/menu_controller.h"
 #include "controllers/status_indicator_controller.h"
 #include "../system/state_machine.h"
+#include "../system/auto_start_policy.h"
 #include "../system/diagnostics_controller.h"
 #include "../controllers/profile_controller.h"
 #include "../controllers/grind_controller.h"
@@ -142,6 +143,7 @@ public:
 private:
     void create_ui();
     void update_auto_actions();
+    void update_auto_start(WeightSensor* sensor, uint32_t now);
     
     // State-specific update methods
 
@@ -155,4 +157,8 @@ private:
         uint32_t last_auto_start_ms = 0;
         uint32_t last_auto_return_ms = 0;
     } auto_actions_;
+    // Watches the Ready screen for a cup; reset whenever the scale's meaning
+    // changes (state or tab change, tare, settings) so a cup already present
+    // becomes the baseline instead of starting a grind.
+    AutoStartTracker auto_start_tracker_;
 };

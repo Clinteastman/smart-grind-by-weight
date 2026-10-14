@@ -1520,8 +1520,9 @@ void BluetoothManager::generate_diagnostic_report() {
         "  USER_SCREEN_BRIGHTNESS_DIMMED: %.2f\n"
         "  USER_WEIGHT_ACTIVITY_THRESHOLD_G: %.1f\n"
         "  USER_AUTO_GRIND_TRIGGER_DELTA_G: %.1f\n"
-        "  USER_AUTO_GRIND_TRIGGER_WINDOW_MS: %lu\n"
-        "  USER_AUTO_GRIND_TRIGGER_SETTLING_MS: %lu\n"
+        "  USER_AUTO_GRIND_AVERAGE_WINDOW_MS: %lu\n"
+        "  USER_AUTO_GRIND_REST_TOLERANCE_G: %.1f\n"
+        "  USER_AUTO_GRIND_REST_HOLD_MS: %lu\n"
         "  USER_AUTO_GRIND_REARM_DELAY_MS: %lu\n"
         "\n",
         (unsigned long)USER_SCREEN_AUTO_DIM_TIMEOUT_MS,
@@ -1529,8 +1530,9 @@ void BluetoothManager::generate_diagnostic_report() {
         USER_SCREEN_BRIGHTNESS_DIMMED,
         USER_WEIGHT_ACTIVITY_THRESHOLD_G,
         USER_AUTO_GRIND_TRIGGER_DELTA_G,
-        (unsigned long)USER_AUTO_GRIND_TRIGGER_WINDOW_MS,
-        (unsigned long)USER_AUTO_GRIND_TRIGGER_SETTLING_MS,
+        (unsigned long)USER_AUTO_GRIND_AVERAGE_WINDOW_MS,
+        USER_AUTO_GRIND_REST_TOLERANCE_G,
+        (unsigned long)USER_AUTO_GRIND_REST_HOLD_MS,
         (unsigned long)USER_AUTO_GRIND_REARM_DELAY_MS
     );
     send_chunk(buf);

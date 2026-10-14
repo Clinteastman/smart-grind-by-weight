@@ -70,6 +70,13 @@ target_include_directories(grind-session-result-test PRIVATE
     "${PROJECT_ROOT}/src"
 )
 
+add_executable(auto-start-policy-test
+    auto_start_policy_test.cpp
+)
+target_include_directories(auto-start-policy-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
 if(MSVC)
     target_compile_options(smart-grind-sim PRIVATE /W4 /permissive-)
 endif()
@@ -89,4 +96,6 @@ if(BUILD_TESTING)
     set_tests_properties(net_weight_guard PROPERTIES TIMEOUT 5)
     add_test(NAME grind_session_result COMMAND grind-session-result-test)
     set_tests_properties(grind_session_result PROPERTIES TIMEOUT 5)
+    add_test(NAME auto_start_policy COMMAND auto-start-policy-test)
+    set_tests_properties(auto_start_policy PROPERTIES TIMEOUT 5)
 endif()

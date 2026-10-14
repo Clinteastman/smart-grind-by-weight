@@ -54,10 +54,11 @@
 //------------------------------------------------------------------------------
 // AUTO ACTIONS
 //------------------------------------------------------------------------------
-#define USER_AUTO_GRIND_TRIGGER_DELTA_G 50.0f                                   // Weight change threshold used for auto actions (grams)
+#define USER_AUTO_GRIND_TRIGGER_DELTA_G 50.0f                                   // Default rise in at-rest weight that starts a grind (grams)
 #define USER_AUTO_GRIND_TRIGGER_MIN_G 5.0f                                      // Lowest configurable auto-start threshold (grams)
 #define USER_AUTO_GRIND_TRIGGER_MAX_G 1000.0f                                   // Highest configurable auto-start threshold (grams)
 #define USER_AUTO_GRIND_TRIGGER_STEP_G 5.0f                                     // On-device slider increment (grams)
-#define USER_AUTO_GRIND_TRIGGER_WINDOW_MS 5000                                  // Time window for delta detection (milliseconds)
-#define USER_AUTO_GRIND_TRIGGER_SETTLING_MS 1000                                // Settling period after trigger detection before confirmation (milliseconds)
+#define USER_AUTO_GRIND_AVERAGE_WINDOW_MS 1000                                  // Readings are averaged over this window before the cup check (milliseconds)
+#define USER_AUTO_GRIND_REST_TOLERANCE_G 1.0f                                   // Averaged weight may wander this much and still count as at rest (grams)
+#define USER_AUTO_GRIND_REST_HOLD_MS 1000                                       // Time within that tolerance before the scale counts as at rest (milliseconds)
 #define USER_AUTO_GRIND_REARM_DELAY_MS 1500                                     // Minimum delay between auto actions (milliseconds)
