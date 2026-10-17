@@ -4,6 +4,7 @@
 #include <lvgl.h>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
+#include "../../network/network_manager.h"
 #include "../event_bridge_lvgl.h"
 #include "../ui_manager.h"
 
@@ -14,9 +15,20 @@ void ReadyUIController::update() {
     const uint32_t now = millis();
     if (!ui_manager_) return;
 
+    if (ui_manager_->ready_screen.has_wifi_tab() != network_manager.should_show_tab()) {
+        ui_manager_->rebuild_ready_tabs();
+    }
+
+    if (now - last_network_update_ms_ >= 500) {
+        last_network_update_ms_ = now;
+        if (ui_manager_->ready_screen.has_wifi_tab()) {
+            ui_manager_->ready_screen.update_network_status();
+        }
+    }
+
     if (ui_manager_->state_machine &&
         ui_manager_->state_machine->is_state(UIState::READY) &&
-        ui_manager_->current_tab == ReadyScreen::MANUAL_TAB_INDEX &&
+        ui_manager_->ready_screen.is_manual_tab(ui_manager_->current_tab) &&
         now - last_manual_scale_update_ms_ >= 100) {
         last_manual_scale_update_ms_ = now;
         auto* hardware = ui_manager_->get_hardware_manager();
@@ -28,17 +40,12 @@ void ReadyUIController::update() {
             available,
             available && sensor->is_tare_in_progress());
     }
-
-    if (now - last_network_update_ms_ >= 500) {
-        last_network_update_ms_ = now;
-        ui_manager_->ready_screen.update_network_status();
-    }
 }
 
 void ReadyUIController::handle_manual_tare() {
     if (!ui_manager_ || !ui_manager_->state_machine ||
         !ui_manager_->state_machine->is_state(UIState::READY) ||
-        ui_manager_->current_tab != ReadyScreen::MANUAL_TAB_INDEX) {
+        !ui_manager_->ready_screen.is_manual_tab(ui_manager_->current_tab)) {
         return;
     }
 
@@ -72,18 +79,32 @@ void ReadyUIController::handle_tab_change(int tab) {
     }
 
     ui_manager_->current_tab = tab;
-    if (tab == ReadyScreen::MANUAL_TAB_INDEX) {
+    Preferences* prefs = ui_manager_->get_hardware_manager()
+                             ? ui_manager_->get_hardware_manager()->get_preferences()
+                             : nullptr;
+
+    if (ui_manager_->ready_screen.is_manual_tab(tab)) {
         ui_manager_->current_mode = GrindMode::MANUAL;
         ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
-    } else if (ui_manager_->profile_controller && ReadyScreen::is_profile_tab(tab)) {
-        ui_manager_->profile_controller->set_current_profile(ReadyScreen::profile_index_for_tab(tab));
+        if (prefs) {
+            prefs->putBool("manual_active", true);
+        }
+    } else if (ui_manager_->profile_controller && ui_manager_->ready_screen.is_profile_tab(tab)) {
+        ui_manager_->profile_controller->set_current_profile(ui_manager_->ready_screen.profile_index_for_tab(tab));
         ui_manager_->current_mode = ui_manager_->profile_controller->get_grind_mode();
         ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
+        if (prefs) {
+            prefs->putBool("manual_active", false);
+        }
         refresh_profiles();
     }
 
     if (ui_manager_->grinding_controller_) {
         ui_manager_->grinding_controller_->update_grind_button_icon();
+    }
+    if (ui_manager_->status_indicator_controller_) {
+        ui_manager_->status_indicator_controller_->update_wifi_status_icon();
+        ui_manager_->status_indicator_controller_->update_ble_status_icon();
     }
 }
 
@@ -93,7 +114,7 @@ void ReadyUIController::handle_profile_long_press() {
     }
 
     if (!ui_manager_->state_machine->is_state(UIState::READY) ||
-        !ReadyScreen::is_profile_tab(ui_manager_->current_tab)) {
+        !ui_manager_->ready_screen.is_profile_tab(ui_manager_->current_tab)) {
         return;
     }
 
@@ -107,7 +128,7 @@ void ReadyUIController::handle_profile_long_press() {
 }
 
 void ReadyUIController::toggle_mode() {
-    if (!ui_manager_ || !ReadyScreen::is_profile_tab(ui_manager_->current_tab)) {
+    if (!ui_manager_ || !ui_manager_->ready_screen.is_profile_tab(ui_manager_->current_tab)) {
         return;
     }
 
@@ -150,6 +171,52 @@ void ReadyUIController::toggle_mode() {
     }
 }
 
+void ReadyUIController::ready_gesture_handler(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) {
+        return;
+    }
+    lv_indev_t* input = lv_indev_get_act();
+    lv_dir_t dir = lv_indev_get_gesture_dir(input);
+    UIManager* ui = static_cast<UIManager*>(lv_event_get_user_data(e));
+    if (!ui || !ui->state_machine || !ui->state_machine->is_state(UIState::READY)) {
+        return;
+    }
+
+    if ((dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) && ui->ready_screen.get_tabview()) {
+        lv_obj_t* ready_tabs = ui->ready_screen.get_tabview();
+        int target_tab = static_cast<int>(lv_tabview_get_tab_act(ready_tabs));
+        target_tab += dir == LV_DIR_LEFT ? 1 : -1;
+        if (target_tab >= 0 && target_tab < ui->ready_screen.tab_count()) {
+            lv_tabview_set_act(ready_tabs, static_cast<uint32_t>(target_tab), LV_ANIM_ON);
+            lv_indev_wait_release(input);
+            if (ui->ready_controller_) {
+                ui->ready_controller_->handle_tab_change(target_tab);
+            }
+        }
+        lv_event_stop_bubbling(e);
+        return;
+    }
+
+    if ((dir == LV_DIR_TOP || dir == LV_DIR_BOTTOM) && ui->ready_controller_) {
+        ui->ready_controller_->toggle_mode();
+        lv_event_stop_bubbling(e);
+    }
+}
+
+void ReadyUIController::rebind_tabs() {
+    if (!ui_manager_) return;
+
+    lv_obj_t* tabview = ui_manager_->ready_screen.get_tabview();
+    if (tabview) {
+        lv_obj_add_event_cb(tabview, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                            reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::TAB_CHANGE)));
+        lv_obj_add_event_cb(tabview, ready_gesture_handler, LV_EVENT_GESTURE, ui_manager_);
+    }
+
+    ui_manager_->ready_screen.set_profile_long_press_handler(EventBridgeLVGL::profile_long_press_handler);
+    ui_manager_->ready_screen.set_manual_tare_handler(EventBridgeLVGL::dispatch_event);
+}
+
 void ReadyUIController::register_events() {
     if (!ui_manager_) {
         return;
@@ -161,44 +228,12 @@ void ReadyUIController::register_events() {
     if (tabview) {
         lv_obj_add_event_cb(tabview, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                             reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::TAB_CHANGE)));
-    }
-
-    auto gesture_handler = [](lv_event_t* e) {
-        if (lv_event_get_code(e) != LV_EVENT_GESTURE) {
-            return;
-        }
-        lv_indev_t* input = lv_indev_get_act();
-        lv_dir_t dir = lv_indev_get_gesture_dir(input);
-        UIManager* ui = static_cast<UIManager*>(lv_event_get_user_data(e));
-        if (!ui || !ui->state_machine->is_state(UIState::READY)) {
-            return;
-        }
-
-        if ((dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) && ui->ready_screen.get_tabview()) {
-            lv_obj_t* ready_tabs = ui->ready_screen.get_tabview();
-            int target_tab = static_cast<int>(lv_tabview_get_tab_act(ready_tabs));
-            target_tab += dir == LV_DIR_LEFT ? 1 : -1;
-            if (target_tab >= 0 && target_tab < ReadyScreen::TAB_COUNT) {
-                lv_tabview_set_act(ready_tabs, static_cast<uint32_t>(target_tab), LV_ANIM_ON);
-                lv_indev_wait_release(input);
-            }
-            lv_event_stop_bubbling(e);
-            return;
-        }
-
-        if ((dir == LV_DIR_TOP || dir == LV_DIR_BOTTOM) && ui->ready_controller_) {
-            ui->ready_controller_->toggle_mode();
-            lv_event_stop_bubbling(e);
-        }
-    };
-
-    if (tabview) {
-        lv_obj_add_event_cb(tabview, gesture_handler, LV_EVENT_GESTURE, ui_manager_);
+        lv_obj_add_event_cb(tabview, ready_gesture_handler, LV_EVENT_GESTURE, ui_manager_);
     }
     if (ready_screen_obj) {
-        lv_obj_add_event_cb(ready_screen_obj, gesture_handler, LV_EVENT_GESTURE, ui_manager_);
+        lv_obj_add_event_cb(ready_screen_obj, ready_gesture_handler, LV_EVENT_GESTURE, ui_manager_);
     }
-    lv_obj_add_event_cb(lv_scr_act(), gesture_handler, LV_EVENT_GESTURE, ui_manager_);
+    lv_obj_add_event_cb(lv_scr_act(), ready_gesture_handler, LV_EVENT_GESTURE, ui_manager_);
 
     EventBridgeLVGL::register_handler(EventBridgeLVGL::EventType::TAB_CHANGE,
                                       [this](lv_event_t* event) {
@@ -215,5 +250,4 @@ void ReadyUIController::register_events() {
 
     ui_manager_->ready_screen.set_profile_long_press_handler(EventBridgeLVGL::profile_long_press_handler);
     ui_manager_->ready_screen.set_manual_tare_handler(EventBridgeLVGL::dispatch_event);
-
 }

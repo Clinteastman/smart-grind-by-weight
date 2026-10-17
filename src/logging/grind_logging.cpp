@@ -170,6 +170,10 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
                                          static_cast<int32_t>(current_session->target_time_ms);
         // Weight error is not meaningful for time-based grinds
         current_session->error_grams = 0.0f;
+    } else if (mode == GrindMode::MANUAL) {
+        current_session->time_error_ms = 0;
+        // Target weight is not predetermined in Single Dose / Manual; error is not meaningful
+        current_session->error_grams = 0.0f;
     } else {
         current_session->time_error_ms = 0;
     }
@@ -186,14 +190,21 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
                                 termination_reason == GrindTerminationReason::MAX_PULSES);
 
     if (is_successful_grind) {
-        bool is_weight_mode = (mode == GrindMode::WEIGHT);
-        statistics_manager.update_grind_session(
-            final_weight,
-            current_session->error_grams,
-            pulse_count,
-            is_weight_mode,
-            current_session->total_motor_on_time_ms
-        );
+        if (mode == GrindMode::MANUAL) {
+            statistics_manager.update_single_dose_grind(
+                final_weight,
+                current_session->total_motor_on_time_ms
+            );
+        } else {
+            bool is_weight_mode = (mode == GrindMode::WEIGHT);
+            statistics_manager.update_grind_session(
+                final_weight,
+                current_session->error_grams,
+                pulse_count,
+                is_weight_mode,
+                current_session->total_motor_on_time_ms
+            );
+        }
     }
 
     // Check if logging is enabled before saving to flash
@@ -202,7 +213,8 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
     bool logging_enabled = logging_prefs.getBool("enabled", true);
     logging_prefs.end();
 
-    const char* mode_name = (mode == GrindMode::TIME) ? "TIME" : "WEIGHT";
+    const char* mode_name = (mode == GrindMode::TIME) ? "TIME" :
+                            (mode == GrindMode::MANUAL ? "SINGLE_DOSE" : "WEIGHT");
 
     if (!is_cancelled && logging_enabled) {
         const bool saved = flush_session_to_flash();

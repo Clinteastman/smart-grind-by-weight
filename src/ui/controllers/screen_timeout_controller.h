@@ -25,6 +25,9 @@ public:
         screensaver_controller_ = controller;
     }
 
+    void trigger_preview();
+    bool is_preview_active() const { return preview_active_; }
+
 private:
     void refresh_settings_if_needed(uint32_t now_ms);
     void restore_normal_display(DisplayManager* display);
@@ -36,6 +39,8 @@ private:
     uint32_t last_settings_refresh_ms_ = 0;
     uint32_t settings_applied_at_ms_ = 0;
     uint32_t last_weight_activity_ms_ = 0;
+    uint32_t preview_started_at_ms_ = 0;
     bool screen_dimmed_;
     bool panel_off_;
+    bool preview_active_ = false;
 };

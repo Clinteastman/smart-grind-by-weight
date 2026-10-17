@@ -155,10 +155,14 @@ void GrindingUIController::update(UIState current_state) {
 
     switch (current_state) {
         case UIState::GRIND_COMPLETE: {
-            WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
-            if (weight_sensor) {
-                float current_weight = weight_sensor->get_display_weight();
-                ui_manager_->grinding_screen.update_current_weight(current_weight);
+            if (ui_manager_->current_mode != GrindMode::MANUAL) {
+                WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
+                if (weight_sensor) {
+                    float current_weight = weight_sensor->get_display_weight();
+                    ui_manager_->grinding_screen.update_current_weight(current_weight);
+                }
+            } else {
+                ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);
             }
             ui_manager_->grinding_screen.update_progress(final_grind_progress_);
             break;
@@ -195,14 +199,15 @@ void GrindingUIController::handle_grind_button() {
             ui_manager_->grind_controller->stop_grind();
         }
     } else if (ui_manager_->state_machine->is_state(UIState::READY)) {
-        if (ui_manager_->current_tab == ReadyScreen::MENU_TAB_INDEX) {
+        if (ui_manager_->ready_screen.is_menu_tab(ui_manager_->current_tab)) {
             ui_manager_->switch_to_state(UIState::MENU);
             return;
         }
-        if (ui_manager_->current_tab == ReadyScreen::WIFI_TAB_INDEX) return;
+        if (ui_manager_->ready_screen.is_wifi_tab(ui_manager_->current_tab)) return;
 
-        const bool manual = ui_manager_->current_tab == ReadyScreen::MANUAL_TAB_INDEX;
-        if (!manual && ui_manager_->grind_controller && ui_manager_->profile_controller) {
+        const bool is_single_dose = (ui_manager_->ready_screen.is_manual_tab(ui_manager_->current_tab) ||
+                                     ui_manager_->current_mode == GrindMode::MANUAL);
+        if (!is_single_dose && ui_manager_->grind_controller && ui_manager_->profile_controller) {
             ui_manager_->grind_controller->set_grind_profile_id(ui_manager_->profile_controller->get_current_profile());
         }
 
@@ -212,7 +217,7 @@ void GrindingUIController::handle_grind_button() {
         error_grind_progress_ = 0;
 
         bool started = false;
-        if (manual && ui_manager_->grind_controller) {
+        if (is_single_dose && ui_manager_->grind_controller) {
             started = ui_manager_->grind_controller->start_grind(0.0f, 0, GrindMode::MANUAL);
         } else if (ui_manager_->profile_controller && ui_manager_->grind_controller) {
             float target_weight = ui_manager_->profile_controller->get_current_weight();
@@ -249,8 +254,10 @@ void GrindingUIController::handle_pulse_button() {
         return;
     }
 
-    // TIME_GRINDING: pulse button toggles pause/resume
-    if (ui_manager_->grind_controller->get_phase() == GrindPhase::TIME_GRINDING) {
+    // TIME_GRINDING or MANUAL (Single Dose): pulse button toggles pause/resume
+    if (ui_manager_->grind_controller->get_phase() == GrindPhase::TIME_GRINDING ||
+        (ui_manager_->current_mode == GrindMode::MANUAL &&
+         ui_manager_->grind_controller->get_phase() == GrindPhase::MANUAL_GRINDING)) {
         if (ui_manager_->grind_controller->is_grind_paused()) {
             LOG_BLE("[UIManager] Resume button clicked\n");
             ui_manager_->grind_controller->resume_grind();
@@ -333,11 +340,11 @@ void GrindingUIController::update_grind_button_icon() {
         lv_img_set_src(grind_icon_, LV_SYMBOL_CLOSE);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_WARNING), 0);
     } else if (ui_manager_->state_machine->is_state(UIState::READY) &&
-               ui_manager_->current_tab == ReadyScreen::MENU_TAB_INDEX) {
+               ui_manager_->ready_screen.is_menu_tab(ui_manager_->current_tab)) {
         lv_img_set_src(grind_icon_, LV_SYMBOL_SETTINGS);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_NEUTRAL), 0);
     } else if (ui_manager_->state_machine->is_state(UIState::READY) &&
-               ui_manager_->current_tab == ReadyScreen::WIFI_TAB_INDEX) {
+               ui_manager_->ready_screen.is_wifi_tab(ui_manager_->current_tab)) {
         lv_img_set_src(grind_icon_, LV_SYMBOL_WIFI);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_NEUTRAL), 0);
     } else {
@@ -345,7 +352,9 @@ void GrindingUIController::update_grind_button_icon() {
         lv_obj_set_style_bg_color(grind_button_,
                                   ui_manager_->current_mode == GrindMode::TIME
                                       ? lv_color_hex(THEME_COLOR_ACCENT)
-                                      : lv_color_hex(THEME_COLOR_PRIMARY),
+                                      : ui_manager_->current_mode == GrindMode::MANUAL
+                                          ? lv_color_hex(THEME_COLOR_SUCCESS)
+                                          : lv_color_hex(THEME_COLOR_PRIMARY),
                                   0);
     }
 
@@ -365,10 +374,16 @@ void GrindingUIController::update_button_layout() {
                              ui_manager_->state_machine->is_state(UIState::GRINDING));
     bool is_time_grind_paused = in_time_grinding && ui_manager_->grind_controller->is_grind_paused();
 
+    bool in_single_dose_grinding = (ui_manager_->current_mode == GrindMode::MANUAL &&
+                                    ui_manager_->grind_controller &&
+                                    ui_manager_->grind_controller->get_phase() == GrindPhase::MANUAL_GRINDING &&
+                                    ui_manager_->state_machine->is_state(UIState::GRINDING));
+    bool is_single_dose_paused = in_single_dose_grinding && ui_manager_->grind_controller->is_grind_paused();
+
     bool should_show_pulse = (ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE) &&
                               ui_manager_->current_mode == GrindMode::TIME);
 
-    if (in_purge_confirm || in_time_grinding || should_show_pulse) {
+    if (in_purge_confirm || in_time_grinding || in_single_dose_grinding || should_show_pulse) {
         // Dual button layout: left=STOP/CANCEL, right=context-specific action
         lv_obj_align(grind_button_, LV_ALIGN_BOTTOM_MID, -60, -10);
         if (pulse_button_) {
@@ -380,9 +395,10 @@ void GrindingUIController::update_button_layout() {
                 lv_obj_set_style_bg_color(pulse_button_, lv_color_hex(THEME_COLOR_SUCCESS), 0);
                 lv_obj_clear_state(pulse_button_, LV_STATE_DISABLED);
                 lv_obj_set_style_bg_opa(pulse_button_, LV_OPA_COVER, 0);
-            } else if (in_time_grinding) {
+            } else if (in_time_grinding || in_single_dose_grinding) {
                 // Pause / Resume toggle
-                if (is_time_grind_paused) {
+                bool is_paused = in_time_grinding ? is_time_grind_paused : is_single_dose_paused;
+                if (is_paused) {
                     lv_img_set_src(pulse_icon_, LV_SYMBOL_PLAY);
                     lv_obj_set_style_bg_color(pulse_button_, lv_color_hex(THEME_COLOR_SUCCESS), 0);
                 } else {
@@ -419,7 +435,7 @@ void GrindingUIController::update_grinding_targets() {
 
     const auto& session = ui_manager_->grind_controller->get_session_descriptor();
     if (session.mode == GrindMode::MANUAL) {
-        ui_manager_->grinding_screen.update_target_weight_text("Elapsed: 0.0s");
+        ui_manager_->grinding_screen.update_target_weight_text("Single Dose");
         return;
     }
     ui_manager_->grinding_screen.set_chart_time_prediction(session.target_time_ms);
@@ -465,7 +481,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
                 ui_manager_->grinding_screen.update_profile_name(
                     event_data.mode == GrindMode::MANUAL
-                        ? "MANUAL"
+                        ? "SINGLE DOSE"
                         : ui_manager_->profile_controller->get_current_name());
                 ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
                 chart_updates_enabled_ = true;
@@ -490,9 +506,9 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 update_button_layout();
             }
 
-            // Update button layout when phase changes within TIME mode GRINDING
-            // (e.g. entering/exiting TIME_GRINDING to show/hide pause button)
-            if (event_data.mode == GrindMode::TIME &&
+            // Update button layout when phase changes within TIME or MANUAL mode GRINDING
+            // (e.g. entering/exiting grinding/pause to show/hide pause button)
+            if ((event_data.mode == GrindMode::TIME || event_data.mode == GrindMode::MANUAL) &&
                 ui_manager_->state_machine->is_state(UIState::GRINDING) &&
                 event_data.phase != GrindPhase::PURGE_CONFIRM) {
                 update_grind_button_icon();
@@ -524,10 +540,11 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 ui_manager_->grinding_screen.update_current_weight(event_data.current_weight);
                 ui_manager_->grinding_screen.update_progress(event_data.progress_percent);
                 if (event_data.mode == GrindMode::MANUAL) {
-                    char elapsed_text[32];
-                    std::snprintf(elapsed_text, sizeof(elapsed_text), "Elapsed: %.1fs",
-                                  static_cast<double>(event_data.elapsed_ms) / 1000.0);
-                    ui_manager_->grinding_screen.update_target_weight_text(elapsed_text);
+                    if (ui_manager_->grind_controller && ui_manager_->grind_controller->is_grind_paused()) {
+                        ui_manager_->grinding_screen.update_target_weight_text("PAUSED");
+                    } else {
+                        ui_manager_->grinding_screen.update_target_weight_text("Single Dose");
+                    }
                 }
 
                 if (chart_updates_enabled_ &&
@@ -678,10 +695,16 @@ void GrindingUIController::enter_grind_complete_state() {
     if (grind_button_) {
         lv_obj_clear_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
     }
-    ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
+    ui_manager_->grinding_screen.update_profile_name(
+        ui_manager_->current_mode == GrindMode::MANUAL
+            ? "SINGLE DOSE"
+            : ui_manager_->profile_controller->get_current_name());
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);
     ui_manager_->grinding_screen.update_progress(final_grind_progress_);
+    if (ui_manager_->current_mode == GrindMode::MANUAL) {
+        ui_manager_->grinding_screen.update_target_weight_text("Single Dose");
+    }
 }
 
 void GrindingUIController::enter_grind_timeout_state() {
@@ -711,7 +734,8 @@ void GrindingUIController::start_grind_complete_timer() {
     if (grind_complete_timer_) {
         lv_timer_del(grind_complete_timer_);
     }
-    grind_complete_timer_ = lv_timer_create(grind_complete_timer_cb, 60000, this);
+    const uint32_t timeout_ms = (ui_manager_ && ui_manager_->current_mode == GrindMode::MANUAL) ? 5000 : 60000;
+    grind_complete_timer_ = lv_timer_create(grind_complete_timer_cb, timeout_ms, this);
     lv_timer_set_repeat_count(grind_complete_timer_, 1);
 }
 

@@ -47,6 +47,7 @@ class ControllerSerializationTest(unittest.TestCase):
 #include <thread>
 #include <type_traits>
 #include "src/controllers/grind_session.h"
+#include "src/controllers/grind_session_result.h"
 #include "src/system/operation_interlock.h"
 #define LOG_BLE(...) ((void)0)
 constexpr int GRIND_PURGE_MODE_DEFAULT = 1;
@@ -54,7 +55,7 @@ constexpr float GRIND_PURGE_AMOUNT_DEFAULT_G = 1;
 constexpr unsigned long GRIND_PRIME_MAX_DURATION_MS = 5000;
 unsigned long millis() { return 100; }
 enum class GrinderPurgeMode { PRIME, PURGE };
-struct GrindLoopData { float current_weight = 0; unsigned long now = 100; };
+struct GrindLoopData { float current_weight = 0; float display_weight = 0; unsigned long timestamp_ms = 0; unsigned long now = 100; };
 struct FlashOpRequest { enum { UPDATE_MANUAL_RUNTIME } operation_type; uint32_t motor_runtime_ms; };
 struct Logger { void discard_current_session() {} } grind_logger;
 struct Strategy { void on_exit(const GrindSessionDescriptor&, int) {} };
@@ -86,6 +87,11 @@ public:
     Strategy* active_strategy = nullptr;
     GrindSessionDescriptor session_descriptor{};
     int strategy_context = 0;
+    bool grind_paused_ = false;
+    GrindSessionResult last_session_result_ = GrindSessionResult::SUCCESS;
+    unsigned long start_time = 0;
+    struct WeightSensor { float get_weight_low_latency() { return 0.0f; } float get_display_weight() { return 0.0f; } } *weight_sensor = nullptr;
+    void final_measurement(const GrindLoopData&) {}
     void queue_flash_operation(const FlashOpRequest&) {}
     template<class... Args> void queue_log_message(Args...) {}
     void switch_phase(GrindPhase next, const GrindLoopData& = {}) { phase = next; }

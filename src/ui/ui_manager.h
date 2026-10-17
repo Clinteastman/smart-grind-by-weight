@@ -137,6 +137,7 @@ public:
     
     void set_background_active(bool active);
     bool refresh_auto_action_settings(bool verify_storage = false);
+    void rebuild_ready_tabs();
     
 
 private:

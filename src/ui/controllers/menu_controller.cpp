@@ -12,6 +12,8 @@
 #include "../../controllers/grind_controller.h"
 #include "../../controllers/grind_mode_traits.h"
 #include "../../logging/grind_logging.h"
+#include "../../network/network_manager.h"
+#include "../../network/device_api.h"
 #include "../../system/diagnostics_controller.h"
 #include "../../system/screensaver_settings.h"
 #include "../../system/statistics_manager.h"
@@ -46,7 +48,17 @@ void MenuUIController::register_events() {
 
     EventBridgeLVGL::register_handler(ET::BLE_TOGGLE, [this](lv_event_t*) { handle_ble_toggle(); });
     EventBridgeLVGL::register_handler(ET::BLE_STARTUP_TOGGLE, [this](lv_event_t*) { handle_ble_startup_toggle(); });
+    EventBridgeLVGL::register_handler(ET::BLE_ICON_TOGGLE, [this](lv_event_t*) { handle_ble_icon_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_TOGGLE, [this](lv_event_t*) { handle_wifi_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_TAB_TOGGLE, [this](lv_event_t*) { handle_wifi_tab_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_ICON_TOGGLE, [this](lv_event_t*) { handle_wifi_icon_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_POWER_TOGGLE, [this](lv_event_t*) { handle_wifi_power_toggle(); });
     EventBridgeLVGL::register_handler(ET::LOGGING_TOGGLE, [this](lv_event_t*) { handle_logging_toggle(); });
+
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_MANUAL_TOGGLE, [this](lv_event_t*) { handle_grind_tab_manual_toggle(); });
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_SINGLE_TOGGLE, [this](lv_event_t*) { handle_grind_tab_single_toggle(); });
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_DOUBLE_TOGGLE, [this](lv_event_t*) { handle_grind_tab_double_toggle(); });
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_CUSTOM_TOGGLE, [this](lv_event_t*) { handle_grind_tab_custom_toggle(); });
 
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
@@ -63,6 +75,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::COAST_RATIO_SLIDER_RELEASED, [this](lv_event_t*) { handle_coast_ratio_slider_released(); });
     EventBridgeLVGL::register_handler(ET::MOTOR_LATENCY_SLIDER, [this](lv_event_t*) { handle_motor_latency_slider(); });
     EventBridgeLVGL::register_handler(ET::MOTOR_LATENCY_SLIDER_RELEASED, [this](lv_event_t*) { handle_motor_latency_slider_released(); });
+    EventBridgeLVGL::register_handler(ET::SINGLE_DOSE_TIMEOUT_SLIDER, [this](lv_event_t*) { handle_single_dose_timeout_slider(); });
+    EventBridgeLVGL::register_handler(ET::SINGLE_DOSE_TIMEOUT_SLIDER_RELEASED, [this](lv_event_t*) { handle_single_dose_timeout_slider_released(); });
 
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
@@ -72,6 +86,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::SCREENSAVER_STARTUP_TOGGLE, [this](lv_event_t*) { handle_screensaver_startup_toggle(); });
     EventBridgeLVGL::register_handler(ET::SCREENSAVER_SLEEP_TOGGLE, [this](lv_event_t*) { handle_screensaver_sleep_toggle(); });
     EventBridgeLVGL::register_handler(ET::DISPLAY_OFF_TOGGLE, [this](lv_event_t*) { handle_display_off_toggle(); });
+    EventBridgeLVGL::register_handler(ET::MODE_ICONS_TOGGLE, [this](lv_event_t*) { handle_mode_icons_toggle(); });
 
     // Note: Event registration for menu widgets is done in the page creation functions
     // (menu_screen.cpp) because the menu is created lazily and destroyed on hide.
@@ -227,7 +242,7 @@ void MenuUIController::handle_autotune() {
 
 void MenuUIController::handle_back() {
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(ReadyScreen::MENU_TAB_INDEX);
+    ui_manager_->set_current_tab(ui_manager_->ready_screen.menu_tab_index());
     ui_manager_->switch_to_state(UIState::READY);
 }
 
@@ -312,6 +327,75 @@ void MenuUIController::handle_ble_startup_toggle() {
     LOG_DEBUG_PRINTLN(startup_enabled ? "Bluetooth startup enabled" : "Bluetooth startup disabled");
 }
 
+void MenuUIController::handle_ble_icon_toggle() {
+    if (!ui_manager_ || !ui_manager_->bluetooth_manager) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_ble_icon_toggle();
+    if (!toggle) return;
+
+    bool icon_menu_only = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    ui_manager_->bluetooth_manager->set_icon_menu_only(icon_menu_only);
+    LOG_DEBUG_PRINTLN(icon_menu_only ? "Bluetooth icon menu-only enabled" : "Bluetooth icon menu-only disabled");
+    ui_manager_->menu_screen.update_ble_status();
+    if (ui_manager_->status_indicator_controller_) {
+        ui_manager_->status_indicator_controller_->update_ble_status_icon();
+    }
+}
+
+void MenuUIController::handle_wifi_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_toggle();
+    if (!toggle) return;
+
+    bool wifi_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_enabled(wifi_enabled);
+    LOG_DEBUG_PRINTLN(wifi_enabled ? "Wi-Fi enabled by user" : "Wi-Fi disabled by user");
+    ui_manager_->menu_screen.update_network_status();
+    ui_manager_->rebuild_ready_tabs();
+}
+
+void MenuUIController::handle_wifi_tab_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_tab_toggle();
+    if (!toggle) return;
+
+    bool tab_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_tab_enabled(tab_enabled);
+    LOG_DEBUG_PRINTLN(tab_enabled ? "Wi-Fi carousel tab enabled" : "Wi-Fi carousel tab disabled");
+    ui_manager_->menu_screen.update_network_status();
+    ui_manager_->rebuild_ready_tabs();
+}
+
+void MenuUIController::handle_wifi_icon_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_icon_toggle();
+    if (!toggle) return;
+
+    bool icon_menu_only = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_icon_menu_only(icon_menu_only);
+    LOG_DEBUG_PRINTLN(icon_menu_only ? "Wi-Fi icon menu-only enabled" : "Wi-Fi icon menu-only disabled");
+    ui_manager_->menu_screen.update_network_status();
+    if (ui_manager_->status_indicator_controller_) {
+        ui_manager_->status_indicator_controller_->update_wifi_status_icon();
+    }
+}
+
+void MenuUIController::handle_wifi_power_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_power_toggle();
+    if (!toggle) return;
+
+    bool power_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_performance_mode(power_enabled);
+    device_api.mark_settings_dirty();
+    LOG_DEBUG_PRINTLN(power_enabled ? "Wi-Fi High-Power mode enabled" : "Wi-Fi High-Power mode disabled");
+    ui_manager_->menu_screen.update_network_status();
+}
+
 void MenuUIController::handle_logging_toggle() {
     if (!ui_manager_) return;
 
@@ -326,6 +410,56 @@ void MenuUIController::handle_logging_toggle() {
     prefs.end();
 
     LOG_DEBUG_PRINTLN(logging_enabled ? "Logging enabled" : "Logging disabled");
+}
+
+void MenuUIController::handle_grind_tab_toggle(int which) {
+    (void)which;
+    if (!ui_manager_) return;
+
+    auto* m_toggle = ui_manager_->menu_screen.get_grind_tab_manual_toggle();
+    auto* s_toggle = ui_manager_->menu_screen.get_grind_tab_single_toggle();
+    auto* d_toggle = ui_manager_->menu_screen.get_grind_tab_double_toggle();
+    auto* c_toggle = ui_manager_->menu_screen.get_grind_tab_custom_toggle();
+
+    bool m = m_toggle ? lv_obj_has_state(m_toggle, LV_STATE_CHECKED) : true;
+    bool s = s_toggle ? lv_obj_has_state(s_toggle, LV_STATE_CHECKED) : true;
+    bool d = d_toggle ? lv_obj_has_state(d_toggle, LV_STATE_CHECKED) : true;
+    bool c = c_toggle ? lv_obj_has_state(c_toggle, LV_STATE_CHECKED) : true;
+
+    // Critical constraint: At least one grind mode MUST remain active
+    if (!m && !s && !d && !c) {
+        LOG_DEBUG_PRINTLN("Cannot disable all grind screens: at least one must remain active");
+        ui_manager_->menu_screen.update_grind_tab_toggles();
+        return;
+    }
+
+    auto* hardware = ui_manager_->get_hardware_manager();
+    Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
+    if (prefs) {
+        prefs->putBool("tab_manual", m);
+        prefs->putBool("tab_single", s);
+        prefs->putBool("tab_double", d);
+        prefs->putBool("tab_custom", c);
+    }
+
+    LOG_DEBUG_PRINTF("Grind screens updated: manual=%d, single=%d, double=%d, custom=%d\n", m, s, d, c);
+    ui_manager_->rebuild_ready_tabs();
+}
+
+void MenuUIController::handle_grind_tab_manual_toggle() {
+    handle_grind_tab_toggle(0);
+}
+
+void MenuUIController::handle_grind_tab_single_toggle() {
+    handle_grind_tab_toggle(1);
+}
+
+void MenuUIController::handle_grind_tab_double_toggle() {
+    handle_grind_tab_toggle(2);
+}
+
+void MenuUIController::handle_grind_tab_custom_toggle() {
+    handle_grind_tab_toggle(3);
 }
 
 void MenuUIController::handle_grind_mode_swipe_toggle() {
@@ -625,6 +759,45 @@ void MenuUIController::handle_motor_latency_slider_released() {
     LOG_DEBUG_PRINTF("Motor response latency manually set to: %dms\n", latency_ms);
 }
 
+void MenuUIController::handle_single_dose_timeout_slider() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_single_dose_timeout_slider();
+    if (!slider) return;
+
+    int seconds = lv_slider_get_value(slider);
+    seconds = ((seconds + GRIND_SINGLE_DOSE_TIMEOUT_STEP_S / 2) / GRIND_SINGLE_DOSE_TIMEOUT_STEP_S) * GRIND_SINGLE_DOSE_TIMEOUT_STEP_S;
+    seconds = std::clamp(seconds, static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S), static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+    ui_manager_->menu_screen.update_single_dose_timeout_display(static_cast<uint32_t>(seconds));
+    ui_manager_->ready_screen.update_single_dose_timeout(static_cast<uint32_t>(seconds));
+}
+
+void MenuUIController::handle_single_dose_timeout_slider_released() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_single_dose_timeout_slider();
+    if (!slider) return;
+
+    int seconds = lv_slider_get_value(slider);
+    seconds = ((seconds + GRIND_SINGLE_DOSE_TIMEOUT_STEP_S / 2) / GRIND_SINGLE_DOSE_TIMEOUT_STEP_S) * GRIND_SINGLE_DOSE_TIMEOUT_STEP_S;
+    seconds = std::clamp(seconds, static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S), static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+    lv_slider_set_value(slider, seconds, LV_ANIM_OFF);
+
+    auto* grind_controller = ui_manager_->get_grind_controller();
+    if (grind_controller) {
+        if (!grind_controller->save_single_dose_timeout(static_cast<uint32_t>(seconds))) {
+            seconds = static_cast<int>(grind_controller->get_single_dose_timeout_s());
+            lv_slider_set_value(slider, seconds, LV_ANIM_OFF);
+            LOG_BLE("Could not save single dose timeout; retaining active value\n");
+        }
+    }
+
+    LOG_DEBUG_PRINT("Single dose safety timeout set to: ");
+    LOG_DEBUG_PRINT(seconds);
+    LOG_DEBUG_PRINTLN("s");
+
+    ui_manager_->menu_screen.update_single_dose_timeout_display(static_cast<uint32_t>(seconds));
+    ui_manager_->ready_screen.update_single_dose_timeout(static_cast<uint32_t>(seconds));
+}
+
 void MenuUIController::handle_brightness_normal_slider() {
     if (!ui_manager_) return;
 
@@ -744,6 +917,20 @@ void MenuUIController::handle_display_off_toggle() {
             enabled ? "enabled" : "disabled", settings.display_off_delay_s);
 }
 
+void MenuUIController::handle_mode_icons_toggle() {
+    if (!ui_manager_) return;
+    auto* toggle = ui_manager_->menu_screen.get_mode_icons_toggle();
+    if (!toggle) return;
+    const bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    auto* hardware = ui_manager_->get_hardware_manager();
+    Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
+    if (prefs) {
+        prefs->putBool("mode_icons", enabled);
+    }
+    ui_manager_->ready_screen.set_show_mode_icons(enabled);
+    device_api.mark_settings_dirty();
+}
+
 void MenuUIController::perform_factory_reset() {
     if (!ui_manager_) return;
 
@@ -816,7 +1003,7 @@ void MenuUIController::run_motor_test() {
 
 void MenuUIController::return_to_menu() {
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(ReadyScreen::MENU_TAB_INDEX);
+    ui_manager_->set_current_tab(ui_manager_->ready_screen.menu_tab_index());
     ui_manager_->switch_to_state(UIState::MENU);
 }
 

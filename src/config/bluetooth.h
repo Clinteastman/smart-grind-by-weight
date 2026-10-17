@@ -62,6 +62,11 @@
 #define BLE_IMAGE_FILENAME       "/screensaver.rgb565"                            // Final image file on LittleFS
 #define BLE_IMAGE_TEMP_FILENAME  "/screensaver.rgb565.tmp"                        // Temp file during upload
 
+// Custom clock font constants
+#define CLOCK_FONT_MAX_SIZE      (512U * 1024U)                                   // 512 KB maximum font size to protect flash and heap
+#define CLOCK_FONT_FILENAME      "/clock_font.ttf"                                // Final font file on LittleFS
+#define CLOCK_FONT_TEMP_FILENAME "/clock_font.tmp"                                // Temp file during upload
+
 //------------------------------------------------------------------------------
 // BLE TIMEOUT SETTINGS
 //------------------------------------------------------------------------------

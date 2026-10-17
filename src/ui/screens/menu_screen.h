@@ -32,6 +32,7 @@ private:
     lv_obj_t* sessions_label;
     lv_obj_t* events_label;
     lv_obj_t* measurements_label;
+    lv_obj_t* signal_label;
     lv_obj_t* refresh_stats_button;
 
     // Lifetime statistics labels
@@ -47,8 +48,13 @@ private:
     // Menu toggle elements
     lv_obj_t* ble_toggle;
     lv_obj_t* ble_startup_toggle;
+    lv_obj_t* ble_icon_toggle;
     lv_obj_t* ble_status_label;
     lv_obj_t* ble_timer_label;
+    lv_obj_t* wifi_toggle;
+    lv_obj_t* wifi_tab_toggle;
+    lv_obj_t* wifi_icon_toggle;
+    lv_obj_t* wifi_power_toggle;
     lv_obj_t* network_status_label;
     lv_obj_t* network_detail_label;
     lv_obj_t* network_qr;
@@ -67,6 +73,7 @@ private:
     lv_obj_t* screensaver_startup_toggle;
     lv_obj_t* screensaver_sleep_toggle;
     lv_obj_t* display_off_toggle;
+    lv_obj_t* mode_icons_toggle;
     lv_obj_t* purge_button;
     lv_obj_t* reset_button;
     
@@ -86,6 +93,12 @@ private:
     lv_obj_t* coast_ratio_label;
     lv_obj_t* motor_latency_slider;
     lv_obj_t* motor_latency_label;
+    lv_obj_t* single_dose_timeout_slider;
+    lv_obj_t* single_dose_timeout_label;
+    lv_obj_t* grind_tab_manual_toggle;
+    lv_obj_t* grind_tab_single_toggle;
+    lv_obj_t* grind_tab_double_toggle;
+    lv_obj_t* grind_tab_custom_toggle;
 
     // Tools entries / scale page elements
     lv_obj_t* scale_item;
@@ -155,6 +168,11 @@ public:
     bool is_scale_page_active() const { return scale_active; }
     lv_obj_t* get_ble_toggle() const { return ble_toggle; }
     lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
+    lv_obj_t* get_ble_icon_toggle() const { return ble_icon_toggle; }
+    lv_obj_t* get_wifi_toggle() const { return wifi_toggle; }
+    lv_obj_t* get_wifi_tab_toggle() const { return wifi_tab_toggle; }
+    lv_obj_t* get_wifi_icon_toggle() const { return wifi_icon_toggle; }
+    lv_obj_t* get_wifi_power_toggle() const { return wifi_power_toggle; }
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
     lv_obj_t* get_network_update_button() const { return network_update_button; }
@@ -171,9 +189,18 @@ public:
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
     lv_obj_t* get_coast_ratio_slider() const { return coast_ratio_slider; }
     lv_obj_t* get_motor_latency_slider() const { return motor_latency_slider; }
+    lv_obj_t* get_single_dose_timeout_slider() const { return single_dose_timeout_slider; }
+    lv_obj_t* get_single_dose_timeout_label() const { return single_dose_timeout_label; }
+    void update_single_dose_timeout_display(uint32_t seconds);
+    lv_obj_t* get_grind_tab_manual_toggle() const { return grind_tab_manual_toggle; }
+    lv_obj_t* get_grind_tab_single_toggle() const { return grind_tab_single_toggle; }
+    lv_obj_t* get_grind_tab_double_toggle() const { return grind_tab_double_toggle; }
+    lv_obj_t* get_grind_tab_custom_toggle() const { return grind_tab_custom_toggle; }
+    void update_grind_tab_toggles();
     lv_obj_t* get_screensaver_startup_toggle() const { return screensaver_startup_toggle; }
     lv_obj_t* get_screensaver_sleep_toggle() const { return screensaver_sleep_toggle; }
     lv_obj_t* get_display_off_toggle() const { return display_off_toggle; }
+    lv_obj_t* get_mode_icons_toggle() const { return mode_icons_toggle; }
     void update_screensaver_toggles();
 
 private:

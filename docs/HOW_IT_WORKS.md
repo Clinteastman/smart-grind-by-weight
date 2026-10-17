@@ -22,10 +22,10 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
    - Noise-adaptive settling detection
 
 2. **Grinder Saturation Phase** (Weight mode only)
-   - Saturates the grinder before main grind for accurate latency detection
+   - Handles chute purging and motor saturation before main grind
    - Configurable amount: 0.1g-5.0g (default 1.0g)
-   - **Prime mode**: Keeps coffee, continues immediately after settling
-   - **Purge mode**: Shows confirmation popup, waits for user to discard stale grinds
+   - **Prime mode**: Keeps all coffee and grinds continuously in a single uninterrupted run directly to target weight without stopping the motor or settling pause
+   - **Purge mode**: When grounds are stale (first grind after boot or elapsed time exceeds freshness threshold), dispenses purge amount, settles, and shows confirmation popup to discard stale grinds before main grind. If grounds are still fresh, grinds directly without pausing
    - Logging and chart updates disabled during purge confirmation
 
 3. **Predictive Phase**

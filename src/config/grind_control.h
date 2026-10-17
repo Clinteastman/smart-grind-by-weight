@@ -59,6 +59,15 @@ enum class GrinderPurgeMode {
 //------------------------------------------------------------------------------
 #define GRIND_TIME_PULSE_DURATION_MS 100                                        // Duration of additional pulses in time mode (milliseconds)
 
+//------------------------------------------------------------------------------
+// SINGLE DOSE SETTINGS
+//------------------------------------------------------------------------------
+#define GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S 60                                    // Default safety cutoff for single dose grinding (seconds)
+#define GRIND_SINGLE_DOSE_TIMEOUT_MIN_S 60                                        // Minimum configurable safety cutoff (seconds)
+#define GRIND_SINGLE_DOSE_TIMEOUT_MAX_S 300                                       // Maximum configurable safety cutoff (seconds)
+#define GRIND_SINGLE_DOSE_TIMEOUT_STEP_S 10                                       // Slider step increment (seconds)
+#define GRIND_SINGLE_DOSE_PAUSE_TIMEOUT_MS 300000                                 // Auto-exit timeout while paused (5 minutes)
+
 
 
 //------------------------------------------------------------------------------

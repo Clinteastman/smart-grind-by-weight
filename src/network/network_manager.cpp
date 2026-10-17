@@ -12,6 +12,9 @@ SmartGrindNetworkManager network_manager;
 void SmartGrindNetworkManager::init(Preferences* preferences) {
     preferences_ = preferences;
     if (!settings_mutex_) settings_mutex_ = xSemaphoreCreateMutex();
+    const String tz = timezone();
+    setenv("TZ", tz.c_str(), 1);
+    tzset();
     load_settings();
     initialized_.store(true);
 
@@ -76,6 +79,32 @@ bool SmartGrindNetworkManager::set_enabled(bool enabled) {
         begin_connection();
     }
     return true;
+}
+
+bool SmartGrindNetworkManager::set_tab_enabled(bool enabled) {
+    tab_enabled_.store(enabled);
+    if (!preferences_) return false;
+    return preferences_->putBool("wifi_tab", enabled) > 0;
+}
+
+bool SmartGrindNetworkManager::set_icon_menu_only(bool menu_only) {
+    icon_menu_only_.store(menu_only);
+    if (!preferences_) return false;
+    return preferences_->putBool("wifi_icon_menu", menu_only) > 0;
+}
+
+bool SmartGrindNetworkManager::set_performance_mode(bool enabled) {
+    performance_mode_.store(enabled);
+    apply_power_settings();
+    if (!preferences_) return false;
+    return preferences_->putBool("wifi_perf", enabled) > 0;
+}
+
+void SmartGrindNetworkManager::apply_power_settings() {
+    if (!enabled_.load() || state_.load() == NetworkState::WIFI_DISABLED) return;
+    const bool perf = performance_mode_.load();
+    WiFi.setSleep(!perf);
+    WiFi.setTxPower(perf ? WIFI_POWER_19_5dBm : WIFI_POWER_15dBm);
 }
 
 bool SmartGrindNetworkManager::set_credentials(const String& ssid, const String& password) {
@@ -157,8 +186,32 @@ String SmartGrindNetworkManager::ip_address() const {
     return is_connected() ? WiFi.localIP().toString() : String();
 }
 
+int SmartGrindNetworkManager::get_rssi() const {
+    if (!is_connected()) {
+        return 0;
+    }
+    return WiFi.RSSI();
+}
+
+int8_t SmartGrindNetworkManager::get_signal_level() const {
+    if (!is_connected()) {
+        return 0;
+    }
+    const int rssi = WiFi.RSSI();
+    if (rssi > 0 || rssi < -110) {
+        return 1;
+    }
+    if (rssi >= -67) return 4;
+    if (rssi >= -75) return 3;
+    if (rssi >= -83) return 2;
+    return 1;
+}
+
 void SmartGrindNetworkManager::load_settings() {
     enabled_.store(preferences_ && preferences_->getBool("wifi_on", true));
+    tab_enabled_.store(preferences_ ? preferences_->getBool("wifi_tab", true) : true);
+    icon_menu_only_.store(preferences_ ? preferences_->getBool("wifi_icon_menu", false) : false);
+    performance_mode_.store(preferences_ ? preferences_->getBool("wifi_perf", false) : false);
     ssid_ = preferences_ ? preferences_->getString("wifi_ssid", "") : String();
     password_ = preferences_ ? preferences_->getString("wifi_pass", "") : String();
     hostname_ = preferences_ ? sanitize_hostname(preferences_->getString("wifi_host", "")) : String();
@@ -182,6 +235,7 @@ void SmartGrindNetworkManager::begin_connection() {
 
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
+    apply_power_settings();
     WiFi.setAutoReconnect(true);
     WiFi.setHostname(hostname.c_str());
     WiFi.begin(ssid.c_str(), password.c_str());
@@ -226,11 +280,11 @@ void SmartGrindNetworkManager::handle_connected() {
         MDNS.addServiceTxt("smartgrind", "tcp", "version", BUILD_FIRMWARE_VERSION);
         MDNS.addServiceTxt("smartgrind", "tcp", "id", current_device_id.c_str());
     }
-    // UTC is rendered in the browser's local timezone. Synchronisation is
-    // asynchronous and does not delay the control or UI tasks.
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    LOG_BLE("[WIFI] Connected: %s (%s.local, mDNS=%s)\n",
-            WiFi.localIP().toString().c_str(), current_hostname.c_str(), mdns_started_ ? "OK" : "FAILED");
+    const String tz = timezone();
+    configTzTime(tz.c_str(), "pool.ntp.org", "time.nist.gov");
+    LOG_BLE("[WIFI] Connected: %s (%s.local, mDNS=%s, TZ=%s)\n",
+            WiFi.localIP().toString().c_str(), current_hostname.c_str(),
+            mdns_started_ ? "OK" : "FAILED", tz.c_str());
 }
 
 void SmartGrindNetworkManager::stop_network() {
@@ -241,6 +295,7 @@ void SmartGrindNetworkManager::stop_network() {
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
     set_state(NetworkState::WIFI_DISABLED);
+    LOG_BLE("[WIFI] Wi-Fi disabled and radio powered down\n");
 }
 
 void SmartGrindNetworkManager::set_state(NetworkState state) {
@@ -264,4 +319,30 @@ String SmartGrindNetworkManager::sanitize_hostname(const String& hostname) {
     while (sanitized.startsWith("-")) sanitized.remove(0, 1);
     while (sanitized.endsWith("-")) sanitized.remove(sanitized.length() - 1);
     return sanitized;
+}
+
+bool SmartGrindNetworkManager::is_time_synchronized() const {
+    time_t now = time(nullptr);
+    return now >= 1700000000;
+}
+
+void SmartGrindNetworkManager::configure_timezone(const String& tz) {
+    if (tz.isEmpty()) return;
+    Preferences prefs;
+    if (prefs.begin("ntp", false)) {
+        prefs.putString("tz", tz);
+        prefs.end();
+    }
+    setenv("TZ", tz.c_str(), 1);
+    tzset();
+}
+
+String SmartGrindNetworkManager::timezone() const {
+    Preferences prefs;
+    if (prefs.begin("ntp", true)) {
+        String tz = prefs.getString("tz", "CET-1CEST,M3.5.0,M10.5.0/3");
+        prefs.end();
+        if (!tz.isEmpty()) return tz;
+    }
+    return "CET-1CEST,M3.5.0,M10.5.0/3";
 }

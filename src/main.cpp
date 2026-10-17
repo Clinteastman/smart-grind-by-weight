@@ -214,11 +214,13 @@ void loop() {
     uint32_t current_time = millis();
     network_manager.update();
     provisioning_service.update();
-    // AsyncTCP requires lwIP's TCP/IP task and mutexes to exist. They are only
-    // created after Wi-Fi enters station or access-point mode, so defer the
-    // HTTP listener until NetworkManager/ProvisioningService has done that.
-    device_web_server.begin();
-    device_web_server.update();
+    if (network_manager.is_enabled()) {
+        device_web_server.begin();
+    }
+    if (network_manager.is_connected() ||
+        network_manager.state() == NetworkState::WIFI_SETUP_AP) {
+        device_web_server.update();
+    }
     if (last_uptime_update == 0) {
         last_uptime_update = current_time;
     }

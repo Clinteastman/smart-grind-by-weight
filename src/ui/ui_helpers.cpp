@@ -73,11 +73,15 @@ lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_ob
 
     *profile_label = lv_label_create(label_container);
     lv_label_set_text(*profile_label, "DOUBLE");
+    lv_obj_set_width(*profile_label, LV_PCT(100));
+    lv_obj_set_style_text_align(*profile_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(*profile_label, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(*profile_label, lv_color_hex(THEME_COLOR_SECONDARY), 0);
     
     *weight_label = lv_label_create(label_container);
     lv_label_set_text(*weight_label, "18.0g");
+    lv_obj_set_width(*weight_label, LV_PCT(100));
+    lv_obj_set_style_text_align(*weight_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(*weight_label, &lv_font_montserrat_60, 0);
     lv_obj_set_style_text_color(*weight_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
 

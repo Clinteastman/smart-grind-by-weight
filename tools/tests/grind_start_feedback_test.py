@@ -21,7 +21,12 @@ class GrindStartFeedbackTest(unittest.TestCase):
 int lv_color_hex(int color) { return color; }
 enum class GrindMode { WEIGHT, TIME, MANUAL };
 enum class UIState { READY, MENU, GRINDING, GRIND_COMPLETE, GRIND_TIMEOUT, PURGE_CONFIRM };
-struct ReadyScreen { enum { MENU_TAB_INDEX=5, WIFI_TAB_INDEX=4, MANUAL_TAB_INDEX=0 }; };
+struct ReadyScreen {
+    enum { MANUAL_TAB_INDEX=0 };
+    bool is_manual_tab(int tab) const { return tab == MANUAL_TAB_INDEX; }
+    bool is_menu_tab(int tab) const { return tab == 4; }
+    bool is_wifi_tab(int tab) const { return false; }
+};
 struct State { UIState current=UIState::READY; bool is_state(UIState s) { return current==s; } };
 struct Controller {
     bool accept=false; int calls=0, stops=0;
@@ -39,6 +44,7 @@ struct UIManager {
     State* state_machine;
     Controller* grind_controller;
     Profile* profile_controller;
+    ReadyScreen ready_screen;
     int current_tab=1, notices=0;
     GrindMode current_mode=GrindMode::WEIGHT;
     void switch_to_state(UIState s) { state_machine->current=s; }

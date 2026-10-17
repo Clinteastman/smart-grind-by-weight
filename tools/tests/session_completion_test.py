@@ -35,13 +35,13 @@ template<class... Args> void ignore_log(Args...) {}
 #include "src/controllers/grind_session.h"
 #include "src/system/operation_interlock.h"
 #include "src/controllers/grind_session_result.h"
-enum class GrindPhase { IDLE, COMPLETED, TIMEOUT, TIME_ADDITIONAL_PULSE };
+enum class GrindPhase { IDLE, COMPLETED, TIMEOUT, TIME_ADDITIONAL_PULSE, MANUAL_GRINDING, INITIALIZING, SETUP, TARING, TARE_CONFIRM };
 enum class GrinderPurgeMode { PRIME, PURGE };
 constexpr int GRIND_PURGE_MODE_DEFAULT = 1;
 constexpr float GRIND_PURGE_AMOUNT_DEFAULT_G = 1;
 uint32_t clock_ms = 100;
 unsigned long millis() { return clock_ms; }
-struct GrindLoopData { unsigned long now = 0; };
+struct GrindLoopData { unsigned long now = 0; unsigned long timestamp_ms = 0; float current_weight = 0.0f; float display_weight = 0.0f; };
 struct FlashOpRequest {
     enum Type { START_GRIND_SESSION, END_GRIND_SESSION, UPDATE_MANUAL_RUNTIME } operation_type;
     GrindSessionDescriptor descriptor{};
@@ -98,6 +98,9 @@ public:
     GrindMode mode = GrindMode::TIME;
     GrindSessionResult last_session_result_ = GrindSessionResult::SUCCESS;
     bool session_end_flash_queued = false;
+    bool grind_paused_ = false;
+    struct WeightSensor { float get_weight_low_latency() { return 0.0f; } float get_display_weight() { return 0.0f; } } *weight_sensor = nullptr;
+    void final_measurement(const GrindLoopData&) {}
     float final_weight = 18.5f;
     int pulse_attempts = 3;
     uint32_t phase_start_time = 80;

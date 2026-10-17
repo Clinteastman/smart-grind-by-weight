@@ -18,6 +18,15 @@ def run_command(cmd, capture_output=True):
         return None
     return result.stdout.strip() if capture_output else result.returncode == 0
 
+def get_repo_slug():
+    """Get GitHub repository slug (owner/repo) from origin remote."""
+    origin = run_command("git config --get remote.origin.url")
+    if origin:
+        m = re.search(r'github\.com[:/]([^/]+)/([^/.]+?)(?:\.git)?$', origin)
+        if m:
+            return f"{m.group(1)}/{m.group(2)}"
+    return "Cuxx/smart-grind-by-weight-singledose"
+
 def get_current_version():
     """Get the latest git tag or return v0.0.0 if none exists"""
     latest_tag = run_command("git describe --tags --abbrev=0 2>/dev/null")
@@ -417,7 +426,8 @@ def create_release():
     print("  2. Create GitHub release with your custom release notes")
     print("  3. Include automatic changelog from commits")
     print("  4. Upload firmware binaries for users")
-    print(f"\nCheck the progress at: https://github.com/Clinteastman/smart-grind-by-weight/actions")
+    repo_slug = get_repo_slug()
+    print(f"\nCheck the progress at: https://github.com/{repo_slug}/actions")
     
     return True
 

@@ -88,6 +88,8 @@ void ProvisioningService::update() {
     if (!active_ && (state == NetworkState::WIFI_NO_CREDENTIALS ||
                      state == NetworkState::WIFI_SETUP_REQUIRED)) {
         start();
+    } else if (active_ && state == NetworkState::WIFI_DISABLED) {
+        stop_dns();
     }
 
     if (active_) dns_server_.processNextRequest();

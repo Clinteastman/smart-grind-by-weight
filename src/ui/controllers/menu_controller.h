@@ -25,6 +25,11 @@ public:
     void handle_diagnostics_reset();
     void handle_ble_toggle();
     void handle_ble_startup_toggle();
+    void handle_ble_icon_toggle();
+    void handle_wifi_toggle();
+    void handle_wifi_tab_toggle();
+    void handle_wifi_icon_toggle();
+    void handle_wifi_power_toggle();
     void handle_logging_toggle();
     void handle_grind_mode_swipe_toggle();
     void handle_grind_mode_radio_button();
@@ -41,6 +46,13 @@ public:
     void handle_coast_ratio_slider_released();
     void handle_motor_latency_slider();
     void handle_motor_latency_slider_released();
+    void handle_single_dose_timeout_slider();
+    void handle_single_dose_timeout_slider_released();
+    void handle_grind_tab_manual_toggle();
+    void handle_grind_tab_single_toggle();
+    void handle_grind_tab_double_toggle();
+    void handle_grind_tab_custom_toggle();
+    void handle_mode_icons_toggle();
     void handle_brightness_normal_slider();
     void handle_brightness_normal_slider_released();
     void handle_brightness_screensaver_slider();
@@ -66,4 +78,5 @@ private:
     static void static_motor_timer_cb(lv_timer_t* timer);
     void return_to_menu();
     void perform_diagnostics_reset();
+    void handle_grind_tab_toggle(int which);
 };

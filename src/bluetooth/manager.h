@@ -106,6 +106,7 @@ private:
     bool device_connected;
     bool ble_enabled;
     bool debug_stream_active;
+    bool icon_menu_only_ = false;
     unsigned long enable_time;
     unsigned long timeout_ms;
     unsigned long last_disconnect_time;
@@ -205,6 +206,8 @@ public:
      */
     bool is_enabled() const { return ble_enabled; }
     bool is_connected() const { return device_connected; }
+    bool is_icon_menu_only() const { return icon_menu_only_; }
+    void set_icon_menu_only(bool menu_only);
     bool is_updating() const { return ota_handler.is_ota_active(); }
     bool is_transfer_active() const {
         return ota_handler.is_ota_active() || data_export_in_progress ||

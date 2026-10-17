@@ -69,6 +69,8 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     coast_ratio_label = nullptr;
     motor_latency_slider = nullptr;
     motor_latency_label = nullptr;
+    single_dose_timeout_slider = nullptr;
+    single_dose_timeout_label = nullptr;
     auto_start_threshold_slider = nullptr;
     auto_start_threshold_label = nullptr;
     display_off_toggle = nullptr;
@@ -284,6 +286,7 @@ void MenuScreen::create_info_page(lv_obj_t* parent) {
    
     create_data_label(parent, "Uptime:", &uptime_label);
     create_data_label(parent, "RAM:", &memory_label);
+    create_data_label(parent, "Signal:", &signal_label);
 }
 
 
@@ -298,6 +301,7 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
 
     create_toggle_row(parent, "Enabled", &ble_toggle);
     create_toggle_row(parent, "Startup", &ble_startup_toggle);
+    create_toggle_row(parent, "Hide Icon", &ble_icon_toggle);
 
     // BLE Status label
     ble_status_label = lv_label_create(parent);
@@ -323,6 +327,10 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
         lv_obj_add_event_cb(ble_startup_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::BLE_STARTUP_TOGGLE)));
     }
+    if (ble_icon_toggle) {
+        lv_obj_add_event_cb(ble_icon_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::BLE_ICON_TOGGLE)));
+    }
 }
 
 namespace {
@@ -344,6 +352,29 @@ void MenuScreen::create_network_page(lv_obj_t* parent) {
     lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_scroll_dir(parent, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+
+    create_toggle_row(parent, "Enabled", &wifi_toggle);
+    create_toggle_row(parent, "WiFi Tab", &wifi_tab_toggle);
+    create_toggle_row(parent, "Hide Icon", &wifi_icon_toggle);
+    create_toggle_row(parent, "High-Power", &wifi_power_toggle);
+
+    using ET = EventBridgeLVGL::EventType;
+    if (wifi_toggle) {
+        lv_obj_add_event_cb(wifi_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_TOGGLE)));
+    }
+    if (wifi_tab_toggle) {
+        lv_obj_add_event_cb(wifi_tab_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_TAB_TOGGLE)));
+    }
+    if (wifi_icon_toggle) {
+        lv_obj_add_event_cb(wifi_icon_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_ICON_TOGGLE)));
+    }
+    if (wifi_power_toggle) {
+        lv_obj_add_event_cb(wifi_power_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_POWER_TOGGLE)));
+    }
 
     network_status_label = lv_label_create(parent);
     lv_obj_set_style_text_font(network_status_label, &lv_font_montserrat_24, 0);
@@ -384,6 +415,35 @@ void MenuScreen::create_network_page(lv_obj_t* parent) {
 }
 
 void MenuScreen::update_network_status() {
+    if (wifi_toggle) {
+        if (network_manager.is_enabled()) {
+            lv_obj_add_state(wifi_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_toggle, LV_STATE_CHECKED);
+        }
+    }
+    if (wifi_tab_toggle) {
+        if (network_manager.is_tab_enabled()) {
+            lv_obj_add_state(wifi_tab_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_tab_toggle, LV_STATE_CHECKED);
+        }
+    }
+    if (wifi_icon_toggle) {
+        if (network_manager.is_icon_menu_only()) {
+            lv_obj_add_state(wifi_icon_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_icon_toggle, LV_STATE_CHECKED);
+        }
+    }
+    if (wifi_power_toggle) {
+        if (network_manager.is_performance_mode()) {
+            lv_obj_add_state(wifi_power_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_power_toggle, LV_STATE_CHECKED);
+        }
+    }
+
     if (!network_status_label || !network_detail_label || !network_qr ||
         !network_update_label || !network_update_button) return;
 
@@ -393,7 +453,7 @@ void MenuScreen::update_network_status() {
     switch (network_manager.state()) {
         case NetworkState::WIFI_DISABLED:
             status = "Wi-Fi disabled";
-            detail = "Wi-Fi can be enabled after setup support is complete.";
+            detail = "Turn on toggle above to enable Wi-Fi.";
             break;
         case NetworkState::WIFI_NO_CREDENTIALS:
         case NetworkState::WIFI_SETUP_REQUIRED:
@@ -410,7 +470,7 @@ void MenuScreen::update_network_status() {
                 detail = String(device_web_server.ota_progress_percent()) + "% received\nDo not remove power.";
             } else {
                 status = "Connected";
-                detail = network_manager.network_name() + "\nhttp://" + network_manager.hostname() + ".local\n" + network_manager.ip_address();
+                detail = network_manager.network_name() + " (" + String(network_manager.get_rssi()) + " dBm)\nhttp://" + network_manager.hostname() + ".local\n" + network_manager.ip_address();
             }
             break;
         case NetworkState::WIFI_RETRY_WAIT:
@@ -538,6 +598,14 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::DISPLAY_OFF_TOGGLE)));
     }
 
+    // Grind screens
+    create_separator(parent, "Grind Screens");
+    create_toggle_row(parent, "Mode Icons", &mode_icons_toggle);
+    if (mode_icons_toggle) {
+        lv_obj_add_event_cb(mode_icons_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::MODE_ICONS_TOGGLE)));
+    }
+
 }
 
 
@@ -573,14 +641,14 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
         2,
         LV_FLEX_FLOW_ROW,
         0,  // Weight initially selected
-        135, 100,  // Width, Height
+        135, 50,  // Width, Height
         grind_mode_callback,
         this
     );
 
     // Descriptive label for swipe functionality
     lv_obj_t* swipe_desc_label = lv_label_create(parent);
-    lv_label_set_text(swipe_desc_label, "Enable swiping vertically to switch between Weight/Time modes");
+    lv_label_set_text(swipe_desc_label, "Enable swiping vertically to switch between Weight and Time modes");
     lv_obj_set_style_text_font(swipe_desc_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(swipe_desc_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_margin_bottom(swipe_desc_label, 10, 0);
@@ -589,6 +657,31 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
 
     // Swipe toggle using existing pattern
     create_toggle_row(parent, "Swipe", &grind_mode_swipe_toggle);
+
+    // Grind Screens section
+    create_separator(parent, "Grind Screens");
+    create_description_label(parent, "Choose which screens appear in the main view. At least one must be enabled.");
+    create_toggle_row(parent, "Manual", &grind_tab_manual_toggle);
+    create_toggle_row(parent, "Single", &grind_tab_single_toggle);
+    create_toggle_row(parent, "Double", &grind_tab_double_toggle);
+    create_toggle_row(parent, "Custom", &grind_tab_custom_toggle);
+
+    if (grind_tab_manual_toggle) {
+        lv_obj_add_event_cb(grind_tab_manual_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_MANUAL_TOGGLE)));
+    }
+    if (grind_tab_single_toggle) {
+        lv_obj_add_event_cb(grind_tab_single_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_SINGLE_TOGGLE)));
+    }
+    if (grind_tab_double_toggle) {
+        lv_obj_add_event_cb(grind_tab_double_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_DOUBLE_TOGGLE)));
+    }
+    if (grind_tab_custom_toggle) {
+        lv_obj_add_event_cb(grind_tab_custom_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_CUSTOM_TOGGLE)));
+    }
 
     // Automatic actions section
     create_separator(parent, "Automation");
@@ -602,6 +695,14 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_description_label(parent, "Use a value below the empty cup or portafilter weight to prevent accidental starts.");
     create_description_label(parent, "Exit the completion screen once that cup weight drops away.");
     create_toggle_row(parent, "Return", &auto_return_toggle);
+
+    // Single Dose section
+    create_separator(parent, "Single Dose");
+    create_description_label(parent, "Safety cutoff to automatically stop the motor during single dose grinding.");
+    create_slider_row(parent, "Safety limit", &single_dose_timeout_label, &single_dose_timeout_slider,
+                      lv_color_hex(THEME_COLOR_ACCENT),
+                      GRIND_SINGLE_DOSE_TIMEOUT_MIN_S,
+                      GRIND_SINGLE_DOSE_TIMEOUT_MAX_S);
 
     // Grinder Purging section
     create_separator(parent, "Purging");
@@ -697,6 +798,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::MOTOR_LATENCY_SLIDER)));
         lv_obj_add_event_cb(motor_latency_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::MOTOR_LATENCY_SLIDER_RELEASED)));
+    }
+    if (single_dose_timeout_slider) {
+        lv_obj_add_event_cb(single_dose_timeout_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::SINGLE_DOSE_TIMEOUT_SLIDER)));
+        lv_obj_add_event_cb(single_dose_timeout_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::SINGLE_DOSE_TIMEOUT_SLIDER_RELEASED)));
     }
 }
 
@@ -918,6 +1025,19 @@ void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long up
     lv_label_set_text(uptime_label, uptime_text);
 
     set_label_text_int(memory_label, free_heap / 1024, "kB");
+
+    if (signal_label) {
+        if (network_manager.is_connected()) {
+            char sig_text[32];
+            const int rssi = network_manager.get_rssi();
+            snprintf(sig_text, sizeof(sig_text), "%d dBm", rssi);
+            lv_label_set_text(signal_label, sig_text);
+        } else if (!network_manager.is_enabled()) {
+            lv_label_set_text(signal_label, "Disabled");
+        } else {
+            lv_label_set_text(signal_label, "Disconnected");
+        }
+    }
 }
 
 void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
@@ -1001,6 +1121,14 @@ void MenuScreen::update_ble_status() {
         lv_obj_add_state(ble_toggle, LV_STATE_CHECKED);
     } else {
         lv_obj_clear_state(ble_toggle, LV_STATE_CHECKED);
+    }
+
+    if (ble_icon_toggle) {
+        if (bluetooth_manager->is_icon_menu_only()) {
+            lv_obj_add_state(ble_icon_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(ble_icon_toggle, LV_STATE_CHECKED);
+        }
     }
     
     // Update status text
@@ -1193,6 +1321,16 @@ void MenuScreen::update_motor_latency_label(float latency_ms) {
     lv_label_set_text(motor_latency_label, buffer);
 }
 
+void MenuScreen::update_single_dose_timeout_display(uint32_t seconds) {
+    if (!single_dose_timeout_label) return;
+    const uint32_t clamped = std::clamp(seconds,
+                                        static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S),
+                                        static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "Safety limit: %lus", static_cast<unsigned long>(clamped));
+    lv_label_set_text(single_dose_timeout_label, buffer);
+}
+
 void MenuScreen::update_auto_start_threshold_label(float threshold_g) {
     if (!auto_start_threshold_label) return;
     const float clamped = std::clamp(threshold_g,
@@ -1245,6 +1383,16 @@ void MenuScreen::update_screensaver_toggles() {
             lv_obj_add_state(display_off_toggle, LV_STATE_CHECKED);
         } else {
             lv_obj_clear_state(display_off_toggle, LV_STATE_CHECKED);
+        }
+    }
+
+    Preferences* main_prefs = hardware_manager ? hardware_manager->get_preferences() : nullptr;
+    const bool mode_icons_on = main_prefs ? main_prefs->getBool("mode_icons", true) : true;
+    if (mode_icons_toggle) {
+        if (mode_icons_on) {
+            lv_obj_add_state(mode_icons_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(mode_icons_toggle, LV_STATE_CHECKED);
         }
     }
 }
@@ -1359,6 +1507,7 @@ lv_obj_t* MenuScreen::create_toggle_row(lv_obj_t* parent, const char* text, lv_o
     lv_obj_set_flex_align(row_container, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t* label = lv_label_create(row_container);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
     lv_label_set_text(label, text);
 
     *out_toggle = lv_switch_create(row_container);
@@ -1455,6 +1604,7 @@ void MenuScreen::update_grind_mode_toggles() {
     int mode_index = 0; // Default to Weight (index 0)
     int grinder_purge_mode_index = GRIND_PURGE_MODE_DEFAULT;  // Default to Purge
     float grinder_purge_amount_g = GRIND_PURGE_AMOUNT_DEFAULT_G;  // Default to 1.0g
+    uint32_t single_dose_timeout_s = GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S;
     if (hardware_manager) {
         Preferences* main_prefs = hardware_manager->get_preferences();
         if (main_prefs) {
@@ -1462,6 +1612,7 @@ void MenuScreen::update_grind_mode_toggles() {
             mode_index = (stored_mode == static_cast<int>(GrindMode::TIME)) ? 1 : 0;
             grinder_purge_mode_index = main_prefs->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
             grinder_purge_amount_g = main_prefs->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
+            single_dose_timeout_s = main_prefs->getUInt(GrindController::PREF_KEY_SINGLE_DOSE_TIMEOUT_S, GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S);
         }
     }
 
@@ -1579,4 +1730,39 @@ void MenuScreen::update_grind_mode_toggles() {
         lv_slider_set_value(motor_latency_slider, slider_value, LV_ANIM_OFF);
     }
     update_motor_latency_label(motor_latency_ms);
+
+    if (grind_controller) {
+        single_dose_timeout_s = grind_controller->get_single_dose_timeout_s();
+    }
+    if (single_dose_timeout_slider) {
+        const uint32_t clamped_sd = std::clamp(single_dose_timeout_s,
+                                               static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S),
+                                               static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+        lv_slider_set_value(single_dose_timeout_slider, clamped_sd, LV_ANIM_OFF);
+    }
+    update_single_dose_timeout_display(single_dose_timeout_s);
+    update_grind_tab_toggles();
+}
+
+void MenuScreen::update_grind_tab_toggles() {
+    if (!hardware_manager) return;
+    Preferences* prefs = hardware_manager->get_preferences();
+    bool manual = prefs ? prefs->getBool("tab_manual", true) : true;
+    bool single = prefs ? prefs->getBool("tab_single", true) : true;
+    bool double_dose = prefs ? prefs->getBool("tab_double", true) : true;
+    bool custom = prefs ? prefs->getBool("tab_custom", true) : true;
+
+    auto set_toggle = [](lv_obj_t* toggle, bool val) {
+        if (!toggle) return;
+        if (val) {
+            lv_obj_add_state(toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(toggle, LV_STATE_CHECKED);
+        }
+    };
+
+    set_toggle(grind_tab_manual_toggle, manual);
+    set_toggle(grind_tab_single_toggle, single);
+    set_toggle(grind_tab_double_toggle, double_dose);
+    set_toggle(grind_tab_custom_toggle, custom);
 }

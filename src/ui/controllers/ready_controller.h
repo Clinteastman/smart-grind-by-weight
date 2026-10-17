@@ -11,6 +11,7 @@ public:
     explicit ReadyUIController(UIManager* manager);
 
     void register_events();
+    void rebind_tabs();
     void update();
     void refresh_profiles();
     void handle_tab_change(int tab);
@@ -19,6 +20,8 @@ public:
     void toggle_mode();
 
 private:
+    static void ready_gesture_handler(lv_event_t* e);
+
     UIManager* ui_manager_;
     uint32_t last_network_update_ms_ = 0;
     uint32_t last_manual_scale_update_ms_ = 0;

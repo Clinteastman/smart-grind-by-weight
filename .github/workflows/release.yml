@@ -249,11 +249,11 @@ jobs:
           fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists. Updating notes and draft state."
-            gh release edit "$TAG" --draft=true $PRERELEASE_EDIT_FLAG --title "$TITLE" --notes-file release-notes.md
+            echo "Release $TAG already exists. Updating notes and publishing."
+            gh release edit "$TAG" --draft=false $PRERELEASE_EDIT_FLAG --title "$TITLE" --notes-file release-notes.md
           else
-            echo "Creating new draft release $TAG"
-            gh release create "$TAG" --draft $PRERELEASE_CREATE_FLAG --title "$TITLE" --notes-file release-notes.md
+            echo "Creating new release $TAG"
+            gh release create "$TAG" $PRERELEASE_CREATE_FLAG --title "$TITLE" --notes-file release-notes.md
           fi
 
       - name: Upload release assets

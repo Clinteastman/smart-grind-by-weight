@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <time.h>
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <esp_heap_caps.h>
@@ -17,6 +18,9 @@ ScreensaverController::ScreensaverController()
     , primary_label_(nullptr)
     , secondary_label_(nullptr)
     , detail_label_(nullptr)
+    , hours_label_(nullptr)
+    , colon_label_(nullptr)
+    , minutes_label_(nullptr)
     , animation_timer_(nullptr)
     , image_buffer_(nullptr)
     , animation_step_(0)
@@ -29,7 +33,11 @@ ScreensaverController::~ScreensaverController() {
 }
 
 bool ScreensaverController::has_image() const {
-    return selected_style() != "custom" || has_custom_image();
+    const String style = selected_style();
+    if (style == "custom" || style == "clock_custom") {
+        return has_custom_image();
+    }
+    return true;
 }
 
 bool ScreensaverController::has_custom_image() const {
@@ -47,11 +55,159 @@ String ScreensaverController::selected_style() const {
     if (!preferences.begin("screensaver", true)) return fallback;
     const String style = preferences.getString("style", fallback);
     preferences.end();
-    if (style == "custom" || style == "minimal" || style == "orbit" ||
-        style == "blank" || style == "gaggimate") {
+    if (style == "custom" || style == "clock_custom") {
+        return has_custom_image() ? style : fallback;
+    }
+    if (style == "minimal" || style == "orbit" ||
+        style == "blank" || style == "gaggimate" ||
+        style == "clock") {
         return style;
     }
     return fallback;
+}
+
+String ScreensaverController::selected_clock_position() const {
+    Preferences preferences;
+    if (!preferences.begin("screensaver", true)) return "center";
+    const String pos = preferences.getString("clock_pos", "center");
+    preferences.end();
+    if (pos == "top" || pos == "bottom" || pos == "center") {
+        return pos;
+    }
+    return "center";
+}
+
+String ScreensaverController::selected_clock_layout() const {
+    Preferences preferences;
+    if (!preferences.begin("screensaver", true)) return "horizontal";
+    const String layout = preferences.getString("clock_layout", "horizontal");
+    preferences.end();
+    if (layout == "stacked" || layout == "horizontal") {
+        return layout;
+    }
+    return "horizontal";
+}
+
+uint32_t ScreensaverController::selected_clock_color() const {
+    Preferences preferences;
+    if (!preferences.begin("screensaver", true)) return 0xFFFFFF;
+    String hex = preferences.getString("clock_color", "#FFFFFF");
+    preferences.end();
+    if (hex.startsWith("#")) {
+        hex = hex.substring(1);
+    }
+    if (hex.length() != 6) return 0xFFFFFF;
+    char* endptr = nullptr;
+    unsigned long val = strtoul(hex.c_str(), &endptr, 16);
+    if (!endptr || *endptr != '\0') return 0xFFFFFF;
+    return static_cast<uint32_t>(val);
+}
+
+String ScreensaverController::selected_clock_font() const {
+    Preferences preferences;
+    if (!preferences.begin("screensaver", true)) return "montserrat";
+    const String font = preferences.getString("clock_font", "montserrat");
+    preferences.end();
+    if (font == "custom" && has_custom_clock_font()) {
+        return "custom";
+    }
+    return "montserrat";
+}
+
+bool ScreensaverController::has_custom_clock_font() const {
+    File font = LittleFS.open(CLOCK_FONT_FILENAME, "r");
+    const bool valid = font && font.size() >= 16 && font.size() <= CLOCK_FONT_MAX_SIZE;
+    if (font) {
+        font.close();
+    }
+    return valid;
+}
+
+bool ScreensaverController::load_custom_font(int32_t font_size) {
+    if (custom_clock_font_ && custom_clock_font_size_ == font_size) {
+        return true;
+    }
+    free_custom_font();
+
+    File f = LittleFS.open(CLOCK_FONT_FILENAME, "r");
+    if (!f) return false;
+    const size_t size = f.size();
+    if (size < 16 || size > CLOCK_FONT_MAX_SIZE) {
+        f.close();
+        return false;
+    }
+
+#if defined(SMART_GRIND_SIM)
+    clock_font_buffer_ = (uint8_t*)malloc(size);
+#else
+    clock_font_buffer_ = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!clock_font_buffer_) {
+        clock_font_buffer_ = (uint8_t*)malloc(size);
+    }
+#endif
+    if (!clock_font_buffer_) {
+        f.close();
+        LOG_BLE("Screensaver: Custom font allocation failed (%u bytes)\n", (unsigned)size);
+        return false;
+    }
+
+    size_t total_read = 0;
+    while (total_read < size) {
+        size_t bytes = f.read(clock_font_buffer_ + total_read, size - total_read);
+        if (bytes == 0) break;
+        total_read += bytes;
+    }
+    f.close();
+
+    if (total_read != size) {
+        LOG_BLE("Screensaver: Font file size mismatch (%u != %u)\n", (unsigned)total_read, (unsigned)size);
+        free_custom_font();
+        return false;
+    }
+    clock_font_size_ = size;
+
+#if LV_USE_TINY_TTF
+    custom_clock_font_ = lv_tiny_ttf_create_data(clock_font_buffer_, clock_font_size_, font_size);
+    if (!custom_clock_font_) {
+        LOG_BLE("Screensaver: lv_tiny_ttf_create_data failed for size %d\n", (int)font_size);
+        free_custom_font();
+        return false;
+    }
+    custom_clock_font_size_ = font_size;
+    return true;
+#else
+    free_custom_font();
+    return false;
+#endif
+}
+
+void ScreensaverController::free_custom_font() {
+#if LV_USE_TINY_TTF
+    if (custom_clock_font_) {
+        lv_tiny_ttf_destroy(custom_clock_font_);
+        custom_clock_font_ = nullptr;
+    }
+#endif
+    custom_clock_font_size_ = 0;
+    if (clock_font_buffer_) {
+#if !defined(SMART_GRIND_SIM)
+        heap_caps_free(clock_font_buffer_);
+#else
+        free(clock_font_buffer_);
+#endif
+        clock_font_buffer_ = nullptr;
+    }
+    clock_font_size_ = 0;
+}
+
+const lv_font_t* ScreensaverController::resolve_clock_font(const String& layout, const String& font_choice) {
+    const int32_t target_size = (layout == "stacked") ? 160 : 80;
+    if (font_choice == "custom") {
+        if (load_custom_font(target_size) && custom_clock_font_) {
+            return custom_clock_font_;
+        }
+    }
+    return (layout == "stacked") ? &lv_font_montserrat_160 : &lv_font_montserrat_80;
 }
 
 bool ScreensaverController::is_startup_enabled() const {
@@ -70,7 +226,7 @@ uint32_t ScreensaverController::get_startup_timeout_ms() const {
 void ScreensaverController::show() {
     if (visible_) return;
     style_ = selected_style();
-    if (style_ == "custom" && !load_image()) return;
+    if ((style_ == "custom" || style_ == "clock_custom") && !load_image()) return;
 
     // Save the current active screen so we can restore it on hide().
     // Screens in this project are created once and never deleted, so
@@ -87,7 +243,7 @@ void ScreensaverController::show() {
     lv_obj_set_style_bg_opa(overlay_screen_, LV_OPA_COVER, 0);
     lv_obj_remove_flag(overlay_screen_, LV_OBJ_FLAG_SCROLLABLE);
 
-    if (style_ == "custom") {
+    if (style_ == "custom" || style_ == "clock_custom") {
         image_widget_ = lv_img_create(overlay_screen_);
         if (!image_widget_) {
             lv_obj_delete(overlay_screen_);
@@ -102,11 +258,22 @@ void ScreensaverController::show() {
         image_dsc_.data = image_buffer_;
         lv_img_set_src(image_widget_, &image_dsc_);
         lv_obj_center(image_widget_);
-    } else if (!create_builtin(style_)) {
-        lv_obj_delete(overlay_screen_);
-        overlay_screen_ = nullptr;
-        free_image();
-        return;
+    }
+
+    if (style_ == "clock" || style_ == "clock_custom") {
+        if (!create_clock()) {
+            lv_obj_delete(overlay_screen_);
+            overlay_screen_ = nullptr;
+            free_image();
+            return;
+        }
+    } else if (style_ != "custom") {
+        if (!create_builtin(style_)) {
+            lv_obj_delete(overlay_screen_);
+            overlay_screen_ = nullptr;
+            free_image();
+            return;
+        }
     }
 
     // Load the overlay screen
@@ -134,9 +301,13 @@ void ScreensaverController::hide() {
         primary_label_ = nullptr;
         secondary_label_ = nullptr;
         detail_label_ = nullptr;
+        hours_label_ = nullptr;
+        colon_label_ = nullptr;
+        minutes_label_ = nullptr;
     }
 
     free_image();
+    free_custom_font();
     visible_ = false;
 }
 
@@ -198,7 +369,12 @@ bool ScreensaverController::create_builtin(const String& style) {
 
 void ScreensaverController::animation_timer_callback(lv_timer_t* timer) {
     auto* controller = static_cast<ScreensaverController*>(lv_timer_get_user_data(timer));
-    if (controller) controller->update_builtin();
+    if (!controller) return;
+    if (controller->style_ == "clock" || controller->style_ == "clock_custom") {
+        controller->update_clock();
+    } else {
+        controller->update_builtin();
+    }
 }
 
 void ScreensaverController::update_builtin() {
@@ -297,5 +473,149 @@ void ScreensaverController::free_image() {
     if (image_buffer_) {
         heap_caps_free(image_buffer_);
         image_buffer_ = nullptr;
+    }
+}
+
+bool ScreensaverController::create_clock() {
+    colon_label_ = lv_label_create(overlay_screen_);
+    if (!colon_label_) return false;
+    hours_label_ = lv_label_create(overlay_screen_);
+    if (!hours_label_) return false;
+    minutes_label_ = lv_label_create(overlay_screen_);
+    if (!minutes_label_) return false;
+
+    const String layout = selected_clock_layout();
+    clock_font_choice_ = selected_clock_font();
+    const lv_font_t* font = resolve_clock_font(layout, clock_font_choice_);
+
+    clock_color_ = selected_clock_color();
+    lv_obj_t* labels[] = {colon_label_, hours_label_, minutes_label_};
+    for (lv_obj_t* lbl : labels) {
+        lv_obj_set_style_text_font(lbl, font, 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(clock_color_), 0);
+    }
+
+    if (layout == "stacked") {
+        lv_obj_set_style_text_align(hours_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_align(minutes_label_, LV_TEXT_ALIGN_CENTER, 0);
+    } else {
+        lv_obj_set_style_text_align(colon_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_align(hours_label_, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_style_text_align(minutes_label_, LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_text(colon_label_, ":");
+    }
+
+    lv_label_set_text(hours_label_, "");
+    lv_label_set_text(minutes_label_, "");
+
+    // Initially hide until time sync is verified
+    lv_obj_add_flag(colon_label_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(hours_label_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(minutes_label_, LV_OBJ_FLAG_HIDDEN);
+
+    update_clock();
+
+    animation_timer_ = lv_timer_create(animation_timer_callback, 1000, this);
+    return animation_timer_ != nullptr;
+}
+
+void ScreensaverController::update_clock() {
+    if (!visible_ || !colon_label_ || !hours_label_ || !minutes_label_) return;
+
+    time_t now = time(nullptr);
+    if (now < 1700000000) {
+        lv_obj_add_flag(colon_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(hours_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(minutes_label_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    struct tm timeinfo;
+    if (!localtime_r(&now, &timeinfo)) {
+        lv_obj_add_flag(colon_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(hours_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(minutes_label_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    char h_str[4];
+    char m_str[4];
+    snprintf(h_str, sizeof(h_str), "%02d", timeinfo.tm_hour);
+    snprintf(m_str, sizeof(m_str), "%02d", timeinfo.tm_min);
+    lv_label_set_text(hours_label_, h_str);
+    lv_label_set_text(minutes_label_, m_str);
+
+    const String layout = selected_clock_layout();
+    const String pos = selected_clock_position();
+    const String font_choice = selected_clock_font();
+
+    const lv_font_t* font = resolve_clock_font(layout, font_choice);
+    clock_font_choice_ = font_choice;
+    if (lv_obj_get_style_text_font(hours_label_, LV_PART_MAIN) != font) {
+        lv_obj_set_style_text_font(colon_label_, font, 0);
+        lv_obj_set_style_text_font(hours_label_, font, 0);
+        lv_obj_set_style_text_font(minutes_label_, font, 0);
+        if (layout == "stacked") {
+            lv_obj_set_style_text_align(hours_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_text_align(minutes_label_, LV_TEXT_ALIGN_CENTER, 0);
+        } else {
+            lv_obj_set_style_text_align(colon_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_text_align(hours_label_, LV_TEXT_ALIGN_RIGHT, 0);
+            lv_obj_set_style_text_align(minutes_label_, LV_TEXT_ALIGN_LEFT, 0);
+            lv_label_set_text(colon_label_, ":");
+        }
+    }
+
+    const uint32_t new_color = selected_clock_color();
+    if (new_color != clock_color_) {
+        clock_color_ = new_color;
+        const lv_color_t color = lv_color_hex(clock_color_);
+        lv_obj_set_style_text_color(colon_label_, color, 0);
+        lv_obj_set_style_text_color(hours_label_, color, 0);
+        lv_obj_set_style_text_color(minutes_label_, color, 0);
+    }
+
+    // Subtle burn-in shift based on current minute (orbit pattern ±2 px)
+    static const int8_t shift_x[] = {0, 2, -2, 1, -1, 2, -2, 0};
+    static const int8_t shift_y[] = {0, 1, -1, 2, -2, -1, 1, 0};
+    const uint8_t idx = static_cast<uint8_t>(timeinfo.tm_min % 8);
+
+    if (layout == "stacked") {
+        lv_obj_add_flag(colon_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(hours_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(minutes_label_, LV_OBJ_FLAG_HIDDEN);
+
+        int16_t hours_y = -70;
+        int16_t minutes_y = 70;
+        if (pos == "top") {
+            hours_y = -140;
+            minutes_y = 0;
+        } else if (pos == "bottom") {
+            hours_y = 0;
+            minutes_y = 140;
+        }
+
+        lv_obj_align(hours_label_, LV_ALIGN_CENTER, shift_x[idx], hours_y + shift_y[idx]);
+        lv_obj_align(minutes_label_, LV_ALIGN_CENTER, shift_x[idx], minutes_y + shift_y[idx]);
+    } else {
+        lv_obj_remove_flag(colon_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(hours_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(minutes_label_, LV_OBJ_FLAG_HIDDEN);
+
+        int16_t base_y = 0;
+        if (pos == "top") {
+            base_y = -130;
+        } else if (pos == "bottom") {
+            base_y = 130;
+        }
+
+        lv_obj_align(colon_label_, LV_ALIGN_CENTER, shift_x[idx], base_y + shift_y[idx]);
+
+        lv_obj_update_layout(colon_label_);
+        lv_obj_update_layout(hours_label_);
+        lv_obj_update_layout(minutes_label_);
+
+        lv_obj_align_to(hours_label_, colon_label_, LV_ALIGN_OUT_LEFT_MID, -2, 0);
+        lv_obj_align_to(minutes_label_, colon_label_, LV_ALIGN_OUT_RIGHT_MID, 2, 0);
     }
 }
