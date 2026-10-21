@@ -1,10 +1,10 @@
 # Smart Grind-by-Weight
 
-[![Latest release](https://img.shields.io/github/v/release/Clinteastman/smart-grind-by-weight?display_name=tag&logo=github)](https://github.com/Clinteastman/smart-grind-by-weight/releases/latest)
-[![Firmware](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/firmware.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/firmware.yml)
-[![Desktop simulator](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/simulator.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/simulator.yml)
-[![Web flasher](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/deploy-web-flasher.yml/badge.svg)](https://github.com/Clinteastman/smart-grind-by-weight/actions/workflows/deploy-web-flasher.yml)
-[![Downloads](https://img.shields.io/github/downloads/Clinteastman/smart-grind-by-weight/total?logo=github&label=downloads)](https://github.com/Clinteastman/smart-grind-by-weight/releases)
+[![Latest release](https://img.shields.io/github/v/release/Cuxx/smart-grind-by-weight-singledose?display_name=tag&logo=github)](https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/latest)
+[![Firmware](https://github.com/Cuxx/smart-grind-by-weight-singledose/actions/workflows/firmware.yml/badge.svg)](https://github.com/Cuxx/smart-grind-by-weight-singledose/actions/workflows/firmware.yml)
+[![Desktop simulator](https://github.com/Cuxx/smart-grind-by-weight-singledose/actions/workflows/simulator.yml/badge.svg)](https://github.com/Cuxx/smart-grind-by-weight-singledose/actions/workflows/simulator.yml)
+[![Web flasher](https://github.com/Cuxx/smart-grind-by-weight-singledose/actions/workflows/deploy-web-flasher.yml/badge.svg)](https://github.com/Cuxx/smart-grind-by-weight-singledose/actions/workflows/deploy-web-flasher.yml)
+[![Downloads](https://img.shields.io/github/downloads/Cuxx/smart-grind-by-weight-singledose/total?logo=github&label=downloads)](https://github.com/Cuxx/smart-grind-by-weight-singledose/releases)
 [![Hardware](https://img.shields.io/badge/hardware-Waveshare%20V1%20%7C%20V2-6f42c1)](docs/GRINDER_COMPATIBILITY.md)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
@@ -24,15 +24,15 @@ motor off before the target, then uses controlled pulses to finish the dose.
 > limited. The original project, author and community contributors remain
 > credited, and retained commits preserve their authorship.
 
-**[Flash firmware](https://clinteastman.github.io/smart-grind-by-weight/)** ·
+**[Flash firmware](https://cuxx.github.io/smart-grind-by-weight-singledose/)** ·
 **[Build & installation guide](docs/DOC.md#start-here)** ·
-**[What's new in v1.5.9](CHANGELOG.md#159---2026-09-06)** ·
+**[What's new in v1.6.1](CHANGELOG.md#161---2026-10-14)** ·
 **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
 > [!TIP]
 > **Firmware installation stuck at 0%?** The v1.5.9 hotfix repairs a download
 > timing bug and adds clear update-failure feedback. Once it appears in
-> [GitHub Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases),
+> [GitHub Releases](https://github.com/Cuxx/smart-grind-by-weight-singledose/releases),
 > download its matching V1 or V2 application `.bin` and use **System & updates →
 > Manual firmware file → Upload firmware** if your current automatic installer
 > fails. No USB connection or settings reset is needed. Read the
@@ -152,7 +152,7 @@ for longer-term archives and recovery workflows.
    connector/component checks in
    [Display stays black after flashing](docs/TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2).
 4. **Flash the matching image.** Open the
-   [Community Web Flasher](https://clinteastman.github.io/smart-grind-by-weight/)
+   [Community Web Flasher](https://cuxx.github.io/smart-grind-by-weight-singledose/)
    in Chrome or Edge on desktop/Android and explicitly select V1 or V2. USB
    recovery instructions and command-line alternatives are in the
    [development guide](docs/DEVELOPMENT.md).
@@ -224,7 +224,7 @@ The complete editable Fusion 360 design is included at
 `3d_files/smart-grind-by-weight. Eureka Mignon.f3z`.
 
 Please report reproducible problems through
-[GitHub Issues](https://github.com/Clinteastman/smart-grind-by-weight/issues),
+[GitHub Issues](https://github.com/Cuxx/smart-grind-by-weight-singledose/issues),
 including the board generation, firmware version and a diagnostic log where
 possible. Tested V1 hardware feedback is particularly useful.
 
@@ -249,7 +249,7 @@ possible. Tested V1 hardware feedback is particularly useful.
 ## Releases and license
 
 Read the versioned [changelog](CHANGELOG.md), download tested builds from
-[Community Releases](https://github.com/Clinteastman/smart-grind-by-weight/releases),
+[Community Releases](https://github.com/Cuxx/smart-grind-by-weight-singledose/releases),
 or consult the [original release archive](https://github.com/jaapp/smart-grind-by-weight/releases).
 
 Smart Grind-by-Weight is free software distributed under the

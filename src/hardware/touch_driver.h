@@ -15,6 +15,7 @@ private:
     bool initialized = false;
     bool disabled = false;
     bool press_event_pending = false;
+    uint8_t dropout_count = 0;
     
     // Touch activity tracking
     uint32_t last_touch_time = 0;

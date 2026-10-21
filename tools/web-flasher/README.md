@@ -1,6 +1,6 @@
 # Smart Grind By Weight - Web Flasher
 
-A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffee grinder.
+A browser-based firmware flashing and configuration tool for the Smart Grind By Weight ESP32 coffee grinder with Single Dose support.
 
 ## Features
 

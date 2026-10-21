@@ -64,6 +64,19 @@ void ScreenTimeoutController::update() {
     // short weight window rejects isolated scale noise that could otherwise
     // wake the panel repeatedly from a long min/max history.
     const uint32_t ms_since_weight = now - last_weight_activity_ms_;
+
+    if (preview_active_) {
+        const bool grace_passed = (now - preview_started_at_ms_ >= 250);
+        const bool touch_woke = grace_passed && (ms_since_touch < (now - preview_started_at_ms_));
+        const bool weight_woke = grace_passed && (now - last_weight_activity_ms_ < (now - preview_started_at_ms_));
+        if (touch_woke || weight_woke) {
+            preview_active_ = false;
+            restore_normal_display(display);
+            return;
+        }
+        return;
+    }
+
     const uint32_t inactive_ms = min(min(ms_since_touch, ms_since_weight),
                                      ms_since_settings_applied);
     const DisplayIdleState idle_state = display_idle_state(
@@ -73,6 +86,15 @@ void ScreenTimeoutController::update() {
         static_cast<uint32_t>(timing_settings_.display_off_delay_s) * 1000U);
     const bool should_dim = idle_state != DisplayIdleState::ACTIVE;
     const bool should_turn_off = idle_state == DisplayIdleState::PANEL_OFF;
+
+    if (should_dim && !screen_dimmed_) {
+        if (ui_manager_->state_machine &&
+            ui_manager_->state_machine->get_current_state() == UIState::MENU) {
+            if (ui_manager_->menu_controller_) {
+                ui_manager_->menu_controller_->auto_return_to_ready();
+            }
+        }
+    }
 
     if (should_turn_off && !panel_off_) {
         if (!screen_dimmed_) {
@@ -170,6 +192,31 @@ void ScreenTimeoutController::restore_normal_display(DisplayManager* display) {
 
     screen_dimmed_ = false;
     panel_off_ = false;
+    preview_active_ = false;
+}
+
+void ScreenTimeoutController::trigger_preview() {
+    if (!ui_manager_ || !ui_manager_->hardware_manager) return;
+    DisplayManager* display = ui_manager_->hardware_manager->get_display();
+    if (!display) return;
+    if (is_protected_state()) return;
+
+    preview_active_ = true;
+    preview_started_at_ms_ = millis();
+
+    float dimmed = USER_SCREEN_BRIGHTNESS_DIMMED;
+    if (ui_manager_->menu_controller_) {
+        dimmed = ui_manager_->menu_controller_->get_screensaver_brightness();
+    }
+    display->set_brightness(dimmed);
+    screen_dimmed_ = true;
+
+    if (screensaver_controller_ && screensaver_controller_->has_image()) {
+        if (screensaver_controller_->is_visible()) {
+            screensaver_controller_->hide();
+        }
+        screensaver_controller_->show();
+    }
 }
 
 bool ScreenTimeoutController::is_protected_state() const {
@@ -180,6 +227,11 @@ bool ScreenTimeoutController::is_protected_state() const {
     bool ota_active = ui_manager_->bluetooth_manager &&
                       ui_manager_->bluetooth_manager->is_updating();
     if (ota_active) {
+        return true;
+    }
+    bool is_demo = (ui_manager_->grinding_controller_ &&
+                    ui_manager_->grinding_controller_->is_demo_active());
+    if (is_demo) {
         return true;
     }
 

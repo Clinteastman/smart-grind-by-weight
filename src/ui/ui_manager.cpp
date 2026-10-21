@@ -30,8 +30,16 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     edit_target = 0.0f;
     original_target = 0.0f;
     calibration_weight = USER_CALIBRATION_REFERENCE_WEIGHT_G;
-    current_tab = ReadyScreen::tab_for_profile_index(profile_controller->get_current_profile());
-    current_mode = profile_controller->get_grind_mode();
+    ready_screen.load_tab_config(hardware_manager->get_preferences());
+    Preferences* prefs = hardware_manager->get_preferences();
+    const bool manual_active = prefs ? prefs->getBool("manual_active", false) : false;
+    if (manual_active && ready_screen.is_manual_enabled()) {
+        current_tab = ready_screen.manual_tab_index();
+        current_mode = GrindMode::MANUAL;
+    } else {
+        current_tab = ready_screen.tab_for_profile_index(profile_controller->get_current_profile());
+        current_mode = profile_controller->get_grind_mode();
+    }
     jog_timer = nullptr;
     // Initialize the unified overlay system
     BlockingOperationOverlay::getInstance().init();
@@ -95,6 +103,9 @@ void UIManager::create_ui() {
 
     // Create all screens
     ready_screen.create();
+    if (grind_controller) {
+        ready_screen.update_single_dose_timeout(grind_controller->get_single_dose_timeout_s());
+    }
     edit_screen.create();
     grinding_screen.init(hardware_manager->get_preferences());
     grinding_screen.create();
@@ -141,22 +152,50 @@ void UIManager::update() {
     // Execute network commands on the UI/application task, never in the
     // asynchronous TCP callback that parsed them.
     if (device_api.process_commands()) {
-        current_tab = ReadyScreen::tab_for_profile_index(profile_controller->get_current_profile());
-        current_mode = profile_controller->get_grind_mode();
+        const int prof = profile_controller ? profile_controller->get_current_profile() : 1;
+        current_mode = profile_controller ? profile_controller->get_grind_mode() : GrindMode::WEIGHT;
         edit_target = get_current_profile_target(*profile_controller, current_mode);
         bool runtime_applied = refresh_auto_action_settings(true);
         runtime_applied = (screen_timeout_controller_ &&
             screen_timeout_controller_->apply_runtime_settings(true)) && runtime_applied;
         if (ready_controller_) ready_controller_->refresh_profiles();
-        ready_screen.set_active_tab(current_tab);
+        if (grind_controller) {
+            ready_screen.update_single_dose_timeout(grind_controller->get_single_dose_timeout_s());
+        }
+        current_tab = ready_screen.tab_for_profile_index(prof);
+        rebuild_ready_tabs();
+        if (hardware_manager && hardware_manager->get_preferences()) {
+            int saved_layout = hardware_manager->get_preferences()->getInt("grind_layout", 0);
+            if (saved_layout >= 0 && saved_layout <= static_cast<int>(GrindScreenLayout::NERDY_CHART)) {
+                grinding_screen.set_layout(static_cast<GrindScreenLayout>(saved_layout));
+            }
+            int saved_color = hardware_manager->get_preferences()->getInt("disc_color", 0);
+            if (saved_color >= 0 && saved_color < NUM_DISC_COLOR_PRESETS) {
+                grinding_screen.set_disc_color_preset(saved_color);
+                menu_screen.update_disc_color_button(DISC_COLOR_PRESETS[saved_color].name);
+            }
+        }
         if (menu_screen.is_visible()) {
             menu_screen.update_brightness_sliders();
             menu_screen.update_bluetooth_startup_toggle();
             menu_screen.update_logging_toggle();
             menu_screen.update_grind_mode_toggles();
+            menu_screen.update_grind_tab_toggles();
             menu_screen.update_screensaver_toggles();
+            menu_screen.update_network_status();
+            menu_screen.update_ble_status();
         }
         device_api.complete_settings_application(runtime_applied);
+    }
+    if (device_api.take_screensaver_preview_request()) {
+        if (screen_timeout_controller_) {
+            screen_timeout_controller_->trigger_preview();
+        }
+    }
+    if (device_api.take_demo_animation_request()) {
+        if (grinding_controller_) {
+            grinding_controller_->start_demo();
+        }
     }
 #endif
 
@@ -227,6 +266,10 @@ void UIManager::update() {
 
 void UIManager::switch_to_state(UIState new_state) {
     state_machine->transition_to(new_state);
+
+    if (new_state != UIState::MENU && menu_controller_) {
+        menu_controller_->reset_idle_timer();
+    }
 
     // Hide all screens before showing the requested one
     ready_screen.hide();
@@ -448,7 +491,7 @@ void UIManager::update_auto_actions() {
     const uint32_t now = millis();
     const bool grinder_active = (grind_controller && grind_controller->is_active());
     const bool on_ready_tab = state_machine->is_state(UIState::READY) &&
-                              ReadyScreen::is_profile_tab(current_tab);
+                              ready_screen.is_profile_tab(current_tab);
 
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_) {
         auto* filter = sensor->get_raw_filter();
@@ -495,6 +538,12 @@ void UIManager::update_auto_actions() {
         return;
     }
 
+    // In Single Dose mode, the user deliberately inspects the delivered dose on the
+    // completion screen; return is handled by the dedicated 5-second timer or OK button.
+    if (current_mode == GrindMode::MANUAL) {
+        return;
+    }
+
     if (state_machine->is_state(UIState::GRIND_COMPLETE) ||
         state_machine->is_state(UIState::GRIND_TIMEOUT)) {
         constexpr float kCompleteExitThresholdG = 2.0f;  // Treat scale as empty once weight drops below this point
@@ -514,5 +563,54 @@ void UIManager::update_auto_actions() {
                 grind_controller->return_to_idle();
             }
         }
+    }
+}
+
+void UIManager::rebuild_ready_tabs() {
+    const bool was_manual = ready_screen.is_manual_tab(current_tab) || current_mode == GrindMode::MANUAL;
+    const int active_profile = (profile_controller && ready_screen.is_profile_tab(current_tab))
+                                   ? ready_screen.profile_index_for_tab(current_tab)
+                                   : (profile_controller ? profile_controller->get_current_profile() : 1);
+    const bool was_wifi = ready_screen.is_wifi_tab(current_tab);
+    const bool was_menu = ready_screen.is_menu_tab(current_tab);
+
+    if (hardware_manager) {
+        ready_screen.load_tab_config(hardware_manager->get_preferences());
+    }
+    ready_screen.rebuild_tabs();
+    if (ready_controller_) {
+        ready_controller_->rebind_tabs();
+        ready_controller_->refresh_profiles();
+    }
+    if (grind_controller) {
+        ready_screen.update_single_dose_timeout(grind_controller->get_single_dose_timeout_s());
+    }
+
+    int target_tab;
+    if (was_manual && ready_screen.is_manual_enabled()) {
+        target_tab = ready_screen.manual_tab_index();
+        current_mode = GrindMode::MANUAL;
+    } else if (was_wifi && ready_screen.has_wifi_tab()) {
+        target_tab = ready_screen.wifi_tab_index();
+    } else if (was_menu) {
+        target_tab = ready_screen.menu_tab_index();
+    } else {
+        target_tab = ready_screen.tab_for_profile_index(active_profile);
+        if (profile_controller && ready_screen.is_profile_tab(target_tab)) {
+            profile_controller->set_current_profile(ready_screen.profile_index_for_tab(target_tab));
+            current_mode = profile_controller->get_grind_mode();
+        }
+    }
+
+    set_current_tab(target_tab);
+    ready_screen.set_active_tab(target_tab);
+    grinding_screen.set_mode(current_mode);
+
+    if (grinding_controller_) {
+        grinding_controller_->update_grind_button_icon();
+    }
+    if (status_indicator_controller_) {
+        status_indicator_controller_->update_wifi_status_icon();
+        status_indicator_controller_->update_ble_status_icon();
     }
 }

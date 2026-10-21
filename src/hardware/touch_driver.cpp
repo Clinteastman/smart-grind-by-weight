@@ -4,8 +4,8 @@
 #include "esp_log.h"
 
 namespace {
-constexpr uint32_t kTouchI2CFrequencyHz = 300000;
-constexpr int kTouchI2CTimeoutMs = 5;
+constexpr uint32_t kTouchI2CFrequencyHz = 400000;
+constexpr int kTouchI2CTimeoutMs = 20;
 constexpr char kTag[] = "TouchDriver";
 
 void suppress_touch_i2c_logs() {
@@ -93,12 +93,25 @@ void TouchDriver::update() {
         if (err != ESP_ERR_INVALID_STATE && err != ESP_ERR_TIMEOUT) {
             ESP_LOGW(kTag, "Touch poll failed: %s", esp_err_to_name(err));
         }
+        if (was_pressed && dropout_count < 1) {
+            dropout_count++;
+            return;
+        }
+        dropout_count = 0;
+        if (was_pressed) {
+            last_touch_time = millis();
+        }
+        press_event_pending = false;
         last_touch.pressed = false;
+        last_touch.just_pressed = false;
         return;
     }
     
     uint8_t touches = buf[0] & 0x0F;
-    if (touches > 0) {
+    uint8_t event_flag = (buf[1] >> 6) & 0x03; // 0x00: Down, 0x01: Up, 0x02: Contact, 0x03: No Event
+
+    if (touches > 0 && event_flag != 0x01) {
+        dropout_count = 0;
         last_touch.x = ((buf[1] & 0x0F) << 8) | buf[2];
         last_touch.y = ((buf[3] & 0x0F) << 8) | buf[4];
         last_touch.pressed = true;
@@ -112,7 +125,22 @@ void TouchDriver::update() {
         if (!was_pressed) {
             last_touch_time = millis();
         }
+    } else if (event_flag == 0x01) {
+        // Explicit lift-up from controller
+        dropout_count = 0;
+        if (was_pressed) {
+            last_touch_time = millis();
+        }
+        press_event_pending = false;
+        last_touch.pressed = false;
+        last_touch.just_pressed = false;
     } else {
+        // No touch reported without explicit lift-up: tolerate 1-frame glitch during drag
+        if (was_pressed && dropout_count < 1) {
+            dropout_count++;
+            return;
+        }
+        dropout_count = 0;
         if (was_pressed) {
             last_touch_time = millis();
         }
@@ -127,6 +155,7 @@ void TouchDriver::disable() {
     last_touch.pressed = false;  // Clear any active touch state
     last_touch.just_pressed = false;
     press_event_pending = false;
+    dropout_count = 0;
 }
 
 void TouchDriver::enable() {

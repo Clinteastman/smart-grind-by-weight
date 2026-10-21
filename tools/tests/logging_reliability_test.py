@@ -92,6 +92,7 @@ struct Preferences {
 unsigned long millis() { return 1000; }
 struct Statistics {
     void update_grind_session(float, float, uint8_t, bool, uint32_t) {}
+    void update_single_dose_grind(float, uint32_t) {}
 } statistics_manager;
 struct Node {
     std::string name;

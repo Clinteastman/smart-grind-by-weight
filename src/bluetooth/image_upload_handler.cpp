@@ -2,6 +2,7 @@
 #include "ota_handler.h"
 #include "../config/constants.h"
 #include "../config/logging.h"
+#include "../ui/controllers/screensaver_controller.h"
 
 ImageUploadHandler::ImageUploadHandler()
     : ota_handler_(nullptr)
@@ -161,6 +162,7 @@ bool ImageUploadHandler::complete_upload() {
     LittleFS.remove(backup_filename);
 
     current_status_ = BLE_IMG_STATUS_SUCCESS;
+    ScreensaverController::invalidate_image_cache();
     LOG_BLE("Image Upload: Complete (%lu bytes)\n", (unsigned long)received_size_);
     return true;
 }
@@ -186,6 +188,7 @@ bool ImageUploadHandler::delete_image() {
 
     if (LittleFS.exists(BLE_IMAGE_FILENAME)) {
         if (LittleFS.remove(BLE_IMAGE_FILENAME)) {
+            ScreensaverController::invalidate_image_cache();
             LOG_BLE("Image Upload: Screensaver image deleted\n");
             current_status_ = BLE_IMG_STATUS_IDLE;
             return true;

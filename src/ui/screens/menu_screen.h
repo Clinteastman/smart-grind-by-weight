@@ -12,6 +12,7 @@ class MenuScreen {
 private:
     lv_obj_t* screen;
     lv_obj_t* menu;
+    lv_obj_t* main_page;
     lv_obj_t* info_page;
     lv_obj_t* bluetooth_page;
     lv_obj_t* network_page;
@@ -32,6 +33,7 @@ private:
     lv_obj_t* sessions_label;
     lv_obj_t* events_label;
     lv_obj_t* measurements_label;
+    lv_obj_t* signal_label;
     lv_obj_t* refresh_stats_button;
 
     // Lifetime statistics labels
@@ -47,8 +49,13 @@ private:
     // Menu toggle elements
     lv_obj_t* ble_toggle;
     lv_obj_t* ble_startup_toggle;
+    lv_obj_t* ble_icon_toggle;
     lv_obj_t* ble_status_label;
     lv_obj_t* ble_timer_label;
+    lv_obj_t* wifi_toggle;
+    lv_obj_t* wifi_tab_toggle;
+    lv_obj_t* wifi_icon_toggle;
+    lv_obj_t* wifi_power_toggle;
     lv_obj_t* network_status_label;
     lv_obj_t* network_detail_label;
     lv_obj_t* network_qr;
@@ -67,6 +74,11 @@ private:
     lv_obj_t* screensaver_startup_toggle;
     lv_obj_t* screensaver_sleep_toggle;
     lv_obj_t* display_off_toggle;
+    lv_obj_t* mode_icons_toggle;
+    lv_obj_t* grind_layout_radio_group;
+    lv_obj_t* grind_layout_demo_button;
+    lv_obj_t* disc_color_button;
+    lv_obj_t* disc_color_label;
     lv_obj_t* purge_button;
     lv_obj_t* reset_button;
     
@@ -86,6 +98,12 @@ private:
     lv_obj_t* coast_ratio_label;
     lv_obj_t* motor_latency_slider;
     lv_obj_t* motor_latency_label;
+    lv_obj_t* single_dose_timeout_slider;
+    lv_obj_t* single_dose_timeout_label;
+    lv_obj_t* grind_tab_manual_toggle;
+    lv_obj_t* grind_tab_single_toggle;
+    lv_obj_t* grind_tab_double_toggle;
+    lv_obj_t* grind_tab_custom_toggle;
 
     // Tools entries / scale page elements
     lv_obj_t* scale_item;
@@ -108,6 +126,15 @@ private:
     // Common elements
     bool visible;
     bool scale_active;
+    bool diagnostics_active;
+
+    // Diagnostics value caching to prevent unnecessary redraws
+    char last_diag_std_dev_g_text_[32]{};
+    int32_t last_diag_std_dev_adc_{INT32_MIN};
+    int last_diag_noise_acceptable_{-1};
+    float last_diag_cal_factor_{-999999.0f};
+    float last_diag_latency_ms_{-999999.0f};
+    int last_diag_overall_status_{-1};
     
     BluetoothManager* bluetooth_manager;
     GrindController* grind_controller;
@@ -125,6 +152,7 @@ public:
     void create(BluetoothManager* bluetooth, GrindController* grind_ctrl, GrindingScreen* grind_screen, class HardwareManager* hw_mgr, DiagnosticsController* diag_ctrl);
     void show();
     void hide();
+    void reset_to_root();
     void update_info(const WeightSensor* weight_sensor, unsigned long uptime_ms, size_t free_heap);
     void update_diagnostics(WeightSensor* weight_sensor);
     void update_ble_status();
@@ -142,19 +170,30 @@ public:
     void update_motor_latency_label(float latency_ms);
     void reset_scale_display();
     void update_scale_weight(float weight);
+    void reset_diagnostics_display();
 
     bool is_visible() const { return visible; }
     lv_obj_t* get_screen() const { return screen; }
     lv_obj_t* get_tabview() const { return menu; }
+    lv_obj_t* get_current_page() const { return (visible && menu) ? lv_menu_get_cur_main_page(menu) : nullptr; }
+    lv_obj_t* get_info_page() const { return info_page; }
     lv_obj_t* get_diagnostics_page() const { return diagnostics_page; }
+    lv_obj_t* get_bluetooth_page() const { return bluetooth_page; }
+    lv_obj_t* get_network_page() const { return network_page; }
     lv_obj_t* get_cal_button() const { return cal_button; }
     lv_obj_t* get_purge_button() const { return purge_button; }
     lv_obj_t* get_reset_button() const { return reset_button; }
     lv_obj_t* get_motor_test_button() const { return motor_test_button; }
     lv_obj_t* get_autotune_button() const { return autotune_button; }
     bool is_scale_page_active() const { return scale_active; }
+    bool is_diagnostics_page_active() const { return diagnostics_active; }
     lv_obj_t* get_ble_toggle() const { return ble_toggle; }
     lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
+    lv_obj_t* get_ble_icon_toggle() const { return ble_icon_toggle; }
+    lv_obj_t* get_wifi_toggle() const { return wifi_toggle; }
+    lv_obj_t* get_wifi_tab_toggle() const { return wifi_tab_toggle; }
+    lv_obj_t* get_wifi_icon_toggle() const { return wifi_icon_toggle; }
+    lv_obj_t* get_wifi_power_toggle() const { return wifi_power_toggle; }
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
     lv_obj_t* get_network_update_button() const { return network_update_button; }
@@ -171,9 +210,31 @@ public:
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
     lv_obj_t* get_coast_ratio_slider() const { return coast_ratio_slider; }
     lv_obj_t* get_motor_latency_slider() const { return motor_latency_slider; }
+    lv_obj_t* get_single_dose_timeout_slider() const { return single_dose_timeout_slider; }
+    lv_obj_t* get_single_dose_timeout_label() const { return single_dose_timeout_label; }
+    void update_single_dose_timeout_display(uint32_t seconds);
+    lv_obj_t* get_grind_tab_manual_toggle() const { return grind_tab_manual_toggle; }
+    lv_obj_t* get_grind_tab_single_toggle() const { return grind_tab_single_toggle; }
+    lv_obj_t* get_grind_tab_double_toggle() const { return grind_tab_double_toggle; }
+    lv_obj_t* get_grind_tab_custom_toggle() const { return grind_tab_custom_toggle; }
+    void update_grind_tab_toggles();
     lv_obj_t* get_screensaver_startup_toggle() const { return screensaver_startup_toggle; }
     lv_obj_t* get_screensaver_sleep_toggle() const { return screensaver_sleep_toggle; }
     lv_obj_t* get_display_off_toggle() const { return display_off_toggle; }
+    lv_obj_t* get_mode_icons_toggle() const { return mode_icons_toggle; }
+    lv_obj_t* get_grind_layout_radio_group() const { return grind_layout_radio_group; }
+    lv_obj_t* get_grind_layout_demo_button() const { return grind_layout_demo_button; }
+    lv_obj_t* get_disc_color_button() const { return disc_color_button; }
+    void set_disc_color_button_visible(bool visible) {
+        if (disc_color_button) {
+            if (visible) {
+                lv_obj_clear_flag(disc_color_button, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(disc_color_button, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+    void update_disc_color_button(const char* preset_name);
     void update_screensaver_toggles();
 
 private:

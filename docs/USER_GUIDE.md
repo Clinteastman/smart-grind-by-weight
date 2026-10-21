@@ -54,8 +54,8 @@ Access **Menu → Grind Settings** to configure:
   motor pulse from 30–300 ms in 5 ms steps. Use **Menu → Tune Pulses** first;
   this manual control is a fallback when automatic tuning cannot complete.
 - **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding
-  - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
-  - **Purge mode** (default): Prompts you to discard stale grinds before continuing
+  - **Prime mode**: Keeps all coffee and grinds continuously in a single smooth run directly to the target weight without intermediate motor stopping
+  - **Purge mode** (default): Prompts you to discard stale grinds before continuing when coffee has aged past the freshness window
   - **Amount slider**: Configure purge/prime amount (0.1g-5.0g, default 1.0g). Amount is a minimum target; actual output will be slightly higher.
   - **"Keep purge grinds from now on" checkbox**: Appears during purge confirmation - switches to Prime mode when checked
 
@@ -86,8 +86,10 @@ Need a simple live readout? Open **Menu → Scale** to jump into a full-screen w
 
 ### Display Modes
 - **Arc Layout**: Clean, minimal arc-based interface
+- **Disc Ring**: Expanding circular disc animation with an emerald halo accent ring framing the weight upon completion
+- **Disc Solid**: Expanding circular disc animation that switches to a solid emerald card upon completion
 - **Nerdy Layout**: Detailed charts showing flow rates and real-time grinding analytics
-- **Switching**: Tap anywhere on grind screen to switch between layouts during grinding
+- **Switching**: Tap the weight display or screen to cycle between all four styles during grinding (Arc → Disc Ring → Disc Solid → Chart), or choose your preferred default in **Menu → Settings → Display** or via the Web UI
 - **Screensaver**: A custom or built-in design can show on startup or when the
   display dims. An optional later panel-off stage protects the AMOLED during
   long idle periods.
@@ -132,6 +134,9 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   |   \-- Auto-disable timer display
     |   |
 	    |   +-- Display
+	    |   |   |-- Mode Icons toggle (icons vs text titles on grind screens)
+	    |   |   |-- Grind Animation selector (Arc, Disc, Chart)
+	    |   |   |-- Demo Animation button (preview animation without running motor)
 	    |   |   |-- Normal brightness slider
 	    |   |   |-- Screensaver brightness slider
 	    |   |   |-- Screensaver startup/idle toggles
@@ -196,6 +201,19 @@ Both automation settings rely on the same smoothed weight deltas used for flow d
 
 ---
 
+## Wi-Fi connectivity & performance
+
+Smart Grind includes an integrated web interface accessible over Wi-Fi (`http://smartgrind.local`):
+- **Signal indicator**: The status icon on the touchscreen reflects signal strength with thresholds calibrated for appliances with metal enclosures:
+  - 4 bars (Excellent): ≥ -67 dBm
+  - 3 bars (Good): -68 to -75 dBm
+  - 2 bars (Fair): -76 to -83 dBm
+  - 1 bar (Weak): < -83 dBm
+- **Live signal in UI**: Real-time RSSI is displayed in dBm on the grinder touchscreen under **Menu → Info → System Info** (and in the Wi-Fi connection summary) as well as under **Settings → Connectivity → Wi-Fi** in the web interface.
+- **Wi-Fi High-Power Mode**: Configurable directly on the touchscreen under **Menu → Wi-Fi** or in the web interface under **Settings → Connectivity**. Disabled by default (15 dBm power-saving mode with modem sleep). When enabled, modem sleep is deactivated and transmit power is set to 19.5 dBm for maximum throughput, responsiveness and link stability through metal enclosures.
+
+---
+
 ## Bluetooth connectivity
 
 Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, legacy grind-data export and device management. Grind session logging is configurable in **Menu → Data → Logging** and is enabled by default so the local web History page works immediately; disable it if you do not want sessions written to flash.
@@ -212,6 +230,16 @@ grinder.
 
 - **Custom image**: Upload a normal photo from the web interface; conversion
   happens in the browser before it is sent to the grinder.
+- **Clock screensavers**:
+  - **Clock (Black)**: Large time display on an AMOLED solid black background. When Wi-Fi is unavailable or NTP time has not synchronized, the screen stays cleanly black.
+  - **Clock (Custom)**: Overlays the large clock on your uploaded custom image. When unsynchronized, it displays the image cleanly without the time.
+  - **Clock Layout**: Choose between `Horizontal (HH:MM)` using an 80 px Montserrat Bold font with a stationary colon, or `Stacked (HH / MM)` using a prominent 160 px Montserrat Bold font.
+  - **Clock Font**: Choose between the built-in `Montserrat (Default)` font or upload your own `Custom font (.ttf/.otf)`. Supports standard TrueType and OpenType fonts up to 512 KB, dynamically rasterized into PSRAM using LVGL's TinyTTF engine for razor-sharp scaling at 80 px (horizontal) and 160 px (stacked) with graceful fallback.
+  - **Clock Position**: Choose between `Center`, `Top`, or `Bottom`.
+  - **Clock Colour**: Choose any custom HEX colour or select from AMOLED-tailored presets (White, Amber, Warm Gold, Ice Cyan, Mint, Coral) with zero rendering overhead.
+  - **Test screensaver**: Tap **Test screensaver** in the web interface to instantly activate the screensaver on the physical display. Touching the panel or changing weight on the scale restores normal operation.
+  - **Timezone**: Set your local POSIX TZ string (default `CET-1CEST,M3.5.0,M10.5.0/3`) or tap `Auto` to detect it from your browser.
+  - **Burn-in protection**: Periodically applies subtle 1–2 px subpixel shifting every minute to protect the AMOLED screen.
 - **GaggiMate status**: Enter the machine hostname (normally
   `gaggimate.local`) or its IP address. While both devices are on the same
   Wi-Fi network, the screensaver shows temperature and readiness, then live

@@ -25,6 +25,11 @@ public:
     void handle_diagnostics_reset();
     void handle_ble_toggle();
     void handle_ble_startup_toggle();
+    void handle_ble_icon_toggle();
+    void handle_wifi_toggle();
+    void handle_wifi_tab_toggle();
+    void handle_wifi_icon_toggle();
+    void handle_wifi_power_toggle();
     void handle_logging_toggle();
     void handle_grind_mode_swipe_toggle();
     void handle_grind_mode_radio_button();
@@ -41,6 +46,16 @@ public:
     void handle_coast_ratio_slider_released();
     void handle_motor_latency_slider();
     void handle_motor_latency_slider_released();
+    void handle_single_dose_timeout_slider();
+    void handle_single_dose_timeout_slider_released();
+    void handle_grind_tab_manual_toggle();
+    void handle_grind_tab_single_toggle();
+    void handle_grind_tab_double_toggle();
+    void handle_grind_tab_custom_toggle();
+    void handle_mode_icons_toggle();
+    void handle_grind_layout_radio_button();
+    void handle_demo_animation();
+    void handle_disc_color_cycle();
     void handle_brightness_normal_slider();
     void handle_brightness_normal_slider_released();
     void handle_brightness_screensaver_slider();
@@ -51,12 +66,19 @@ public:
 
     float get_normal_brightness() const;
     float get_screensaver_brightness() const;
+    void return_to_menu();
+    void auto_return_to_ready();
+    void reset_idle_timer();
 
 private:
     UIManager* ui_manager_;
     lv_timer_t* motor_timer_{};
     OperationInterlock::Token motor_test_token_ = 0;
     uint32_t last_status_update_ms_ = 0;
+    uint32_t last_activity_ms_ = 0;
+    bool in_menu_ = false;
+    bool diagnostics_active_tracking_ = false;
+    lv_obj_t* last_active_page_ = nullptr;
 
     void perform_factory_reset();
     void execute_purge_operation();
@@ -64,6 +86,6 @@ private:
     void stop_motor_timer();
     void motor_timer_cb(lv_timer_t* timer);
     static void static_motor_timer_cb(lv_timer_t* timer);
-    void return_to_menu();
     void perform_diagnostics_reset();
+    void handle_grind_tab_toggle(int which);
 };

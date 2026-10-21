@@ -128,6 +128,20 @@ void StatisticsManager::update_manual_grind(uint32_t duration_ms) {
     persist_locked(true);
 }
 
+void StatisticsManager::update_single_dose_grind(float final_weight, uint32_t motor_time_ms) {
+    if (!initialized_) return;
+
+    StatsLockGuard lock(g_stats_mutex);
+    if (motor_time_ms > 0) {
+        add_motor_runtime_ms_locked(motor_time_ms);
+    }
+    if (final_weight > 0.0f) {
+        snapshot_.total_weight_kg += (final_weight / 1000.0f);
+    }
+    mark_dirty_locked();
+    persist_locked(true);
+}
+
 void StatisticsManager::update_time_pulse() {
     if (!initialized_) return;
 

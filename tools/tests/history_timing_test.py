@@ -39,6 +39,7 @@ uint32_t clock_ms = 0;
 uint32_t millis() { return clock_ms; }
 struct Statistics {
     void update_grind_session(float, float, uint8_t, bool, uint32_t) {}
+    void update_single_dose_grind(float, uint32_t) {}
 } statistics_manager;
 #define private public
 ''' + header + r'''

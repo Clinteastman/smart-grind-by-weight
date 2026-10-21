@@ -116,6 +116,32 @@ def get_next_build_number():
     
     return build_number
 
+def get_git_repo_info(project_dir):
+    """Determine repository owner, name and slug."""
+    ci_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if ci_repo and "/" in ci_repo:
+        owner, name = ci_repo.split("/", 1)
+        return owner, name, ci_repo
+
+    try:
+        import re
+        res = subprocess.run(
+            ['git', 'config', '--get', 'remote.origin.url'],
+            capture_output=True,
+            text=True,
+            cwd=project_dir
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            url = res.stdout.strip()
+            m = re.search(r'github\.com[:/]([^/]+)/([^/.]+?)(?:\.git)?$', url)
+            if m:
+                owner, name = m.group(1), m.group(2)
+                return owner, name, f"{owner}/{name}"
+    except Exception:
+        pass
+
+    return "Cuxx", "smart-grind-by-weight-singledose", "Cuxx/smart-grind-by-weight-singledose"
+
 def create_git_info_header():
     """Create a header file with Git and build information."""
     commit_id, branch = get_git_info()
@@ -131,6 +157,11 @@ def create_git_info_header():
         project_root = env.get("PROJECT_DIR", os.getcwd())
     else:
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    repo_owner, repo_name, repo_slug = get_git_repo_info(project_root)
+    repo_owner_lower = repo_owner.lower()
+    pages_base_url = f"https://{repo_owner_lower}.github.io/{repo_name}/"
+
     # Keep generated build metadata out of the global include directory.
     # Rewriting a header under include/ makes PlatformIO invalidate every
     # framework and library object, turning incremental builds into full builds.
@@ -148,6 +179,7 @@ def create_git_info_header():
                 f'#define GIT_COMMIT_ID "{commit_id}"',
                 f'#define GIT_BRANCH "{branch}"',
                 f'#define BUILD_NUMBER {build_number}',
+                f'#define GIT_REPO "{repo_slug}"',
             )
             if all(marker in existing for marker in expected_markers):
                 print(f"Reusing unchanged {header_path} (Build #{build_number})")
@@ -164,6 +196,11 @@ def create_git_info_header():
 #define GIT_BRANCH "{branch}"
 #define BUILD_NUMBER {build_number}
 #define BUILD_TIMESTAMP "{build_timestamp}"
+#define GIT_REPO "{repo_slug}"
+#define GIT_REPO_OWNER "{repo_owner}"
+#define GIT_REPO_OWNER_LOWER "{repo_owner_lower}"
+#define GIT_REPO_NAME "{repo_name}"
+#define GITHUB_PAGES_BASE_URL "{pages_base_url}"
 """
     
     try:

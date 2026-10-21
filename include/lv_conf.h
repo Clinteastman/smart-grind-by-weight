@@ -228,7 +228,7 @@
          * The circumference of 1/4 circle are saved for anti-aliasing.
          * `radius * 4` bytes are used per circle (the most often used radiuses are saved).
          * - 0: disables caching */
-        #define LV_DRAW_SW_CIRCLE_CACHE_SIZE 4
+        #define LV_DRAW_SW_CIRCLE_CACHE_SIZE 16
     #endif
 
     #define  LV_USE_DRAW_SW_ASM     LV_DRAW_SW_ASM_NONE
@@ -645,7 +645,9 @@
     /* LV_FONT_DECLARE(lv_font_montserrat_54) */ \
     LV_FONT_DECLARE(lv_font_montserrat_56) \
     /* LV_FONT_DECLARE(lv_font_montserrat_58) */ \
-    LV_FONT_DECLARE(lv_font_montserrat_60)
+    LV_FONT_DECLARE(lv_font_montserrat_60) \
+    LV_FONT_DECLARE(lv_font_montserrat_80) \
+    LV_FONT_DECLARE(lv_font_montserrat_160)
 
 /** Always set a default font */
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
@@ -973,7 +975,7 @@
 #endif
 
 /** Built-in TTF decoder */
-#define LV_USE_TINY_TTF 0
+#define LV_USE_TINY_TTF 1
 #if LV_USE_TINY_TTF
     /* Enable loading TTF data from files */
     #define LV_TINY_TTF_FILE_SUPPORT 0

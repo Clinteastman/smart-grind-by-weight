@@ -50,6 +50,7 @@
 #define USER_SCREEN_BRIGHTNESS_NORMAL 1.0f                                     // Normal screen brightness
 #define USER_SCREEN_BRIGHTNESS_DIMMED 0.35f                                    // Dimmed screen brightness
 #define USER_WEIGHT_ACTIVITY_THRESHOLD_G 1.0f                                  // Weight change threshold for screen timeout reset (grams)
+#define USER_MENU_IDLE_TIMEOUT_MS 60000                                        // Inactivity timeout in menu before auto-returning to ready screen
 
 //------------------------------------------------------------------------------
 // AUTO ACTIONS

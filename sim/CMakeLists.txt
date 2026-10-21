@@ -29,12 +29,16 @@ target_include_directories(lvgl PUBLIC "${PROJECT_ROOT}/include")
 add_executable(smart-grind-sim
     main.cpp
     grind_mode_format.cpp
+    "${PROJECT_ROOT}/src/ui/assets/mode_icons.c"
     "${PROJECT_ROOT}/src/ui/ui_helpers.cpp"
     "${PROJECT_ROOT}/src/ui/screens/ready_screen.cpp"
     "${PROJECT_ROOT}/src/ui/screens/grinding_screen_arc.cpp"
     "${PROJECT_ROOT}/src/ui/screens/grinding_screen_chart.cpp"
+    "${PROJECT_ROOT}/src/ui/screens/grinding_screen_disc.cpp"
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_56.c"
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_60.c"
+    "${PROJECT_ROOT}/src/font/lv_font_montserrat_80.c"
+    "${PROJECT_ROOT}/src/font/lv_font_montserrat_160.c"
 )
 
 add_executable(net-weight-guard-test

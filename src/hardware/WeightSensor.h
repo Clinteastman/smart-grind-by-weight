@@ -155,6 +155,7 @@ public:
     // Uses sustained 3-second check to filter out brief motor/electrical interference
     // Same settling parameters as grind control (500ms window, 0.010g threshold)
     bool noise_level_diagnostic() const;
+    void reset_noise_diagnostic();
     
     // Raw ADC data access (for advanced filtering and diagnostics)
     int32_t get_raw_adc_instant() const;                    // Latest raw ADC reading

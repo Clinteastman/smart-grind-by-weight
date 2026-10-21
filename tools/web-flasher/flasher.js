@@ -98,8 +98,22 @@ function resolveFirmwareUrl(relativePath) {
     return new URL(relativePath, window.location.href).href;
 }
 
+function updateRepoLink() {
+    const host = window.location.hostname;
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    if (host.endsWith('.github.io') && pathParts.length > 0) {
+        const owner = host.replace(/\.github\.io$/, '');
+        const repo = pathParts[0];
+        const link = document.getElementById('repoLink');
+        if (link) {
+            link.href = `https://github.com/${owner}/${repo}`;
+        }
+    }
+}
+
 // Browser support check and load releases
 window.addEventListener('load', () => {
+    updateRepoLink();
     if (!('bluetooth' in navigator)) {
         document.getElementById('browserWarning').style.display = 'block';
         // Disable OTA tab if no Web Bluetooth

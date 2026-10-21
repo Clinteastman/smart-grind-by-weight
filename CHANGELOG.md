@@ -4,6 +4,111 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [Unreleased]
+
+## [1.6.6-beta.2] - 2026-10-21
+
+### Diagnostics & Calibration
+- **Diagnostics Screen Live Refresh**: Removed 1-second throttling on the Diagnostics page so standard deviation (`Std Dev (g)`, `Std Dev (ADC)`) and noise status update live at the native display/sampling rate (~80 Hz).
+- **Diagnostics Submenu Scoping & Optimization**: Ensured high-frequency sensor updates only run while actively viewing the Diagnostics submenu (`is_diagnostics_page_active()`), keeping the main menu list and other submenus completely smooth. Added dirty-checking to diagnostic labels to avoid layout invalidations and keep scrolling responsive.
+- **False Noise Warning Fix**: Added a noise diagnostic reset when entering Diagnostics or clicking *Reset Diagnostics*, and extended the sustained instability threshold to 3000 ms so touch gestures do not falsely trigger "Too High" noise alerts.
+
+## [1.6.6-beta.1] - 2026-10-20
+
+### Grinding Animation & Display
+- **Expanding Disc Grind Animation**: Added a new concentric grinding disc animation with expanding grain flow and live target progress directly on the AMOLED display.
+- **Customizable Color Presets**: Added 5 color schemes for the disc animation (`Emerald`, `Stealth`, `Coffee`, `Navy`, `Crimson`), selectable on the touchscreen under **Menu → Display** and in the web interface under **Settings → Display & screensaver**.
+- **Interactive Animation Demo Mode**: Added a live demo button under **Menu → Display** allowing users to test and preview all grinding animations with simulated coffee flow and live weight progression without running the motor.
+- **Grind Screen Completion State Fix**: Ensured the grinding screen completion state is reliably cleared after exiting demo mode so that live grinds always render the active animation.
+
+### Menu & Navigation
+- **Inactivity Auto-Return**: Added an automatic 60-second inactivity timeout in the menu (`USER_MENU_IDLE_TIMEOUT_MS = 60000`). If no touch or scale activity occurs for 60 seconds, the grinder cleanly returns to the ready screen on the active profile tab.
+- **Screensaver Menu Protection**: If the screensaver activates or the display powers off while in the menu, the UI automatically returns to the ready screen first. Tapping the screen or placing a cup wakes the grinder directly ready to grind.
+- **Menu Reset on Exit**: Exiting the menu (via root back chevron, idle timeout, or screensaver) resets navigation back to the top-level main page.
+
+## [1.6.5] - 2026-10-17
+
+### Display & Mode Icons
+- **Mode Icons instead of Text**: Added toggle on the grinder touchscreen under **Menu → Display** and in the web interface under **Settings → Display & screensaver** (default enabled). When active, mode titles on the ready screen are replaced with crisp, high-resolution antialiased icons (112×112 px) rendered in pure white:
+  - **Single Dose**: Open, outlined digital scale with a clear weighing platform.
+  - **Single**: Minimal outlined cappuccino cup with a single steam stroke and saucer.
+  - **Double**: Two outlined cups with a plus sign to make the double portion clear.
+  - **Custom**: Cappuccino cup with a compact slider control badge.
+- **Desktop Simulator Build Support**: Linked mode icon assets in CMake for seamless desktop simulation and CI smoke testing.
+
+### Wi-Fi Connectivity & Signal
+- **Wi-Fi High-Power Mode**: Added user-controllable toggle directly on the touchscreen under **Menu → Wi-Fi** and in the web interface under **Settings → Connectivity → Wi-Fi** (persisted in NVS as `wifi_perf`, default disabled / power-saving mode). When enabled, modem sleep is disabled and TX power is increased to 19.5 dBm for maximum throughput, low latency and robust uplink through metal grinder enclosures.
+- **Real-Time Signal Display**: Added live RSSI signal indicator in dBm on the touchscreen under **Menu → Info → System Info** (and in the Wi-Fi status view) as well as under **Settings → Connectivity → Wi-Fi** in the web interface.
+- **Realistic RSSI Icon Thresholds**: Re-calibrated 4-tier signal mapping on the AMOLED screen (4 bars: ≥ -67 dBm, 3 bars: -68 to -75 dBm, 2 bars: -76 to -83 dBm, 1 bar: < -83 dBm), accurately reflecting solid signal levels rather than prematurely dropping to weak indication.
+
+## [1.6.4] - 2026-10-15
+
+### Grinding & Workflow
+- In **Prime mode** (Keep coffee) and when grounds are fresh, grinding now proceeds continuously from tare directly to target weight without intermediate motor stopping or settling pause.
+- Purge pause is now cleanly restricted to **Purge mode** (Remove grinds) when grounds are stale.
+- Fixed purge state tracking so confirming a purge properly records the timestamp to avoid repeated purge prompts within the freshness window.
+
+### Screensaver & Typography
+- Added custom clock font upload support (`.ttf` and `.otf`) via the web interface.
+- Integrated LVGL TinyTTF runtime vector font rasterization:
+  - Dynamically rasterizes uploaded vector fonts into PSRAM for both horizontal (80 px) and stacked (160 px) clock layouts.
+  - Graceful fallback to built-in Montserrat-Bold font if no custom font is uploaded or if font parsing fails.
+- Added strict safety boundaries:
+  - 512 KB maximum font size enforced both client-side and server-side to prevent heap exhaustion or LittleFS flash saturation.
+  - Magic byte header validation (`0x00010000`, `OTTO`, `true`, `typ1`) to reject invalid files before writing to flash.
+- Added browser-side live font preview using the `FontFace` API when choosing a font.
+
+## [1.6.3] - 2026-10-15
+
+### Screensaver
+- Added large clock screensaver styles (`Clock (Black)` and `Clock (Custom)`).
+- Added selectable clock layouts:
+  - `Horizontal (HH:MM)` using an 80 px Montserrat-Bold font with stationary colon.
+  - `Stacked (HH / MM)` using a prominent 160 px Montserrat-Bold font centered for the AMOLED display.
+- Added configurable clock positioning (`Center`, `Top`, `Bottom`) and browser timezone auto-detection.
+- Added configurable clock colour selection with built-in presets (White, Amber, Warm Gold, Ice Cyan, Mint, Coral) and custom HEX picker with live browser preview.
+- Added **Test screensaver** button in the web interface to trigger screensaver preview directly on the grinder display with touch and scale wake support.
+- Integrated AMOLED burn-in protection via subtle 1–2 px subpixel shifting every minute.
+
+### UI & Navigation Fixes
+- Fixed start button erroneously showing gear icon after gesture swipe when a subset of grind tabs are disabled.
+- Fixed cold boot restoring settings screen instead of the last active grind screen.
+
+## [1.6.2] - 2026-10-14
+
+### Fixes & Improvements
+
+- Fixed grinder motor stopping when cancelling a grind session during weight or time modes.
+- Updated unit test harnesses for single dose statistics and web configuration persistence.
+
+## [1.6.1] - 2026-10-14
+
+### Web Interface & Connectivity
+
+- Subdivided the Connectivity settings page into dedicated Wi-Fi and Bluetooth sections.
+- Added Web UI toggle to show or hide the Wi-Fi carousel tab on the grinder screen.
+- Added Web UI toggles to hide Wi-Fi and Bluetooth status icons during grind modes.
+- Instant display synchronization when connectivity settings are saved from the browser.
+
+## [1.6.0] - 2026-10-14
+
+### Single Dose grinding mode
+
+- Unified Single Dose workflow into the `GrindMode::MANUAL` mode enum, removing separate mode ambiguities while maintaining dedicated profile parameters.
+- Added configurable Single Dose safety cutoff limit (between 60 s and 300 s) in web settings and device menu to prevent unattended motor overruns.
+- Added lifetime and session statistics tracking specifically for single dose grinds.
+
+### Wi-Fi management & stability
+
+- Added on-device Wi-Fi toggle in the settings menu, enabling complete hardware power-down of the Wi-Fi radio to reduce power consumption and eliminate RF interference.
+- Fixed Wi-Fi reconnection stability and `AsyncWebServer` lifecycle management, ensuring reliable reconnection without requiring a grinder reboot.
+- Added configurable Wi-Fi carousel tab toggle in the settings menu to show or hide the network status screen from the main carousel.
+- Added option to hide the Wi-Fi status indicator icon during grinding modes, showing it only when navigating menus.
+
+### Bluetooth icon visibility
+
+- Added option to hide the Bluetooth status indicator icon during active grinding modes, displaying it only when in the menu screen.
+
 ## [1.5.9] - 2026-09-06
 
 ### Firmware update hotfix
@@ -385,3 +490,11 @@ fixes described above.
 [1.5.7]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.7
 [1.5.8]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.8
 [1.5.9]: https://github.com/Clinteastman/smart-grind-by-weight/releases/tag/v1.5.9
+[1.6.0]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.0
+[1.6.1]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.1
+[1.6.2]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.2
+[1.6.3]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.3
+[1.6.4]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.4
+[1.6.5]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.5
+[1.6.6-beta.1]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.6-beta.1
+[1.6.6-beta.2]: https://github.com/Cuxx/smart-grind-by-weight-singledose/releases/tag/v1.6.6-beta.2

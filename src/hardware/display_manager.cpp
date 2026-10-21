@@ -128,19 +128,45 @@ void DisplayManager::init() {
     dma_staging_buffer = nullptr;
     dma_staging_rows = 16;
 
-    const size_t draw_rows = 40; // 280 * 40 * 2 = 22,400 bytes
+    // V1 Fast Path: Allocate draw buffer directly in fast internal DMA SRAM
+    const size_t draw_rows = 32; // 280 * 32 * 2 = 17,920 bytes (~18 KB)
     buffer_size = screen_width * draw_rows * sizeof(uint16_t);
 
     draw_buffer = static_cast<lv_color_t*>(
         heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN,
                                 buffer_size,
-                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+                                MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
 
     if (!draw_buffer) {
+        LOG_BLE("[DISPLAY] Internal DMA alloc failed, falling back to PSRAM staging\n");
         draw_buffer = static_cast<lv_color_t*>(
             heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN,
                                     buffer_size,
-                                    MALLOC_CAP_8BIT));
+                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+
+        if (!draw_buffer) {
+            draw_buffer = static_cast<lv_color_t*>(
+                heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN,
+                                        buffer_size,
+                                        MALLOC_CAP_8BIT));
+        }
+
+        while (dma_staging_rows >= 4 && dma_staging_buffer == nullptr) {
+            dma_staging_buffer = static_cast<uint16_t*>(
+                heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN,
+                                        screen_width * dma_staging_rows * sizeof(uint16_t),
+                                        MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+            if (!dma_staging_buffer) {
+                dma_staging_rows /= 2;
+            }
+        }
+
+        if (!dma_staging_buffer) {
+            LOG_BLE("[DISPLAY] ERROR: Failed to allocate DMA staging buffer\n");
+            heap_caps_free(draw_buffer);
+            draw_buffer = nullptr;
+            return;
+        }
     }
 #endif
 
@@ -148,25 +174,6 @@ void DisplayManager::init() {
         LOG_BLE("[DISPLAY] ERROR: Failed to allocate LVGL draw buffer\n");
         return;
     }
-
-#if !HW_DISPLAY_VARIANT_V2
-    while (dma_staging_rows >= 4 && dma_staging_buffer == nullptr) {
-        dma_staging_buffer = static_cast<uint16_t*>(
-            heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN,
-                                    screen_width * dma_staging_rows * sizeof(uint16_t),
-                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
-        if (!dma_staging_buffer) {
-            dma_staging_rows /= 2;
-        }
-    }
-
-    if (!dma_staging_buffer) {
-        LOG_BLE("[DISPLAY] ERROR: Failed to allocate DMA staging buffer\n");
-        heap_caps_free(draw_buffer);
-        draw_buffer = nullptr;
-        return;
-    }
-#endif
 
     lvgl_display = lv_display_create(screen_width, screen_height);
     lv_display_set_flush_cb(lvgl_display, display_flush_cb);
@@ -181,6 +188,8 @@ void DisplayManager::init() {
     lvgl_input = lv_indev_create();
     lv_indev_set_type(lvgl_input, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(lvgl_input, touchpad_read_cb);
+    lv_indev_set_scroll_limit(lvgl_input, 6);
+    lv_indev_set_scroll_throw(lvgl_input, 10);
     
     initialized = true;
 }
@@ -345,19 +354,19 @@ void DisplayManager::display_flush_cb(lv_display_t* disp, const lv_area_t* area,
     uint32_t w = lv_area_get_width(area);
     uint32_t h = lv_area_get_height(area);
 
-    uint32_t remaining_rows = h;
-    uint32_t current_y = area->y1;
-    uint32_t src_row_offset = 0;
-    uint16_t* staging = g_display_manager->dma_staging_buffer;
-    uint32_t staging_rows = g_display_manager->dma_staging_rows ? g_display_manager->dma_staging_rows : h;
-    const uint16_t* src_pixels = reinterpret_cast<const uint16_t*>(px_map);
+    if (g_display_manager->dma_staging_buffer) {
+        uint32_t remaining_rows = h;
+        uint32_t current_y = area->y1;
+        uint32_t src_row_offset = 0;
+        uint16_t* staging = g_display_manager->dma_staging_buffer;
+        uint32_t staging_rows = g_display_manager->dma_staging_rows ? g_display_manager->dma_staging_rows : h;
+        const uint16_t* src_pixels = reinterpret_cast<const uint16_t*>(px_map);
 
-    while (remaining_rows > 0) {
-        uint32_t rows = std::min<uint32_t>(remaining_rows, staging_rows);
-        size_t copy_pixels = static_cast<size_t>(w) * rows;
-        const uint16_t* chunk_src = src_pixels + (static_cast<size_t>(src_row_offset) * w);
+        while (remaining_rows > 0) {
+            uint32_t rows = std::min<uint32_t>(remaining_rows, staging_rows);
+            size_t copy_pixels = static_cast<size_t>(w) * rows;
+            const uint16_t* chunk_src = src_pixels + (static_cast<size_t>(src_row_offset) * w);
 
-        if (staging) {
             memcpy(staging, chunk_src, copy_pixels * sizeof(uint16_t));
 
             if (LV_COLOR_16_SWAP) {
@@ -365,17 +374,18 @@ void DisplayManager::display_flush_cb(lv_display_t* disp, const lv_area_t* area,
             } else {
                 g_display_manager->gfx_device->draw16bitRGBBitmap(area->x1, current_y, staging, w, rows);
             }
-        } else {
-            if (LV_COLOR_16_SWAP) {
-                g_display_manager->gfx_device->draw16bitBeRGBBitmap(area->x1, current_y, const_cast<uint16_t*>(chunk_src), w, rows);
-            } else {
-                g_display_manager->gfx_device->draw16bitRGBBitmap(area->x1, current_y, const_cast<uint16_t*>(chunk_src), w, rows);
-            }
-        }
 
-        remaining_rows -= rows;
-        src_row_offset += rows;
-        current_y += rows;
+            remaining_rows -= rows;
+            src_row_offset += rows;
+            current_y += rows;
+        }
+    } else {
+        // Direct Fast Path: px_map is in internal DMA memory - zero memcpy
+        if (LV_COLOR_16_SWAP) {
+            g_display_manager->gfx_device->draw16bitBeRGBBitmap(area->x1, area->y1, reinterpret_cast<uint16_t*>(px_map), w, h);
+        } else {
+            g_display_manager->gfx_device->draw16bitRGBBitmap(area->x1, area->y1, reinterpret_cast<uint16_t*>(px_map), w, h);
+        }
     }
 
     g_display_manager->metrics_window.flushes++;

@@ -12,6 +12,7 @@ private:
     lv_obj_t* progress_arc;
     bool visible;
     bool time_mode;
+    bool manual_mode;
     char displayed_weight_text[16];
     int displayed_progress;
     float target_time_seconds_;
@@ -27,8 +28,11 @@ public:
     void update_current_weight(float weight) override;
     void update_tare_display() override;
     void update_progress(int percent) override;
+    void set_completed(bool completed) override;
     void set_time_mode(bool enabled);
+    void set_manual_mode(bool enabled);
     
     bool is_visible() const override { return visible; }
     lv_obj_t* get_screen() const override { return screen; }
+    lv_obj_t* get_weight_label() const { return weight_label; }
 };

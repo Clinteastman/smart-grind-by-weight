@@ -1,8 +1,8 @@
 #pragma once
 #include <lvgl.h>
 
+#include "../../system/state_machine.h"
 class UIManager;
-enum class UIState;
 struct GrindEventData;
 
 // Controls grind/pulse buttons, state transitions, chart updates, and auto-return timers
@@ -30,6 +30,10 @@ public:
     void handle_grind_event(const GrindEventData& event_data);
     static void dispatch_event(const GrindEventData& event_data);
 
+    void start_demo();
+    void stop_demo();
+    bool is_demo_active() const { return is_demo_active_; }
+
 private:
     void enter_ready_state();
     void enter_edit_state();
@@ -44,6 +48,9 @@ private:
 
     static void grind_complete_timer_cb(lv_timer_t* timer);
     static void grind_timeout_timer_cb(lv_timer_t* timer);
+    static void static_demo_timer_cb(lv_timer_t* timer);
+    void demo_timer_cb(lv_timer_t* timer);
+    static void static_demo_auto_return_cb(lv_timer_t* timer);
 
     static GrindingUIController* instance_;
 
@@ -54,7 +61,15 @@ private:
     lv_obj_t* pulse_icon_ = nullptr;
     lv_timer_t* grind_complete_timer_ = nullptr;
     lv_timer_t* grind_timeout_timer_ = nullptr;
+    lv_timer_t* demo_timer_ = nullptr;
+    lv_timer_t* demo_auto_return_timer_ = nullptr;
     bool chart_updates_enabled_ = false;
+    bool is_demo_active_ = false;
+    bool demo_completed_ = false;
+    uint32_t demo_start_ms_ = 0;
+    float demo_target_weight_ = 18.0f;
+    uint32_t demo_token_ = 0;
+    UIState demo_previous_state_ = UIState::MENU;
     float final_grind_weight_ = 0.0f;
     int final_grind_progress_ = 0;
     float error_grind_weight_ = 0.0f;

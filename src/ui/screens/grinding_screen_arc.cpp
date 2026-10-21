@@ -61,6 +61,7 @@ void GrindingScreenArc::create() {
 
     visible = false;
     time_mode = false;
+    manual_mode = false;
     target_time_seconds_ = 0.0f;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 }
@@ -117,6 +118,9 @@ void GrindingScreenArc::update_tare_display() {
 }
 
 void GrindingScreenArc::update_progress(int percent) {
+    if (manual_mode) {
+        return;
+    }
     if (displayed_progress == percent) {
         return;
     }
@@ -133,4 +137,33 @@ void GrindingScreenArc::update_progress(int percent) {
 
 void GrindingScreenArc::set_time_mode(bool enabled) {
     time_mode = enabled;
+}
+
+void GrindingScreenArc::set_manual_mode(bool enabled) {
+    manual_mode = enabled;
+    if (progress_arc) {
+        lv_obj_set_style_arc_opa(progress_arc, manual_mode ? static_cast<lv_opa_t>(LV_OPA_TRANSP) : static_cast<lv_opa_t>(LV_OPA_COVER), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(progress_arc, manual_mode ? static_cast<lv_opa_t>(LV_OPA_TRANSP) : static_cast<lv_opa_t>(LV_OPA_COVER), LV_PART_MAIN);
+    }
+    if (target_label) {
+        if (manual_mode) {
+            lv_obj_add_flag(target_label, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(target_label, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (manual_mode && weight_label) {
+        lv_obj_set_style_text_color(weight_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    }
+}
+
+void GrindingScreenArc::set_completed(bool completed) {
+    if (weight_label) {
+        lv_obj_set_style_text_color(weight_label,
+            completed ? lv_color_hex(THEME_COLOR_SUCCESS) : lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    }
+    if (progress_arc && !manual_mode) {
+        lv_obj_set_style_arc_color(progress_arc,
+            completed ? lv_color_hex(THEME_COLOR_SUCCESS) : lv_color_hex(THEME_COLOR_PRIMARY), LV_PART_INDICATOR);
+    }
 }

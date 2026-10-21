@@ -18,6 +18,8 @@ void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_f
     }
     
     lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(object, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_add_flag(object, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
 }
 
 lv_obj_t* create_button(lv_obj_t* parent, const char* text, lv_color_t bg_color, int32_t width, int32_t height, const lv_font_t* font){ 
@@ -73,11 +75,15 @@ lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_ob
 
     *profile_label = lv_label_create(label_container);
     lv_label_set_text(*profile_label, "DOUBLE");
+    lv_obj_set_width(*profile_label, LV_PCT(100));
+    lv_obj_set_style_text_align(*profile_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(*profile_label, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(*profile_label, lv_color_hex(THEME_COLOR_SECONDARY), 0);
     
     *weight_label = lv_label_create(label_container);
     lv_label_set_text(*weight_label, "18.0g");
+    lv_obj_set_width(*weight_label, LV_PCT(100));
+    lv_obj_set_style_text_align(*weight_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(*weight_label, &lv_font_montserrat_60, 0);
     lv_obj_set_style_text_color(*weight_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
 
@@ -239,7 +245,8 @@ lv_obj_t* create_radio_button_group(
     int32_t button_width,
     int32_t button_height,
     radio_button_callback_t callback,
-    void* user_data) {
+    void* user_data,
+    const lv_font_t* font) {
     
     // Create container
     lv_obj_t* group_container = lv_obj_create(parent);
@@ -257,6 +264,11 @@ lv_obj_t* create_radio_button_group(
         lv_obj_set_flex_align(group_container, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(group_container, 10, 0);
         lv_obj_set_size(group_container, 280, LV_SIZE_CONTENT);
+    } else if (layout == LV_FLEX_FLOW_ROW_WRAP) {
+        lv_obj_set_flex_align(group_container, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(group_container, 8, 0);
+        lv_obj_set_style_pad_row(group_container, 8, 0);
+        lv_obj_set_size(group_container, 260, LV_SIZE_CONTENT);
     } else {
         lv_obj_set_flex_align(group_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_row(group_container, 10, 0);
@@ -271,16 +283,24 @@ lv_obj_t* create_radio_button_group(
     data->callback = callback;
     data->user_data = user_data;
     
+    // Determine font
+    const lv_font_t* btn_font = font;
+    if (!btn_font) {
+        btn_font = (button_height <= 40 || option_count > 2) ? &lv_font_montserrat_16 : &lv_font_montserrat_24;
+    }
+
     // Calculate button width if auto
     int32_t actual_button_width = button_width;
     if (layout == LV_FLEX_FLOW_ROW && button_width == -1) {
         actual_button_width = (280 - (option_count - 1) * 10) / option_count;
+    } else if (layout == LV_FLEX_FLOW_ROW_WRAP && (button_width == -1 || button_width > 126)) {
+        actual_button_width = 126;
     }
     
     // Create buttons
     for (int i = 0; i < option_count; i++) {
         lv_color_t color = (i == initial_selection) ? lv_color_hex(THEME_COLOR_PRIMARY) : lv_color_hex(THEME_COLOR_NEUTRAL);
-        data->buttons[i] = create_button(group_container, options[i], color, actual_button_width, button_height, &lv_font_montserrat_24);
+        data->buttons[i] = create_button(group_container, options[i], color, actual_button_width, button_height, btn_font);
         
         // Add event handler
         lv_obj_add_event_cb(data->buttons[i], radio_button_event_handler, LV_EVENT_CLICKED, nullptr);

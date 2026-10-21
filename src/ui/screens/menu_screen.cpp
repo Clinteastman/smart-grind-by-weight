@@ -45,6 +45,10 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
 
     visible = false;
     scale_active = false;
+    diagnostics_active = false;
+    reset_diagnostics_display();
+    menu = nullptr;
+    main_page = nullptr;
     scale_page = nullptr;
     scale_weight_label = nullptr;
     scale_tare_button = nullptr;
@@ -69,9 +73,15 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     coast_ratio_label = nullptr;
     motor_latency_slider = nullptr;
     motor_latency_label = nullptr;
+    single_dose_timeout_slider = nullptr;
+    single_dose_timeout_label = nullptr;
     auto_start_threshold_slider = nullptr;
     auto_start_threshold_label = nullptr;
     display_off_toggle = nullptr;
+    grind_layout_radio_group = nullptr;
+    grind_layout_demo_button = nullptr;
+    disc_color_button = nullptr;
+    disc_color_label = nullptr;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 
     // Create menu UI immediately at boot for instant access
@@ -137,13 +147,14 @@ void MenuScreen::create_menu_ui() {
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
 
     // Create main page last
-    lv_obj_t* main_page = lv_menu_page_create(menu, "Menu");
+    main_page = lv_menu_page_create(menu, "Menu");
     lv_obj_set_layout(main_page, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(main_page, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(main_page, 0, 0);
     lv_obj_set_style_pad_gap(main_page, 0, 0);
     lv_obj_set_scroll_dir(main_page, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(main_page, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_scroll_snap_y(main_page, LV_SCROLL_SNAP_NONE);
 
     // Create sub-pages with titles
     info_page = lv_menu_page_create(menu, "Info");
@@ -249,6 +260,16 @@ void MenuScreen::create_menu_ui() {
         } else if (self->scale_active) {
             self->scale_active = false;
         }
+
+        bool on_diag = (cur == self->diagnostics_page);
+        if (on_diag) {
+            if (!self->diagnostics_active) {
+                self->diagnostics_active = true;
+                self->reset_diagnostics_display();
+            }
+        } else if (self->diagnostics_active) {
+            self->diagnostics_active = false;
+        }
     };
 
     lv_obj_add_event_cb(menu, changing_page_callback, LV_EVENT_VALUE_CHANGED, this);
@@ -284,6 +305,7 @@ void MenuScreen::create_info_page(lv_obj_t* parent) {
    
     create_data_label(parent, "Uptime:", &uptime_label);
     create_data_label(parent, "RAM:", &memory_label);
+    create_data_label(parent, "Signal:", &signal_label);
 }
 
 
@@ -298,6 +320,7 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
 
     create_toggle_row(parent, "Enabled", &ble_toggle);
     create_toggle_row(parent, "Startup", &ble_startup_toggle);
+    create_toggle_row(parent, "Hide Icon", &ble_icon_toggle);
 
     // BLE Status label
     ble_status_label = lv_label_create(parent);
@@ -323,6 +346,10 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
         lv_obj_add_event_cb(ble_startup_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::BLE_STARTUP_TOGGLE)));
     }
+    if (ble_icon_toggle) {
+        lv_obj_add_event_cb(ble_icon_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::BLE_ICON_TOGGLE)));
+    }
 }
 
 namespace {
@@ -344,6 +371,29 @@ void MenuScreen::create_network_page(lv_obj_t* parent) {
     lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_scroll_dir(parent, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+
+    create_toggle_row(parent, "Enabled", &wifi_toggle);
+    create_toggle_row(parent, "WiFi Tab", &wifi_tab_toggle);
+    create_toggle_row(parent, "Hide Icon", &wifi_icon_toggle);
+    create_toggle_row(parent, "High-Power", &wifi_power_toggle);
+
+    using ET = EventBridgeLVGL::EventType;
+    if (wifi_toggle) {
+        lv_obj_add_event_cb(wifi_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_TOGGLE)));
+    }
+    if (wifi_tab_toggle) {
+        lv_obj_add_event_cb(wifi_tab_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_TAB_TOGGLE)));
+    }
+    if (wifi_icon_toggle) {
+        lv_obj_add_event_cb(wifi_icon_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_ICON_TOGGLE)));
+    }
+    if (wifi_power_toggle) {
+        lv_obj_add_event_cb(wifi_power_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_POWER_TOGGLE)));
+    }
 
     network_status_label = lv_label_create(parent);
     lv_obj_set_style_text_font(network_status_label, &lv_font_montserrat_24, 0);
@@ -384,6 +434,35 @@ void MenuScreen::create_network_page(lv_obj_t* parent) {
 }
 
 void MenuScreen::update_network_status() {
+    if (wifi_toggle) {
+        if (network_manager.is_enabled()) {
+            lv_obj_add_state(wifi_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_toggle, LV_STATE_CHECKED);
+        }
+    }
+    if (wifi_tab_toggle) {
+        if (network_manager.is_tab_enabled()) {
+            lv_obj_add_state(wifi_tab_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_tab_toggle, LV_STATE_CHECKED);
+        }
+    }
+    if (wifi_icon_toggle) {
+        if (network_manager.is_icon_menu_only()) {
+            lv_obj_add_state(wifi_icon_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_icon_toggle, LV_STATE_CHECKED);
+        }
+    }
+    if (wifi_power_toggle) {
+        if (network_manager.is_performance_mode()) {
+            lv_obj_add_state(wifi_power_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_power_toggle, LV_STATE_CHECKED);
+        }
+    }
+
     if (!network_status_label || !network_detail_label || !network_qr ||
         !network_update_label || !network_update_button) return;
 
@@ -393,7 +472,7 @@ void MenuScreen::update_network_status() {
     switch (network_manager.state()) {
         case NetworkState::WIFI_DISABLED:
             status = "Wi-Fi disabled";
-            detail = "Wi-Fi can be enabled after setup support is complete.";
+            detail = "Turn on toggle above to enable Wi-Fi.";
             break;
         case NetworkState::WIFI_NO_CREDENTIALS:
         case NetworkState::WIFI_SETUP_REQUIRED:
@@ -410,7 +489,7 @@ void MenuScreen::update_network_status() {
                 detail = String(device_web_server.ota_progress_percent()) + "% received\nDo not remove power.";
             } else {
                 status = "Connected";
-                detail = network_manager.network_name() + "\nhttp://" + network_manager.hostname() + ".local\n" + network_manager.ip_address();
+                detail = network_manager.network_name() + " (" + String(network_manager.get_rssi()) + " dBm)\nhttp://" + network_manager.hostname() + ".local\n" + network_manager.ip_address();
             }
             break;
         case NetworkState::WIFI_RETRY_WAIT:
@@ -492,6 +571,15 @@ void MenuScreen::update_network_status() {
 
 }
 
+// Callback for grind layout radio button selection
+static void grind_layout_callback(int selected_index, void* user_data) {
+    MenuScreen* self = static_cast<MenuScreen*>(user_data);
+    if (self) {
+        self->set_disc_color_button_visible(selected_index == 1 || selected_index == 2);
+    }
+    EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::GRIND_LAYOUT_RADIO_BUTTON, nullptr);
+}
+
 void MenuScreen::create_display_page(lv_obj_t* parent) {
     lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
@@ -538,8 +626,59 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::DISPLAY_OFF_TOGGLE)));
     }
 
-}
+    // Grind screens
+    create_separator(parent, "Grind Screens");
+    create_toggle_row(parent, "Mode Icons", &mode_icons_toggle);
+    if (mode_icons_toggle) {
+        lv_obj_add_event_cb(mode_icons_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::MODE_ICONS_TOGGLE)));
+    }
 
+    create_description_label(parent, "Grind screen animation style.");
+    const char* layout_modes[] = {"Arc", "Disc Ring", "Disc Solid", "Chart"};
+    int initial_layout = 0;
+    Preferences* main_prefs = hardware_manager ? hardware_manager->get_preferences() : nullptr;
+    if (main_prefs) {
+        initial_layout = main_prefs->getInt("grind_layout", 0);
+        if (initial_layout < 0 || initial_layout > 3) initial_layout = 0;
+    }
+    grind_layout_radio_group = create_radio_button_group(
+        parent,
+        layout_modes,
+        4,
+        LV_FLEX_FLOW_ROW_WRAP,
+        initial_layout,
+        126, 38,
+        grind_layout_callback,
+        this,
+        &lv_font_montserrat_16
+    );
+
+    int init_color = main_prefs ? main_prefs->getInt("disc_color", 0) : 0;
+    if (init_color < 0 || init_color >= NUM_DISC_COLOR_PRESETS) init_color = 0;
+    char color_btn_text[48];
+    snprintf(color_btn_text, sizeof(color_btn_text), "Disc Color: %s", DISC_COLOR_PRESETS[init_color].name);
+    disc_color_button = create_button(parent, color_btn_text, lv_color_hex(DISC_COLOR_PRESETS[init_color].color_hex), 220, 38, &lv_font_montserrat_16);
+    lv_obj_set_style_border_width(disc_color_button, 1, 0);
+    lv_obj_set_style_border_color(disc_color_button, lv_color_hex(0x606060), 0);
+    lv_obj_set_style_margin_top(disc_color_button, 6, 0);
+    using ET = EventBridgeLVGL::EventType;
+    if (disc_color_button) {
+        disc_color_label = lv_obj_get_child(disc_color_button, 0);
+        lv_obj_add_event_cb(disc_color_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::DISC_COLOR_CYCLE)));
+        if (initial_layout != 1 && initial_layout != 2) {
+            lv_obj_add_flag(disc_color_button, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    grind_layout_demo_button = create_button(parent, LV_SYMBOL_PLAY "  Demo Animation", lv_color_hex(THEME_COLOR_ACCENT));
+    lv_obj_set_style_margin_top(grind_layout_demo_button, 10, 0);
+    if (grind_layout_demo_button) {
+        lv_obj_add_event_cb(grind_layout_demo_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::MENU_DEMO_ANIMATION)));
+    }
+}
 
 // Callback for grind mode radio button selection
 static void grind_mode_callback(int selected_index, void* user_data) {
@@ -573,14 +712,14 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
         2,
         LV_FLEX_FLOW_ROW,
         0,  // Weight initially selected
-        135, 100,  // Width, Height
+        135, 50,  // Width, Height
         grind_mode_callback,
         this
     );
 
     // Descriptive label for swipe functionality
     lv_obj_t* swipe_desc_label = lv_label_create(parent);
-    lv_label_set_text(swipe_desc_label, "Enable swiping vertically to switch between Weight/Time modes");
+    lv_label_set_text(swipe_desc_label, "Enable swiping vertically to switch between Weight and Time modes");
     lv_obj_set_style_text_font(swipe_desc_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(swipe_desc_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_margin_bottom(swipe_desc_label, 10, 0);
@@ -589,6 +728,31 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
 
     // Swipe toggle using existing pattern
     create_toggle_row(parent, "Swipe", &grind_mode_swipe_toggle);
+
+    // Grind Screens section
+    create_separator(parent, "Grind Screens");
+    create_description_label(parent, "Choose which screens appear in the main view. At least one must be enabled.");
+    create_toggle_row(parent, "Manual", &grind_tab_manual_toggle);
+    create_toggle_row(parent, "Single", &grind_tab_single_toggle);
+    create_toggle_row(parent, "Double", &grind_tab_double_toggle);
+    create_toggle_row(parent, "Custom", &grind_tab_custom_toggle);
+
+    if (grind_tab_manual_toggle) {
+        lv_obj_add_event_cb(grind_tab_manual_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_MANUAL_TOGGLE)));
+    }
+    if (grind_tab_single_toggle) {
+        lv_obj_add_event_cb(grind_tab_single_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_SINGLE_TOGGLE)));
+    }
+    if (grind_tab_double_toggle) {
+        lv_obj_add_event_cb(grind_tab_double_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_DOUBLE_TOGGLE)));
+    }
+    if (grind_tab_custom_toggle) {
+        lv_obj_add_event_cb(grind_tab_custom_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::GRIND_TAB_CUSTOM_TOGGLE)));
+    }
 
     // Automatic actions section
     create_separator(parent, "Automation");
@@ -602,6 +766,14 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_description_label(parent, "Use a value below the empty cup or portafilter weight to prevent accidental starts.");
     create_description_label(parent, "Exit the completion screen once that cup weight drops away.");
     create_toggle_row(parent, "Return", &auto_return_toggle);
+
+    // Single Dose section
+    create_separator(parent, "Single Dose");
+    create_description_label(parent, "Safety cutoff to automatically stop the motor during single dose grinding.");
+    create_slider_row(parent, "Safety limit", &single_dose_timeout_label, &single_dose_timeout_slider,
+                      lv_color_hex(THEME_COLOR_ACCENT),
+                      GRIND_SINGLE_DOSE_TIMEOUT_MIN_S,
+                      GRIND_SINGLE_DOSE_TIMEOUT_MAX_S);
 
     // Grinder Purging section
     create_separator(parent, "Purging");
@@ -697,6 +869,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::MOTOR_LATENCY_SLIDER)));
         lv_obj_add_event_cb(motor_latency_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::MOTOR_LATENCY_SLIDER_RELEASED)));
+    }
+    if (single_dose_timeout_slider) {
+        lv_obj_add_event_cb(single_dose_timeout_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::SINGLE_DOSE_TIMEOUT_SLIDER)));
+        lv_obj_add_event_cb(single_dose_timeout_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::SINGLE_DOSE_TIMEOUT_SLIDER_RELEASED)));
     }
 }
 
@@ -886,12 +1064,23 @@ void MenuScreen::show() {
     LOG_BLE("[%lums MENU] Menu screen shown successfully\n", millis());
 }
 
+void MenuScreen::reset_to_root() {
+    if (menu && main_page) {
+        lv_menu_set_page(menu, main_page);
+    }
+    scale_active = false;
+    diagnostics_active = false;
+    reset_diagnostics_display();
+}
+
 void MenuScreen::hide() {
     if (!visible) {
         return; // Already hidden, nothing to do
     }
 
     LOG_BLE("[%lums MENU] Hiding menu screen\n", millis());
+
+    reset_to_root();
 
     // Keep the menu in memory for instant access next time
     // Just hide the screen instead of deleting the menu
@@ -918,31 +1107,46 @@ void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long up
     lv_label_set_text(uptime_label, uptime_text);
 
     set_label_text_int(memory_label, free_heap / 1024, "kB");
+
+    if (signal_label) {
+        if (network_manager.is_connected()) {
+            char sig_text[32];
+            const int rssi = network_manager.get_rssi();
+            snprintf(sig_text, sizeof(sig_text), "%d dBm", rssi);
+            lv_label_set_text(signal_label, sig_text);
+        } else if (!network_manager.is_enabled()) {
+            lv_label_set_text(signal_label, "Disabled");
+        } else {
+            lv_label_set_text(signal_label, "Disconnected");
+        }
+    }
 }
 
 void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
-    if (!visible || !diagnostics_controller) return;
+    if (!visible || !diagnostics_active || !diagnostics_controller || !weight_sensor) return;
 
-    // Update standard deviations only every 1 second to reduce noise
-    static unsigned long last_std_dev_update = 0;
-    unsigned long now = millis();
-    if (now - last_std_dev_update >= 1000) {  // Update every 1 second
-        last_std_dev_update = now;
+    // Get standard deviations using same window as grind control precision settling (500ms window)
+    float std_dev_g = weight_sensor->get_standard_deviation_g(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
+    int32_t std_dev_adc = weight_sensor->get_standard_deviation_adc(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
 
-        // Get standard deviations using same window as grind control precision settling
-        float std_dev_g = weight_sensor->get_standard_deviation_g(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);  // 500ms window
-        int32_t std_dev_adc = weight_sensor->get_standard_deviation_adc(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);  // 500ms window
-
-        char std_dev_g_text[32];
-        snprintf(std_dev_g_text, sizeof(std_dev_g_text), "%.4f", std_dev_g);
+    char std_dev_g_text[32];
+    snprintf(std_dev_g_text, sizeof(std_dev_g_text), "%.4f", std_dev_g);
+    if (strcmp(std_dev_g_text, last_diag_std_dev_g_text_) != 0) {
+        strncpy(last_diag_std_dev_g_text_, std_dev_g_text, sizeof(last_diag_std_dev_g_text_) - 1);
+        last_diag_std_dev_g_text_[sizeof(last_diag_std_dev_g_text_) - 1] = '\0';
         lv_label_set_text(diag_std_dev_g_label, std_dev_g_text);
+    }
 
+    if (std_dev_adc != last_diag_std_dev_adc_) {
+        last_diag_std_dev_adc_ = std_dev_adc;
         set_label_text_int(diag_std_dev_adc_label, std_dev_adc);
+    }
 
-        // Check noise level using WeightSensor diagnostic method
-        bool noise_acceptable = weight_sensor->noise_level_diagnostic();
-
-        // Update noise level indicator
+    // Check noise level using WeightSensor diagnostic method
+    bool noise_acceptable = weight_sensor->noise_level_diagnostic();
+    int noise_val = noise_acceptable ? 1 : 0;
+    if (noise_val != last_diag_noise_acceptable_) {
+        last_diag_noise_acceptable_ = noise_val;
         if (noise_acceptable) {
             lv_label_set_text(diag_noise_level_label, "OK");
             lv_obj_set_style_text_color(diag_noise_level_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
@@ -954,41 +1158,52 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
 
     // Update calibration factor
     float cal_factor = weight_sensor->get_calibration_factor();
-    char cal_factor_text[32];
-    snprintf(cal_factor_text, sizeof(cal_factor_text), "%.2f", cal_factor);
-    lv_label_set_text(diag_calibration_factor_label, cal_factor_text);
+    if (std::abs(cal_factor - last_diag_cal_factor_) > 0.001f) {
+        last_diag_cal_factor_ = cal_factor;
+        char cal_factor_text[32];
+        snprintf(cal_factor_text, sizeof(cal_factor_text), "%.2f", cal_factor);
+        lv_label_set_text(diag_calibration_factor_label, cal_factor_text);
+    }
 
     // Update motor latency
+    float latency_val = -1.0f;
     if (grind_controller) {
-        float motor_latency = grind_controller->get_motor_response_latency();
-        char latency_text[32];
-        snprintf(latency_text, sizeof(latency_text), "%.0f ms", motor_latency);
-        lv_label_set_text(diag_motor_latency_label, latency_text);
-    } else {
-        lv_label_set_text(diag_motor_latency_label, "-- ms");
+        latency_val = grind_controller->get_motor_response_latency();
+    }
+    if (std::abs(latency_val - last_diag_latency_ms_) > 0.1f) {
+        last_diag_latency_ms_ = latency_val;
+        if (grind_controller) {
+            char latency_text[32];
+            snprintf(latency_text, sizeof(latency_text), "%.0f ms", latency_val);
+            lv_label_set_text(diag_motor_latency_label, latency_text);
+        } else {
+            lv_label_set_text(diag_motor_latency_label, "-- ms");
+        }
     }
 
     // Get highest priority diagnostic
     DiagnosticCode diagnostic = diagnostics_controller->get_highest_priority_warning();
-
-    // Update status label
-    if (diagnostic == DiagnosticCode::NONE) {
-        lv_label_set_text(diag_status_label, "OK");
-        lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
-        lv_obj_add_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_label_set_text(diag_status_label, LV_SYMBOL_WARNING " Warning");
-        lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_WARNING), 0);
-
-        // Show appropriate warning message
-        if (diagnostic == DiagnosticCode::LOAD_CELL_NOT_CALIBRATED) {
-            lv_label_set_text(diag_info_label, "Loadcell not calibrated");
-            lv_obj_clear_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
+    int diag_code_int = static_cast<int>(diagnostic);
+    if (diag_code_int != last_diag_overall_status_) {
+        last_diag_overall_status_ = diag_code_int;
+        if (diagnostic == DiagnosticCode::NONE) {
+            lv_label_set_text(diag_status_label, "OK");
+            lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+            lv_obj_add_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
         } else {
-            // For future noise/mechanical warnings, show in info label
-            const char* message = diagnostics_controller->get_diagnostic_message(diagnostic);
-            lv_label_set_text(diag_info_label, message);
-            lv_obj_clear_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(diag_status_label, LV_SYMBOL_WARNING " Warning");
+            lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_WARNING), 0);
+
+            // Show appropriate warning message
+            if (diagnostic == DiagnosticCode::LOAD_CELL_NOT_CALIBRATED) {
+                lv_label_set_text(diag_info_label, "Loadcell not calibrated");
+                lv_obj_clear_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                // For future noise/mechanical warnings, show in info label
+                const char* message = diagnostics_controller->get_diagnostic_message(diagnostic);
+                lv_label_set_text(diag_info_label, message);
+                lv_obj_clear_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
 }
@@ -1001,6 +1216,14 @@ void MenuScreen::update_ble_status() {
         lv_obj_add_state(ble_toggle, LV_STATE_CHECKED);
     } else {
         lv_obj_clear_state(ble_toggle, LV_STATE_CHECKED);
+    }
+
+    if (ble_icon_toggle) {
+        if (bluetooth_manager->is_icon_menu_only()) {
+            lv_obj_add_state(ble_icon_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(ble_icon_toggle, LV_STATE_CHECKED);
+        }
     }
     
     // Update status text
@@ -1193,6 +1416,16 @@ void MenuScreen::update_motor_latency_label(float latency_ms) {
     lv_label_set_text(motor_latency_label, buffer);
 }
 
+void MenuScreen::update_single_dose_timeout_display(uint32_t seconds) {
+    if (!single_dose_timeout_label) return;
+    const uint32_t clamped = std::clamp(seconds,
+                                        static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S),
+                                        static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "Safety limit: %lus", static_cast<unsigned long>(clamped));
+    lv_label_set_text(single_dose_timeout_label, buffer);
+}
+
 void MenuScreen::update_auto_start_threshold_label(float threshold_g) {
     if (!auto_start_threshold_label) return;
     const float clamped = std::clamp(threshold_g,
@@ -1245,6 +1478,45 @@ void MenuScreen::update_screensaver_toggles() {
             lv_obj_add_state(display_off_toggle, LV_STATE_CHECKED);
         } else {
             lv_obj_clear_state(display_off_toggle, LV_STATE_CHECKED);
+        }
+    }
+
+    Preferences* main_prefs = hardware_manager ? hardware_manager->get_preferences() : nullptr;
+    const bool mode_icons_on = main_prefs ? main_prefs->getBool("mode_icons", true) : true;
+    if (mode_icons_toggle) {
+        if (mode_icons_on) {
+            lv_obj_add_state(mode_icons_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(mode_icons_toggle, LV_STATE_CHECKED);
+        }
+    }
+
+    if (grind_layout_radio_group) {
+        int current_layout_idx = main_prefs ? main_prefs->getInt("grind_layout", 0) : 0;
+        if (current_layout_idx < 0 || current_layout_idx > 3) current_layout_idx = 0;
+        radio_button_group_set_selection(grind_layout_radio_group, current_layout_idx);
+        set_disc_color_button_visible(current_layout_idx == 1 || current_layout_idx == 2);
+    }
+
+    if (disc_color_label && main_prefs) {
+        int color_idx = main_prefs->getInt("disc_color", 0);
+        if (color_idx < 0 || color_idx >= NUM_DISC_COLOR_PRESETS) color_idx = 0;
+        update_disc_color_button(DISC_COLOR_PRESETS[color_idx].name);
+    }
+}
+
+void MenuScreen::update_disc_color_button(const char* preset_name) {
+    if (disc_color_label && preset_name) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Disc Color: %s", preset_name);
+        lv_label_set_text(disc_color_label, buf);
+    }
+    if (disc_color_button && preset_name) {
+        for (int i = 0; i < NUM_DISC_COLOR_PRESETS; i++) {
+            if (strcmp(DISC_COLOR_PRESETS[i].name, preset_name) == 0) {
+                lv_obj_set_style_bg_color(disc_color_button, lv_color_hex(DISC_COLOR_PRESETS[i].color_hex), 0);
+                break;
+            }
         }
     }
 }
@@ -1359,11 +1631,14 @@ lv_obj_t* MenuScreen::create_toggle_row(lv_obj_t* parent, const char* text, lv_o
     lv_obj_set_flex_align(row_container, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t* label = lv_label_create(row_container);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
     lv_label_set_text(label, text);
 
     *out_toggle = lv_switch_create(row_container);
     lv_obj_set_size(*out_toggle, 80, 40);
-    lv_obj_set_ext_click_area(*out_toggle, 20);
+    lv_obj_set_ext_click_area(*out_toggle, 8);
+    lv_obj_clear_flag(*out_toggle, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_add_flag(*out_toggle, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
     
     return row_container;
 }
@@ -1386,8 +1661,10 @@ lv_obj_t* MenuScreen::create_slider_row(lv_obj_t* parent, const char* text, lv_o
 
     *slider = lv_slider_create(row_container);
     lv_obj_set_size(*slider, 220, 40);
-    lv_obj_set_ext_click_area(*slider, 20);
+    lv_obj_set_ext_click_area(*slider, 10);
     lv_slider_set_range(*slider, min, max);
+    lv_obj_clear_flag(*slider, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_add_flag(*slider, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
     lv_obj_set_style_bg_color(*slider, lv_color_hex(THEME_COLOR_BACKGROUND), LV_PART_MAIN);
     lv_obj_set_style_bg_color(*slider, slider_color, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(*slider, LV_OPA_TRANSP, LV_PART_KNOB);
@@ -1435,6 +1712,15 @@ void MenuScreen::reset_scale_display() {
     }
 }
 
+void MenuScreen::reset_diagnostics_display() {
+    last_diag_std_dev_g_text_[0] = '\0';
+    last_diag_std_dev_adc_ = INT32_MIN;
+    last_diag_noise_acceptable_ = -1;
+    last_diag_cal_factor_ = -999999.0f;
+    last_diag_latency_ms_ = -999999.0f;
+    last_diag_overall_status_ = -1;
+}
+
 void MenuScreen::update_scale_weight(float weight) {
     if (!scale_weight_label) {
         return;
@@ -1455,6 +1741,7 @@ void MenuScreen::update_grind_mode_toggles() {
     int mode_index = 0; // Default to Weight (index 0)
     int grinder_purge_mode_index = GRIND_PURGE_MODE_DEFAULT;  // Default to Purge
     float grinder_purge_amount_g = GRIND_PURGE_AMOUNT_DEFAULT_G;  // Default to 1.0g
+    uint32_t single_dose_timeout_s = GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S;
     if (hardware_manager) {
         Preferences* main_prefs = hardware_manager->get_preferences();
         if (main_prefs) {
@@ -1462,6 +1749,7 @@ void MenuScreen::update_grind_mode_toggles() {
             mode_index = (stored_mode == static_cast<int>(GrindMode::TIME)) ? 1 : 0;
             grinder_purge_mode_index = main_prefs->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
             grinder_purge_amount_g = main_prefs->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
+            single_dose_timeout_s = main_prefs->getUInt(GrindController::PREF_KEY_SINGLE_DOSE_TIMEOUT_S, GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S);
         }
     }
 
@@ -1579,4 +1867,39 @@ void MenuScreen::update_grind_mode_toggles() {
         lv_slider_set_value(motor_latency_slider, slider_value, LV_ANIM_OFF);
     }
     update_motor_latency_label(motor_latency_ms);
+
+    if (grind_controller) {
+        single_dose_timeout_s = grind_controller->get_single_dose_timeout_s();
+    }
+    if (single_dose_timeout_slider) {
+        const uint32_t clamped_sd = std::clamp(single_dose_timeout_s,
+                                               static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S),
+                                               static_cast<uint32_t>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+        lv_slider_set_value(single_dose_timeout_slider, clamped_sd, LV_ANIM_OFF);
+    }
+    update_single_dose_timeout_display(single_dose_timeout_s);
+    update_grind_tab_toggles();
+}
+
+void MenuScreen::update_grind_tab_toggles() {
+    if (!hardware_manager) return;
+    Preferences* prefs = hardware_manager->get_preferences();
+    bool manual = prefs ? prefs->getBool("tab_manual", true) : true;
+    bool single = prefs ? prefs->getBool("tab_single", true) : true;
+    bool double_dose = prefs ? prefs->getBool("tab_double", true) : true;
+    bool custom = prefs ? prefs->getBool("tab_custom", true) : true;
+
+    auto set_toggle = [](lv_obj_t* toggle, bool val) {
+        if (!toggle) return;
+        if (val) {
+            lv_obj_add_state(toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(toggle, LV_STATE_CHECKED);
+        }
+    };
+
+    set_toggle(grind_tab_manual_toggle, manual);
+    set_toggle(grind_tab_single_toggle, single);
+    set_toggle(grind_tab_double_toggle, double_dose);
+    set_toggle(grind_tab_custom_toggle, custom);
 }

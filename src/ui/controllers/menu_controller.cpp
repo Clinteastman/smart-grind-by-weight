@@ -12,6 +12,8 @@
 #include "../../controllers/grind_controller.h"
 #include "../../controllers/grind_mode_traits.h"
 #include "../../logging/grind_logging.h"
+#include "../../network/network_manager.h"
+#include "../../network/device_api.h"
 #include "../../system/diagnostics_controller.h"
 #include "../../system/screensaver_settings.h"
 #include "../../system/statistics_manager.h"
@@ -19,6 +21,9 @@
 #include "../components/ui_operations.h"
 #include "../event_bridge_lvgl.h"
 #include "../ui_helpers.h"
+#include "../../hardware/display_manager.h"
+#include "../../hardware/touch_driver.h"
+#include "../../system/display_idle_policy.h"
 #include "../ui_manager.h"
 #include "../screens/menu_screen.h"
 
@@ -46,7 +51,17 @@ void MenuUIController::register_events() {
 
     EventBridgeLVGL::register_handler(ET::BLE_TOGGLE, [this](lv_event_t*) { handle_ble_toggle(); });
     EventBridgeLVGL::register_handler(ET::BLE_STARTUP_TOGGLE, [this](lv_event_t*) { handle_ble_startup_toggle(); });
+    EventBridgeLVGL::register_handler(ET::BLE_ICON_TOGGLE, [this](lv_event_t*) { handle_ble_icon_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_TOGGLE, [this](lv_event_t*) { handle_wifi_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_TAB_TOGGLE, [this](lv_event_t*) { handle_wifi_tab_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_ICON_TOGGLE, [this](lv_event_t*) { handle_wifi_icon_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_POWER_TOGGLE, [this](lv_event_t*) { handle_wifi_power_toggle(); });
     EventBridgeLVGL::register_handler(ET::LOGGING_TOGGLE, [this](lv_event_t*) { handle_logging_toggle(); });
+
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_MANUAL_TOGGLE, [this](lv_event_t*) { handle_grind_tab_manual_toggle(); });
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_SINGLE_TOGGLE, [this](lv_event_t*) { handle_grind_tab_single_toggle(); });
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_DOUBLE_TOGGLE, [this](lv_event_t*) { handle_grind_tab_double_toggle(); });
+    EventBridgeLVGL::register_handler(ET::GRIND_TAB_CUSTOM_TOGGLE, [this](lv_event_t*) { handle_grind_tab_custom_toggle(); });
 
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
@@ -63,6 +78,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::COAST_RATIO_SLIDER_RELEASED, [this](lv_event_t*) { handle_coast_ratio_slider_released(); });
     EventBridgeLVGL::register_handler(ET::MOTOR_LATENCY_SLIDER, [this](lv_event_t*) { handle_motor_latency_slider(); });
     EventBridgeLVGL::register_handler(ET::MOTOR_LATENCY_SLIDER_RELEASED, [this](lv_event_t*) { handle_motor_latency_slider_released(); });
+    EventBridgeLVGL::register_handler(ET::SINGLE_DOSE_TIMEOUT_SLIDER, [this](lv_event_t*) { handle_single_dose_timeout_slider(); });
+    EventBridgeLVGL::register_handler(ET::SINGLE_DOSE_TIMEOUT_SLIDER_RELEASED, [this](lv_event_t*) { handle_single_dose_timeout_slider_released(); });
 
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
@@ -72,6 +89,10 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::SCREENSAVER_STARTUP_TOGGLE, [this](lv_event_t*) { handle_screensaver_startup_toggle(); });
     EventBridgeLVGL::register_handler(ET::SCREENSAVER_SLEEP_TOGGLE, [this](lv_event_t*) { handle_screensaver_sleep_toggle(); });
     EventBridgeLVGL::register_handler(ET::DISPLAY_OFF_TOGGLE, [this](lv_event_t*) { handle_display_off_toggle(); });
+    EventBridgeLVGL::register_handler(ET::MODE_ICONS_TOGGLE, [this](lv_event_t*) { handle_mode_icons_toggle(); });
+    EventBridgeLVGL::register_handler(ET::GRIND_LAYOUT_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_layout_radio_button(); });
+    EventBridgeLVGL::register_handler(ET::MENU_DEMO_ANIMATION, [this](lv_event_t*) { handle_demo_animation(); });
+    EventBridgeLVGL::register_handler(ET::DISC_COLOR_CYCLE, [this](lv_event_t*) { handle_disc_color_cycle(); });
 
     // Note: Event registration for menu widgets is done in the page creation functions
     // (menu_screen.cpp) because the menu is created lazily and destroyed on hide.
@@ -89,19 +110,74 @@ void MenuUIController::update() {
         return;
     }
 
-    WeightSensor* sensor = ui_manager_->hardware_manager->get_weight_sensor();
+    WeightSensor* sensor = ui_manager_->hardware_manager ? ui_manager_->hardware_manager->get_weight_sensor() : nullptr;
     const uint32_t now = millis();
 
-    // These labels used to be rewritten at the 62 Hz render rate, invalidating
-    // large parts of the LVGL menu while the user was dragging it. Status data
-    // does not need frame-rate polling; a 4 Hz refresh keeps it current and
-    // leaves the render loop free to scroll smoothly.
-    if (now - last_status_update_ms_ >= 250) {
+    lv_obj_t* cur_page = ui_manager_->menu_screen.get_current_page();
+    const bool page_changed = (cur_page != last_active_page_);
+    last_active_page_ = cur_page;
+
+    // Track activity while in the menu
+    if (!in_menu_) {
+        in_menu_ = true;
+        last_activity_ms_ = now;
+    }
+
+    if (page_changed) {
+        last_activity_ms_ = now;
+    }
+
+    auto* display = ui_manager_->hardware_manager ? ui_manager_->hardware_manager->get_display() : nullptr;
+    auto* touch_driver = display ? display->get_touch_driver() : nullptr;
+    if (touch_driver) {
+        uint32_t ms_since_touch = touch_driver->get_ms_since_last_touch();
+        if (ms_since_touch < now) {
+            uint32_t last_touch_timestamp = now - ms_since_touch;
+            if (last_touch_timestamp > last_activity_ms_) {
+                last_activity_ms_ = last_touch_timestamp;
+            }
+        }
+    }
+
+    float weight_delta_g = 0.0f;
+    if (sensor && sensor->get_weight_delta(1000U, &weight_delta_g) &&
+        display_weight_activity_detected(weight_delta_g, USER_WEIGHT_ACTIVITY_THRESHOLD_G)) {
+        last_activity_ms_ = now;
+    }
+
+    if (now - last_activity_ms_ >= USER_MENU_IDLE_TIMEOUT_MS) {
+        auto_return_to_ready();
+        return;
+    }
+
+    // Only update status labels for the currently active sub-page, and at a
+    // relaxed 1 Hz rate (or immediately upon entering a sub-page).
+    // When navigating or scrolling other pages (or the root menu list), avoid
+    // unnecessary label re-formatting and Wi-Fi / BLE polling.
+    if (page_changed || (now - last_status_update_ms_ >= 1000)) {
         last_status_update_ms_ = now;
-        ui_manager_->menu_screen.update_info(sensor, now, ESP.getFreeHeap());
+        if (cur_page == ui_manager_->menu_screen.get_info_page()) {
+            ui_manager_->menu_screen.update_info(sensor, now, ESP.getFreeHeap());
+        } else if (cur_page == ui_manager_->menu_screen.get_bluetooth_page()) {
+            ui_manager_->menu_screen.update_ble_status();
+        } else if (cur_page == ui_manager_->menu_screen.get_network_page()) {
+            ui_manager_->menu_screen.update_network_status();
+        }
+    }
+
+    if (ui_manager_->menu_screen.is_diagnostics_page_active()) {
+        if (!diagnostics_active_tracking_) {
+            diagnostics_active_tracking_ = true;
+            if (sensor) {
+                sensor->reset_noise_diagnostic();
+            }
+            if (ui_manager_->diagnostics_controller_) {
+                ui_manager_->diagnostics_controller_->reset_noise_tracking();
+            }
+        }
         ui_manager_->menu_screen.update_diagnostics(sensor);
-        ui_manager_->menu_screen.update_ble_status();
-        ui_manager_->menu_screen.update_network_status();
+    } else {
+        diagnostics_active_tracking_ = false;
     }
 
     if (ui_manager_->menu_screen.is_scale_page_active()) {
@@ -226,8 +302,9 @@ void MenuUIController::handle_autotune() {
 }
 
 void MenuUIController::handle_back() {
+    reset_idle_timer();
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(ReadyScreen::MENU_TAB_INDEX);
+    ui_manager_->set_current_tab(ui_manager_->ready_screen.menu_tab_index());
     ui_manager_->switch_to_state(UIState::READY);
 }
 
@@ -267,6 +344,10 @@ void MenuUIController::perform_diagnostics_reset() {
 
     auto* hardware = ui_manager_->get_hardware_manager();
     auto* sensor = hardware ? hardware->get_weight_sensor() : nullptr;
+    if (sensor) {
+        sensor->reset_noise_diagnostic();
+    }
+    ui_manager_->menu_screen.reset_diagnostics_display();
     if (sensor) {
         ui_manager_->menu_screen.update_diagnostics(sensor);
     }
@@ -312,6 +393,75 @@ void MenuUIController::handle_ble_startup_toggle() {
     LOG_DEBUG_PRINTLN(startup_enabled ? "Bluetooth startup enabled" : "Bluetooth startup disabled");
 }
 
+void MenuUIController::handle_ble_icon_toggle() {
+    if (!ui_manager_ || !ui_manager_->bluetooth_manager) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_ble_icon_toggle();
+    if (!toggle) return;
+
+    bool icon_menu_only = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    ui_manager_->bluetooth_manager->set_icon_menu_only(icon_menu_only);
+    LOG_DEBUG_PRINTLN(icon_menu_only ? "Bluetooth icon menu-only enabled" : "Bluetooth icon menu-only disabled");
+    ui_manager_->menu_screen.update_ble_status();
+    if (ui_manager_->status_indicator_controller_) {
+        ui_manager_->status_indicator_controller_->update_ble_status_icon();
+    }
+}
+
+void MenuUIController::handle_wifi_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_toggle();
+    if (!toggle) return;
+
+    bool wifi_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_enabled(wifi_enabled);
+    LOG_DEBUG_PRINTLN(wifi_enabled ? "Wi-Fi enabled by user" : "Wi-Fi disabled by user");
+    ui_manager_->menu_screen.update_network_status();
+    ui_manager_->rebuild_ready_tabs();
+}
+
+void MenuUIController::handle_wifi_tab_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_tab_toggle();
+    if (!toggle) return;
+
+    bool tab_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_tab_enabled(tab_enabled);
+    LOG_DEBUG_PRINTLN(tab_enabled ? "Wi-Fi carousel tab enabled" : "Wi-Fi carousel tab disabled");
+    ui_manager_->menu_screen.update_network_status();
+    ui_manager_->rebuild_ready_tabs();
+}
+
+void MenuUIController::handle_wifi_icon_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_icon_toggle();
+    if (!toggle) return;
+
+    bool icon_menu_only = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_icon_menu_only(icon_menu_only);
+    LOG_DEBUG_PRINTLN(icon_menu_only ? "Wi-Fi icon menu-only enabled" : "Wi-Fi icon menu-only disabled");
+    ui_manager_->menu_screen.update_network_status();
+    if (ui_manager_->status_indicator_controller_) {
+        ui_manager_->status_indicator_controller_->update_wifi_status_icon();
+    }
+}
+
+void MenuUIController::handle_wifi_power_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_power_toggle();
+    if (!toggle) return;
+
+    bool power_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    network_manager.set_performance_mode(power_enabled);
+    device_api.mark_settings_dirty();
+    LOG_DEBUG_PRINTLN(power_enabled ? "Wi-Fi High-Power mode enabled" : "Wi-Fi High-Power mode disabled");
+    ui_manager_->menu_screen.update_network_status();
+}
+
 void MenuUIController::handle_logging_toggle() {
     if (!ui_manager_) return;
 
@@ -326,6 +476,56 @@ void MenuUIController::handle_logging_toggle() {
     prefs.end();
 
     LOG_DEBUG_PRINTLN(logging_enabled ? "Logging enabled" : "Logging disabled");
+}
+
+void MenuUIController::handle_grind_tab_toggle(int which) {
+    (void)which;
+    if (!ui_manager_) return;
+
+    auto* m_toggle = ui_manager_->menu_screen.get_grind_tab_manual_toggle();
+    auto* s_toggle = ui_manager_->menu_screen.get_grind_tab_single_toggle();
+    auto* d_toggle = ui_manager_->menu_screen.get_grind_tab_double_toggle();
+    auto* c_toggle = ui_manager_->menu_screen.get_grind_tab_custom_toggle();
+
+    bool m = m_toggle ? lv_obj_has_state(m_toggle, LV_STATE_CHECKED) : true;
+    bool s = s_toggle ? lv_obj_has_state(s_toggle, LV_STATE_CHECKED) : true;
+    bool d = d_toggle ? lv_obj_has_state(d_toggle, LV_STATE_CHECKED) : true;
+    bool c = c_toggle ? lv_obj_has_state(c_toggle, LV_STATE_CHECKED) : true;
+
+    // Critical constraint: At least one grind mode MUST remain active
+    if (!m && !s && !d && !c) {
+        LOG_DEBUG_PRINTLN("Cannot disable all grind screens: at least one must remain active");
+        ui_manager_->menu_screen.update_grind_tab_toggles();
+        return;
+    }
+
+    auto* hardware = ui_manager_->get_hardware_manager();
+    Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
+    if (prefs) {
+        prefs->putBool("tab_manual", m);
+        prefs->putBool("tab_single", s);
+        prefs->putBool("tab_double", d);
+        prefs->putBool("tab_custom", c);
+    }
+
+    LOG_DEBUG_PRINTF("Grind screens updated: manual=%d, single=%d, double=%d, custom=%d\n", m, s, d, c);
+    ui_manager_->rebuild_ready_tabs();
+}
+
+void MenuUIController::handle_grind_tab_manual_toggle() {
+    handle_grind_tab_toggle(0);
+}
+
+void MenuUIController::handle_grind_tab_single_toggle() {
+    handle_grind_tab_toggle(1);
+}
+
+void MenuUIController::handle_grind_tab_double_toggle() {
+    handle_grind_tab_toggle(2);
+}
+
+void MenuUIController::handle_grind_tab_custom_toggle() {
+    handle_grind_tab_toggle(3);
 }
 
 void MenuUIController::handle_grind_mode_swipe_toggle() {
@@ -625,6 +825,45 @@ void MenuUIController::handle_motor_latency_slider_released() {
     LOG_DEBUG_PRINTF("Motor response latency manually set to: %dms\n", latency_ms);
 }
 
+void MenuUIController::handle_single_dose_timeout_slider() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_single_dose_timeout_slider();
+    if (!slider) return;
+
+    int seconds = lv_slider_get_value(slider);
+    seconds = ((seconds + GRIND_SINGLE_DOSE_TIMEOUT_STEP_S / 2) / GRIND_SINGLE_DOSE_TIMEOUT_STEP_S) * GRIND_SINGLE_DOSE_TIMEOUT_STEP_S;
+    seconds = std::clamp(seconds, static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S), static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+    ui_manager_->menu_screen.update_single_dose_timeout_display(static_cast<uint32_t>(seconds));
+    ui_manager_->ready_screen.update_single_dose_timeout(static_cast<uint32_t>(seconds));
+}
+
+void MenuUIController::handle_single_dose_timeout_slider_released() {
+    if (!ui_manager_) return;
+    auto* slider = ui_manager_->menu_screen.get_single_dose_timeout_slider();
+    if (!slider) return;
+
+    int seconds = lv_slider_get_value(slider);
+    seconds = ((seconds + GRIND_SINGLE_DOSE_TIMEOUT_STEP_S / 2) / GRIND_SINGLE_DOSE_TIMEOUT_STEP_S) * GRIND_SINGLE_DOSE_TIMEOUT_STEP_S;
+    seconds = std::clamp(seconds, static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MIN_S), static_cast<int>(GRIND_SINGLE_DOSE_TIMEOUT_MAX_S));
+    lv_slider_set_value(slider, seconds, LV_ANIM_OFF);
+
+    auto* grind_controller = ui_manager_->get_grind_controller();
+    if (grind_controller) {
+        if (!grind_controller->save_single_dose_timeout(static_cast<uint32_t>(seconds))) {
+            seconds = static_cast<int>(grind_controller->get_single_dose_timeout_s());
+            lv_slider_set_value(slider, seconds, LV_ANIM_OFF);
+            LOG_BLE("Could not save single dose timeout; retaining active value\n");
+        }
+    }
+
+    LOG_DEBUG_PRINT("Single dose safety timeout set to: ");
+    LOG_DEBUG_PRINT(seconds);
+    LOG_DEBUG_PRINTLN("s");
+
+    ui_manager_->menu_screen.update_single_dose_timeout_display(static_cast<uint32_t>(seconds));
+    ui_manager_->ready_screen.update_single_dose_timeout(static_cast<uint32_t>(seconds));
+}
+
 void MenuUIController::handle_brightness_normal_slider() {
     if (!ui_manager_) return;
 
@@ -744,6 +983,58 @@ void MenuUIController::handle_display_off_toggle() {
             enabled ? "enabled" : "disabled", settings.display_off_delay_s);
 }
 
+void MenuUIController::handle_mode_icons_toggle() {
+    if (!ui_manager_) return;
+    auto* toggle = ui_manager_->menu_screen.get_mode_icons_toggle();
+    if (!toggle) return;
+    const bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    auto* hardware = ui_manager_->get_hardware_manager();
+    Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
+    if (prefs) {
+        prefs->putBool("mode_icons", enabled);
+    }
+    ui_manager_->ready_screen.set_show_mode_icons(enabled);
+    device_api.mark_settings_dirty();
+}
+
+void MenuUIController::handle_grind_layout_radio_button() {
+    if (!ui_manager_) return;
+
+    lv_obj_t* radio_group = ui_manager_->menu_screen.get_grind_layout_radio_group();
+    if (!radio_group) return;
+
+    int selected_index = radio_button_group_get_selection(radio_group);
+    if (selected_index < 0 || selected_index > 3) return;
+
+    ui_manager_->menu_screen.set_disc_color_button_visible(selected_index == 1 || selected_index == 2);
+
+    GrindScreenLayout new_layout = static_cast<GrindScreenLayout>(selected_index);
+    ui_manager_->grinding_screen.set_layout(new_layout);
+
+    LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grind layout set to ARC" :
+                      selected_index == 1 ? "Grind layout set to DISC (RING)" :
+                      selected_index == 2 ? "Grind layout set to DISC (SOLID)" : "Grind layout set to CHART");
+}
+
+void MenuUIController::handle_demo_animation() {
+    if (!ui_manager_ || !ui_manager_->grinding_controller_) return;
+    ui_manager_->grinding_controller_->start_demo();
+}
+
+void MenuUIController::handle_disc_color_cycle() {
+    if (!ui_manager_) return;
+    int current = ui_manager_->grinding_screen.get_disc_color_preset();
+    int next = (current + 1) % NUM_DISC_COLOR_PRESETS;
+    ui_manager_->grinding_screen.set_disc_color_preset(next);
+    ui_manager_->menu_screen.update_disc_color_button(DISC_COLOR_PRESETS[next].name);
+    auto* hardware = ui_manager_->get_hardware_manager();
+    Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
+    if (prefs) {
+        prefs->putInt("disc_color", next);
+    }
+    device_api.mark_settings_dirty();
+}
+
 void MenuUIController::perform_factory_reset() {
     if (!ui_manager_) return;
 
@@ -815,9 +1106,34 @@ void MenuUIController::run_motor_test() {
 }
 
 void MenuUIController::return_to_menu() {
+    reset_idle_timer();
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(ReadyScreen::MENU_TAB_INDEX);
+    ui_manager_->set_current_tab(ui_manager_->ready_screen.menu_tab_index());
     ui_manager_->switch_to_state(UIState::MENU);
+}
+
+void MenuUIController::reset_idle_timer() {
+    in_menu_ = false;
+    last_activity_ms_ = 0;
+    diagnostics_active_tracking_ = false;
+}
+
+void MenuUIController::auto_return_to_ready() {
+    reset_idle_timer();
+    if (!ui_manager_) return;
+
+    LOG_BLE("[MENU] Inactivity timeout reached (%ums); auto-returning to ready\n",
+            USER_MENU_IDLE_TIMEOUT_MS);
+
+    const int active_profile = ui_manager_->profile_controller
+                                   ? ui_manager_->profile_controller->get_current_profile()
+                                   : 1;
+    const int target_tab = (ui_manager_->current_mode == GrindMode::MANUAL &&
+                            ui_manager_->ready_screen.is_manual_enabled())
+                               ? ui_manager_->ready_screen.manual_tab_index()
+                               : ui_manager_->ready_screen.tab_for_profile_index(active_profile);
+    ui_manager_->set_current_tab(target_tab);
+    ui_manager_->switch_to_state(UIState::READY);
 }
 
 float MenuUIController::get_normal_brightness() const {

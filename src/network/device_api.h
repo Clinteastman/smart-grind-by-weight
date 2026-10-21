@@ -6,14 +6,17 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
+#include "../config/constants.h"
 
 class GrindController;
 class HardwareManager;
 class ProfileController;
+class BluetoothManager;
 
 struct DeviceSettingsUpdate {
     int current_profile = 1;
     int grind_mode = 0;
+    uint32_t single_dose_timeout_s = GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S;
     float profile_weights[3]{};
     float profile_times[3]{};
     bool auto_start = false;
@@ -36,21 +39,53 @@ struct DeviceSettingsUpdate {
     uint16_t display_off_delay_s = 3600;
     bool has_display_off_enabled = true;
     bool has_display_off_delay_s = true;
-    char screensaver_style[12] = "minimal";
+    char screensaver_style[16] = "minimal";
+    char clock_position[8] = "center";
+    char clock_layout[16] = "horizontal";
+    char clock_color[16] = "#FFFFFF";
+    char clock_font[16] = "montserrat";
+    char timezone[36] = "CET-1CEST,M3.5.0,M10.5.0/3";
     char gaggimate_host[64] = "gaggimate.local";
     bool bluetooth_startup = true;
+    bool has_wifi_tab = false;
+    bool wifi_tab = true;
+    bool has_wifi_icon_menu = false;
+    bool wifi_icon_menu = false;
+    bool has_wifi_performance_mode = false;
+    bool wifi_performance_mode = false;
+    bool has_bluetooth_icon_menu = false;
+    bool bluetooth_icon_menu = false;
+    bool has_tab_manual = false;
+    bool tab_manual = true;
+    bool has_tab_single = false;
+    bool tab_single = true;
+    bool has_tab_double = false;
+    bool tab_double = true;
+    bool has_tab_custom = false;
+    bool tab_custom = true;
+    bool has_mode_icons = false;
+    bool mode_icons = true;
+    bool has_grind_layout = false;
+    int grind_layout = 0;
+    bool has_disc_color = false;
+    int disc_color = 0;
 };
 
 class DeviceApi {
 public:
     void init(AsyncWebServer* server, HardwareManager* hardware,
-              GrindController* grind_controller, ProfileController* profile_controller);
+              GrindController* grind_controller, ProfileController* profile_controller,
+              BluetoothManager* bluetooth_manager = nullptr);
     void update();
     bool process_commands();
     // UI task calls this only after reloading runtime settings.
     void complete_settings_application(bool runtime_applied);
     String settings_json();
     void mark_settings_dirty() { settings_cache_dirty_.store(true); }
+    bool take_screensaver_preview_request() { return screensaver_preview_requested_.exchange(false); }
+    void request_screensaver_preview() { screensaver_preview_requested_.store(true); }
+    bool take_demo_animation_request() { return demo_animation_requested_.exchange(false); }
+    void request_demo_animation() { demo_animation_requested_.store(true); }
 
 private:
     enum class CommandAction : uint8_t {
@@ -81,6 +116,7 @@ private:
     HardwareManager* hardware_ = nullptr;
     GrindController* grind_controller_ = nullptr;
     ProfileController* profile_controller_ = nullptr;
+    BluetoothManager* bluetooth_manager_ = nullptr;
     QueueHandle_t command_queue_ = nullptr;
     SemaphoreHandle_t settings_mutex_ = nullptr;
     String settings_json_cache_;
@@ -99,6 +135,8 @@ private:
     uint32_t last_publish_ms_ = 0;
     std::atomic<uint32_t> sequence_{0};
     std::atomic<bool> settings_cache_dirty_{false};
+    std::atomic<bool> screensaver_preview_requested_{false};
+    std::atomic<bool> demo_animation_requested_{false};
     bool initialized_ = false;
 
     void handle_event(AsyncWebSocket* server, AsyncWebSocketClient* client,

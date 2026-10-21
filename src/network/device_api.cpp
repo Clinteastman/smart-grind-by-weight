@@ -17,6 +17,8 @@
 #include "../system/operation_interlock.h"
 #include "device_web_server.h"
 #include "gaggimate_status_client.h"
+#include "network_manager.h"
+#include "../bluetooth/manager.h"
 
 DeviceApi device_api;
 
@@ -112,11 +114,13 @@ const char* api_phase_name(const GrindController& controller) {
 }
 
 void DeviceApi::init(AsyncWebServer* server, HardwareManager* hardware,
-                     GrindController* grind_controller, ProfileController* profile_controller) {
+                     GrindController* grind_controller, ProfileController* profile_controller,
+                     BluetoothManager* bluetooth_manager) {
     if (initialized_ || !server || !hardware || !grind_controller || !profile_controller) return;
     hardware_ = hardware;
     grind_controller_ = grind_controller;
     profile_controller_ = profile_controller;
+    bluetooth_manager_ = bluetooth_manager;
     command_queue_ = xQueueCreate(8, sizeof(Command));
     settings_mutex_ = xSemaphoreCreateMutex();
     if (!command_queue_ || !settings_mutex_) {
@@ -560,6 +564,11 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
         }
     }
     settings.auto_return = form_bool(value("auto_return"));
+    if (request->hasParam("single_dose_timeout_s", true)) {
+        settings.single_dose_timeout_s = value("single_dose_timeout_s").toInt();
+    } else {
+        settings.single_dose_timeout_s = grind_controller_ ? grind_controller_->get_single_dose_timeout_s() : GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S;
+    }
     settings.purge_mode = value("purge_mode").toInt();
     settings.purge_amount_g = value("purge_amount_g").toFloat();
     settings.freshness_hours = value("freshness_hours").toFloat();
@@ -590,14 +599,94 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
     settings.display_off_delay_s = static_cast<uint16_t>(display_off_delay_s);
     const String screensaver_style = value("screensaver_style");
     strncpy(settings.screensaver_style, screensaver_style.c_str(), sizeof(settings.screensaver_style) - 1);
+    if (request->hasParam("clock_position", true)) {
+        const String clock_pos = value("clock_position");
+        strncpy(settings.clock_position, clock_pos.c_str(), sizeof(settings.clock_position) - 1);
+    }
+    if (request->hasParam("clock_layout", true)) {
+        const String clock_lay = value("clock_layout");
+        strncpy(settings.clock_layout, clock_lay.c_str(), sizeof(settings.clock_layout) - 1);
+    }
+    if (request->hasParam("clock_color", true)) {
+        const String clock_col = value("clock_color");
+        strncpy(settings.clock_color, clock_col.c_str(), sizeof(settings.clock_color) - 1);
+    }
+    if (request->hasParam("clock_font", true)) {
+        const String clock_f = value("clock_font");
+        if (clock_f == "custom" || clock_f == "montserrat") {
+            strncpy(settings.clock_font, clock_f.c_str(), sizeof(settings.clock_font) - 1);
+        }
+    }
+    if (request->hasParam("timezone", true)) {
+        const String tz = value("timezone");
+        strncpy(settings.timezone, tz.c_str(), sizeof(settings.timezone) - 1);
+    }
     const String gaggimate_host = request->hasParam("gaggimate_host", true)
                                       ? value("gaggimate_host")
                                       : gaggimate_status_client.configured_host();
     strncpy(settings.gaggimate_host, gaggimate_host.c_str(), sizeof(settings.gaggimate_host) - 1);
     settings.bluetooth_startup = form_bool(value("bluetooth_startup"));
+    if (request->hasParam("wifi_tab", true)) {
+        settings.has_wifi_tab = true;
+        settings.wifi_tab = form_bool(value("wifi_tab"));
+    }
+    if (request->hasParam("wifi_icon_menu", true)) {
+        settings.has_wifi_icon_menu = true;
+        settings.wifi_icon_menu = form_bool(value("wifi_icon_menu"));
+    }
+    if (request->hasParam("wifi_performance_mode", true)) {
+        settings.has_wifi_performance_mode = true;
+        settings.wifi_performance_mode = form_bool(value("wifi_performance_mode"));
+    }
+    if (request->hasParam("bluetooth_icon_menu", true)) {
+        settings.has_bluetooth_icon_menu = true;
+        settings.bluetooth_icon_menu = form_bool(value("bluetooth_icon_menu"));
+    }
+    if (request->hasParam("tab_manual", true)) {
+        settings.has_tab_manual = true;
+        settings.tab_manual = form_bool(value("tab_manual"));
+    }
+    if (request->hasParam("tab_single", true)) {
+        settings.has_tab_single = true;
+        settings.tab_single = form_bool(value("tab_single"));
+    }
+    if (request->hasParam("tab_double", true)) {
+        settings.has_tab_double = true;
+        settings.tab_double = form_bool(value("tab_double"));
+    }
+    if (request->hasParam("tab_custom", true)) {
+        settings.has_tab_custom = true;
+        settings.tab_custom = form_bool(value("tab_custom"));
+    }
+    if (request->hasParam("mode_icons", true)) {
+        settings.has_mode_icons = true;
+        settings.mode_icons = form_bool(value("mode_icons"));
+    }
+    if (request->hasParam("grind_layout", true)) {
+        settings.has_grind_layout = true;
+        settings.grind_layout = value("grind_layout").toInt();
+    }
+    if (request->hasParam("disc_color", true)) {
+        settings.has_disc_color = true;
+        settings.disc_color = value("disc_color").toInt();
+    }
+
+    if (settings.has_tab_manual || settings.has_tab_single || settings.has_tab_double || settings.has_tab_custom) {
+        Preferences* grinder_prefs = hardware_ ? hardware_->get_preferences() : nullptr;
+        bool m_active = settings.has_tab_manual ? settings.tab_manual : (grinder_prefs ? grinder_prefs->getBool("tab_manual", true) : true);
+        bool s_active = settings.has_tab_single ? settings.tab_single : (grinder_prefs ? grinder_prefs->getBool("tab_single", true) : true);
+        bool d_active = settings.has_tab_double ? settings.tab_double : (grinder_prefs ? grinder_prefs->getBool("tab_double", true) : true);
+        bool c_active = settings.has_tab_custom ? settings.tab_custom : (grinder_prefs ? grinder_prefs->getBool("tab_custom", true) : true);
+        if (!m_active && !s_active && !d_active && !c_active) {
+            request->send(400, "application/json", "{\"error\":\"At least one grind mode must remain enabled\"}");
+            return false;
+        }
+    }
 
     bool valid = settings.current_profile >= 0 && settings.current_profile < USER_PROFILE_COUNT &&
                  settings.grind_mode >= 0 && settings.grind_mode <= 1 &&
+                 settings.single_dose_timeout_s >= GRIND_SINGLE_DOSE_TIMEOUT_MIN_S &&
+                 settings.single_dose_timeout_s <= GRIND_SINGLE_DOSE_TIMEOUT_MAX_S &&
                  std::isfinite(settings.auto_start_threshold_g) &&
                  settings.auto_start_threshold_g >= USER_AUTO_GRIND_TRIGGER_MIN_G &&
                  settings.auto_start_threshold_g <= USER_AUTO_GRIND_TRIGGER_MAX_G &&
@@ -626,9 +715,15 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
                  ScreensaverSettings::is_valid_startup_timeout(settings.screensaver_startup_timeout_s) &&
                  ScreensaverSettings::is_valid_display_off_delay(settings.display_off_delay_s) &&
                  (screensaver_style == "orbit" || screensaver_style == "minimal" ||
-                  screensaver_style == "blank" ||
+                  screensaver_style == "blank" || screensaver_style == "clock" ||
                   (screensaver_style == "custom" && LittleFS.exists(BLE_IMAGE_FILENAME)) ||
-                  (screensaver_style == "gaggimate" && valid_local_host(gaggimate_host)));
+                  (screensaver_style == "clock_custom" && LittleFS.exists(BLE_IMAGE_FILENAME)) ||
+                  (screensaver_style == "gaggimate" && valid_local_host(gaggimate_host))) &&
+                 (String(settings.clock_position) == "center" || String(settings.clock_position) == "top" || String(settings.clock_position) == "bottom") &&
+                 (String(settings.clock_layout) == "horizontal" || String(settings.clock_layout) == "stacked") &&
+                 (strlen(settings.timezone) > 0 && strlen(settings.timezone) < sizeof(settings.timezone)) &&
+                 (!settings.has_grind_layout || (settings.grind_layout >= 0 && settings.grind_layout <= 3)) &&
+                 (!settings.has_disc_color || (settings.disc_color >= 0 && settings.disc_color <= 4));
     for (int i = 0; i < 3 && valid; ++i) {
         valid = std::isfinite(settings.profile_weights[i]) &&
                 profile_controller_->is_weight_valid(settings.profile_weights[i]) &&
@@ -682,6 +777,28 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     saved = (grinder->putFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, settings.freshness_hours) == sizeof(float)) && saved;
     saved = grind_controller_->save_coast_ratio(settings.coast_ratio) && saved;
     saved = grind_controller_->save_motor_latency(settings.motor_latency_ms) && saved;
+    saved = grind_controller_->save_single_dose_timeout(settings.single_dose_timeout_s) && saved;
+    if (settings.has_tab_manual) {
+        saved = (grinder->putBool("tab_manual", settings.tab_manual) == sizeof(bool)) && saved;
+    }
+    if (settings.has_tab_single) {
+        saved = (grinder->putBool("tab_single", settings.tab_single) == sizeof(bool)) && saved;
+    }
+    if (settings.has_tab_double) {
+        saved = (grinder->putBool("tab_double", settings.tab_double) == sizeof(bool)) && saved;
+    }
+    if (settings.has_tab_custom) {
+        saved = (grinder->putBool("tab_custom", settings.tab_custom) == sizeof(bool)) && saved;
+    }
+    if (settings.has_mode_icons) {
+        saved = (grinder->putBool("mode_icons", settings.mode_icons) == sizeof(bool)) && saved;
+    }
+    if (settings.has_grind_layout) {
+        saved = (grinder->putInt("grind_layout", settings.grind_layout) == sizeof(int32_t)) && saved;
+    }
+    if (settings.has_disc_color) {
+        saved = (grinder->putInt("disc_color", settings.disc_color) == sizeof(int32_t)) && saved;
+    }
 
     auto put_bool = [](const char* name_space, const char* key, bool value) {
         Preferences preferences;
@@ -704,6 +821,22 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     saved = put_bool("screensaver", "startup", settings.screensaver_startup) && saved;
     saved = put_bool("screensaver", "sleep", settings.screensaver_sleep) && saved;
     saved = put_bool("bluetooth", "startup", settings.bluetooth_startup) && saved;
+    if (settings.has_wifi_tab) {
+        saved = network_manager.set_tab_enabled(settings.wifi_tab) && saved;
+    }
+    if (settings.has_wifi_icon_menu) {
+        saved = network_manager.set_icon_menu_only(settings.wifi_icon_menu) && saved;
+    }
+    if (settings.has_wifi_performance_mode) {
+        saved = network_manager.set_performance_mode(settings.wifi_performance_mode) && saved;
+    }
+    if (settings.has_bluetooth_icon_menu) {
+        if (bluetooth_manager_) {
+            bluetooth_manager_->set_icon_menu_only(settings.bluetooth_icon_menu);
+        } else {
+            saved = put_bool("bluetooth", "icon_menu", settings.bluetooth_icon_menu) && saved;
+        }
+    }
 
     Preferences brightness;
     if (brightness.begin("brightness", false)) {
@@ -726,12 +859,17 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     Preferences screensaver;
     if (screensaver.begin("screensaver", false)) {
         const bool style_saved = screensaver.putString("style", settings.screensaver_style) == strlen(settings.screensaver_style);
-        saved = style_saved && saved;
+        const bool pos_saved = screensaver.putString("clock_pos", settings.clock_position) == strlen(settings.clock_position);
+        const bool layout_saved = screensaver.putString("clock_layout", settings.clock_layout) == strlen(settings.clock_layout);
+        const bool color_saved = screensaver.putString("clock_color", settings.clock_color) == strlen(settings.clock_color);
+        const bool font_saved = screensaver.putString("clock_font", settings.clock_font) == strlen(settings.clock_font);
+        saved = style_saved && pos_saved && layout_saved && color_saved && font_saved && saved;
         const String stored_style = screensaver.getString("style", "");
         screensaver.end();
         const bool style_read = stored_style == "minimal" || stored_style == "orbit" ||
                                 stored_style == "blank" || stored_style == "custom" ||
-                                stored_style == "gaggimate";
+                                stored_style == "gaggimate" || stored_style == "clock" ||
+                                stored_style == "clock_custom";
         if (style_read) {
             saved = gaggimate_status_client.configure(stored_style == "gaggimate",
                                                       settings.gaggimate_host) && saved;
@@ -742,6 +880,7 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     } else {
         saved = false;
     }
+    network_manager.configure_timezone(settings.timezone);
     LOG_BLE("[WEB] Grinder settings %s\n", saved ? "updated" : "partly saved; storage or runtime setup failed");
     return saved;
 }
@@ -785,11 +924,28 @@ void DeviceApi::refresh_settings_cache() {
     const ScreensaverTimingSettings screensaver_timing = ScreensaverSettings::load_timing();
     Preferences screensaver_preferences;
     String screensaver_style = LittleFS.exists(BLE_IMAGE_FILENAME) ? "custom" : "minimal";
+    String clock_position = "center";
+    String clock_layout = "horizontal";
+    String clock_color = "#FFFFFF";
+    String clock_font = "montserrat";
     if (screensaver_preferences.begin("screensaver", true)) {
         screensaver_style = screensaver_preferences.getString("style", screensaver_style);
+        clock_position = screensaver_preferences.getString("clock_pos", "center");
+        clock_layout = screensaver_preferences.getString("clock_layout", "horizontal");
+        clock_color = screensaver_preferences.getString("clock_color", "#FFFFFF");
+        clock_font = screensaver_preferences.getString("clock_font", "montserrat");
         screensaver_preferences.end();
     }
+    const String timezone = network_manager.timezone();
     const String gaggimate_host = gaggimate_status_client.configured_host();
+
+    const bool tab_manual = grinder ? grinder->getBool("tab_manual", true) : true;
+    const bool tab_single = grinder ? grinder->getBool("tab_single", true) : true;
+    const bool tab_double = grinder ? grinder->getBool("tab_double", true) : true;
+    const bool tab_custom = grinder ? grinder->getBool("tab_custom", true) : true;
+    const bool mode_icons = grinder ? grinder->getBool("mode_icons", true) : true;
+    const int grind_layout = grinder ? grinder->getInt("grind_layout", 0) : 0;
+    const int disc_color = grinder ? grinder->getInt("disc_color", 0) : 0;
 
     char json[2048];
     snprintf(json, sizeof(json),
@@ -802,13 +958,17 @@ void DeviceApi::refresh_settings_cache() {
              "\"purge\":{\"mode\":%d,\"amount_g\":%.2f,\"freshness_hours\":%.2f},"
              "\"coast_ratio\":%.2f,\"motor_latency_ms\":%.0f,"
              "\"logging_enabled\":%s,\"swipe_enabled\":%s,"
+             "\"single_dose_timeout_s\":%lu,"
              "\"display\":{\"brightness\":%d,\"screensaver_brightness\":%d,"
              "\"screensaver_startup\":%s,\"screensaver_sleep\":%s,"
              "\"screensaver_idle_timeout_s\":%u,\"screensaver_startup_timeout_s\":%u,"
              "\"display_off_enabled\":%s,\"display_off_delay_s\":%u,"
-             "\"screensaver_style\":\"%s\",\"has_custom_screensaver\":%s,"
+             "\"grind_layout\":%d,\"disc_color\":%d,"
+             "\"screensaver_style\":\"%s\",\"clock_position\":\"%s\",\"clock_layout\":\"%s\",\"clock_color\":\"%s\",\"clock_font\":\"%s\",\"timezone\":\"%s\","
+             "\"has_custom_screensaver\":%s,\"has_custom_clock_font\":%s,"
              "\"gaggimate_host\":\"%s\"},"
-             "\"bluetooth_startup\":%s}",
+             "\"wifi_tab\":%s,\"wifi_icon_menu\":%s,\"wifi_performance_mode\":%s,\"bluetooth_startup\":%s,\"bluetooth_icon_menu\":%s,\"mode_icons\":%s,"
+             "\"tabs\":{\"manual\":%s,\"single\":%s,\"double\":%s,\"custom\":%s}}",
              profile.current_profile,
              profile.mode == GrindMode::TIME ? "time" : "weight",
              profile.profiles[0].name, profile.profiles[0].weight, profile.profiles[0].time_seconds,
@@ -822,6 +982,7 @@ void DeviceApi::refresh_settings_cache() {
              grind_controller_->get_motor_response_latency(),
              read_bool("logging", "enabled", true) ? "true" : "false",
              read_bool("swipe", "enabled", false) ? "true" : "false",
+             static_cast<unsigned long>(grind_controller_ ? grind_controller_->get_single_dose_timeout_s() : GRIND_SINGLE_DOSE_TIMEOUT_DEFAULT_S),
              static_cast<int>(read_brightness("normal", USER_SCREEN_BRIGHTNESS_NORMAL) * 100.0f + 0.5f),
              static_cast<int>(read_brightness("screensaver", USER_SCREEN_BRIGHTNESS_DIMMED) * 100.0f + 0.5f),
              read_bool("screensaver", "startup", false) ? "true" : "false",
@@ -829,9 +990,22 @@ void DeviceApi::refresh_settings_cache() {
              screensaver_timing.idle_timeout_s, screensaver_timing.startup_timeout_s,
              screensaver_timing.display_off_enabled ? "true" : "false",
              screensaver_timing.display_off_delay_s,
-             screensaver_style.c_str(), LittleFS.exists(BLE_IMAGE_FILENAME) ? "true" : "false",
+             grind_layout,
+             disc_color,
+             screensaver_style.c_str(), clock_position.c_str(), clock_layout.c_str(), clock_color.c_str(), clock_font.c_str(), timezone.c_str(),
+             LittleFS.exists(BLE_IMAGE_FILENAME) ? "true" : "false",
+             LittleFS.exists(CLOCK_FONT_FILENAME) ? "true" : "false",
              gaggimate_host.c_str(),
-             read_bool("bluetooth", "startup", true) ? "true" : "false");
+             network_manager.is_tab_enabled() ? "true" : "false",
+             network_manager.is_icon_menu_only() ? "true" : "false",
+             network_manager.is_performance_mode() ? "true" : "false",
+             read_bool("bluetooth", "startup", true) ? "true" : "false",
+             (bluetooth_manager_ ? bluetooth_manager_->is_icon_menu_only() : read_bool("bluetooth", "icon_menu", false)) ? "true" : "false",
+             mode_icons ? "true" : "false",
+             tab_manual ? "true" : "false",
+             tab_single ? "true" : "false",
+             tab_double ? "true" : "false",
+             tab_custom ? "true" : "false");
     xSemaphoreTake(settings_mutex_, portMAX_DELAY);
     settings_json_cache_ = json;
     xSemaphoreGive(settings_mutex_);
@@ -891,7 +1065,7 @@ String DeviceApi::build_state_message() {
              static_cast<unsigned long>(sequence_.fetch_add(1) + 1), static_cast<unsigned long>(millis()),
              grind_controller_->is_active() ? "true" : "false",
              api_phase_name(*grind_controller_),
-             mode == GrindMode::TIME ? "time" : mode == GrindMode::MANUAL ? "manual" : "weight",
+             mode == GrindMode::TIME ? "time" : mode == GrindMode::MANUAL ? "singledose" : "weight",
              idle ? profile.current_profile : grind_controller_->get_session_descriptor().profile_id,
              grind_controller_->get_current_progress_percent(),
              target_weight,

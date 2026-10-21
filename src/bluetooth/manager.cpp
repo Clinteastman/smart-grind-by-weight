@@ -68,12 +68,24 @@ BluetoothManager::~BluetoothManager() {
 
 void BluetoothManager::init(Preferences* prefs) {
     log("Bluetooth: Manager initialized (enable via Developer Mode)\n");
+    Preferences ble_prefs;
+    ble_prefs.begin("bluetooth", true);
+    icon_menu_only_ = ble_prefs.getBool("icon_menu", false);
+    ble_prefs.end();
     ota_handler.init(prefs);
     image_handler.init(&ota_handler);
     // Create UI status queue to marshal UI updates to UI task
     if (!ui_status_queue) {
         ui_status_queue = xQueueCreate(8, sizeof(UIStatusMessage));
     }
+}
+
+void BluetoothManager::set_icon_menu_only(bool menu_only) {
+    icon_menu_only_ = menu_only;
+    Preferences prefs;
+    prefs.begin("bluetooth", false);
+    prefs.putBool("icon_menu", menu_only);
+    prefs.end();
 }
 
 void BluetoothManager::set_ui_status_callback(UIStatusCallback callback) {

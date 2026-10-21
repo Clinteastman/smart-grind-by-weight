@@ -689,6 +689,12 @@ void WeightSensor::cancel_settling() {
 // NOISE LEVEL DIAGNOSTIC
 //==============================================================================
 
+void WeightSensor::reset_noise_diagnostic() {
+    not_settled_start_time = 0;
+    currently_not_settled = false;
+    display_noisy_state = false;
+}
+
 bool WeightSensor::noise_level_diagnostic() const {
     // Check noise level using same threshold and window as grind control settling
     float std_dev_g = get_standard_deviation_g(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
@@ -704,8 +710,8 @@ bool WeightSensor::noise_level_diagnostic() const {
             currently_not_settled = true;
         }
         
-        // Show "Noisy" only after 2000ms of sustained instability
-        if (now - not_settled_start_time >= 2000) {
+        // Show "Noisy" only after 3000ms of sustained instability
+        if (now - not_settled_start_time >= 3000) {
             display_noisy_state = true;  // Show "Noisy"
         }
         // else: keep showing previous state during 3s grace period

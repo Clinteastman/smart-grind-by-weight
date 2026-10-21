@@ -18,11 +18,19 @@ public:
     virtual bool is_visible() const = 0;
     virtual lv_obj_t* get_screen() const = 0;
     
+    // Visual completion state (e.g. green screen)
+    virtual void set_completed(bool completed) {}
+
     // Chart-specific method (only implemented by chart screen)
     virtual void add_chart_data_point(float current_weight, float flow_rate, uint32_t current_time_ms) {}
 };
 
 enum class GrindScreenLayout {
-    MINIMAL_ARC,   // Original arc-based screen
-    NERDY_CHART    // Chart-based screen
+    MINIMAL_ARC = 0,    // Classic 3/4 circle progress arc
+    DISC_RING = 1,      // Expanding disc with emerald ring accent finish
+    DISC_SOLID = 2,     // Expanding disc with solid emerald green finish
+    NERDY_CHART = 3,    // Real-time flow rate & weight graph
+
+    // Backward compatibility alias:
+    EXPANDING_DISC = DISC_RING
 };
