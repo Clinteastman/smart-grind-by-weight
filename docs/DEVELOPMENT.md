@@ -220,8 +220,11 @@ old factory application.
 Once the device is running and connected to Bluetooth:
 
 ```bash
-# Build and upload wirelessly (production)
+# Build and upload wirelessly (production; add --hardware v2 for V2 boards)
 python3 tools/grinder.py build-upload
+
+# Upload an archived local build (here V2 build 4)
+python3 tools/grinder.py upload firmware_cache/waveshare-164-v2/build_004.bin
 
 # Upload specific firmware file
 python3 tools/grinder.py upload path/to/smart-grind-by-weight-vX.X.X.bin
@@ -235,6 +238,14 @@ python3 tools/grinder.py scan
 # Get device system info
 python3 tools/grinder.py info
 ```
+
+Bluetooth updates normally send only the difference from the installed build,
+which is much faster. The uploader calculates it from the installed build's
+archived image in the folder for the same board as the firmware being
+uploaded: `firmware_cache/` for V1, `firmware_cache/waveshare-164-v2/` for V2.
+If that image is not archived on this computer (for example, the board was
+flashed from another machine), the uploader stops and asks for `--force-full`.
+A full update must fit the 2 MB patch partition.
 
 ---
 
