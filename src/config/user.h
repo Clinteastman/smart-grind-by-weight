@@ -52,6 +52,12 @@
 #define USER_WEIGHT_ACTIVITY_THRESHOLD_G 1.0f                                  // Weight change threshold for screen timeout reset (grams)
 
 //------------------------------------------------------------------------------
+// GRIND RESULT SCREEN
+//------------------------------------------------------------------------------
+#define USER_RESULT_HOLD_FINAL_WEIGHT_DEFAULT true                             // Finished screen keeps the final weight instead of the live reading
+#define USER_RESULT_SCREEN_SECONDS_DEFAULT 60                                  // Finished screen stays this long before returning to Ready
+
+//------------------------------------------------------------------------------
 // AUTO ACTIONS
 //------------------------------------------------------------------------------
 #define USER_AUTO_GRIND_TRIGGER_DELTA_G 50.0f                                   // Weight change threshold used for auto actions (grams)

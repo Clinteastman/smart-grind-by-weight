@@ -94,7 +94,7 @@ https://github.com/user-attachments/assets/e20ce3e2-417e-4a3b-bb48-05591fce9418
 - **Checked settings saves and stronger fault handling**, including runtime
   save confirmation, stale-scale stops and coordinated motor/update operations.
 - **V1 and V2 Waveshare support**, reproducible CI builds, a public web flasher
-  and a deterministic Windows desktop simulator for development.
+  and a deterministic Windows, macOS and Linux desktop simulator for development.
 
 Network clients request a selected-profile start or stop through the same grind
 controller used by the touchscreen; they never drive the relay directly. The

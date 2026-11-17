@@ -15,6 +15,7 @@
 #include "../../network/device_web_server.h"
 #include "grinding_screen.h"
 #include "../event_bridge_lvgl.h"
+#include "../result_screen_settings.h"
 #include "../../config/logging.h"
 #include "../components/blocking_overlay.h"
 
@@ -61,6 +62,10 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     network_update_text.clear();
     network_update_button_visible = false;
     grinder_purge_mode_radio_group = nullptr;
+    grind_screen_radio_group = nullptr;
+    result_hold_toggle = nullptr;
+    result_time_slider = nullptr;
+    result_time_label = nullptr;
     grinder_purge_amount_slider = nullptr;
     grinder_purge_amount_label = nullptr;
     grind_freshness_hours_slider = nullptr;
@@ -547,6 +552,11 @@ static void grind_mode_callback(int selected_index, void* user_data) {
     EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::GRIND_MODE_RADIO_BUTTON, nullptr);
 }
 
+// Callback for grind screen layout radio button selection
+static void grind_screen_layout_callback(int selected_index, void* user_data) {
+    EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::GRIND_SCREEN_RADIO_BUTTON, nullptr);
+}
+
 // Callback for grinder purge mode radio button selection
 static void grinder_purge_mode_callback(int selected_index, void* user_data) {
     // Trigger the event system instead of handling directly
@@ -589,6 +599,28 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
 
     // Swipe toggle using existing pattern
     create_toggle_row(parent, "Swipe", &grind_mode_swipe_toggle);
+
+    // Grind screen layout; indexes match GrindScreenLayout
+    create_separator(parent, "Grind Screen");
+    create_description_label(parent, "Choose what the screen shows while grinding. You can also tap the screen during a grind to switch.");
+    const char* grind_screen_layouts[] = {"Arc", "Chart", "Circle"};
+    grind_screen_radio_group = create_radio_button_group(
+        parent,
+        grind_screen_layouts,
+        3,
+        LV_FLEX_FLOW_ROW,
+        0,  // Arc initially selected
+        -1, 100,  // Equal widths, height
+        grind_screen_layout_callback,
+        this
+    );
+
+    // The finished screen: which weight it shows and how long it stays
+    create_description_label(parent, "Keep the final weight on the finished screen after the cup is lifted.");
+    create_toggle_row(parent, "Hold", &result_hold_toggle);
+    create_description_label(parent, "How long the finished screen stays before returning to Ready.");
+    create_slider_row(parent, "Show for", &result_time_label, &result_time_slider,
+                      lv_color_hex(THEME_COLOR_ACCENT), 0, result_screen_settings::kChoiceCount - 1);
 
     // Automatic actions section
     create_separator(parent, "Automation");
@@ -659,6 +691,16 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     if (grind_mode_swipe_toggle) {
         lv_obj_add_event_cb(grind_mode_swipe_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_MODE_SWIPE_TOGGLE)));
+    }
+    if (result_hold_toggle) {
+        lv_obj_add_event_cb(result_hold_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::RESULT_HOLD_TOGGLE)));
+    }
+    if (result_time_slider) {
+        lv_obj_add_event_cb(result_time_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::RESULT_TIME_SLIDER)));
+        lv_obj_add_event_cb(result_time_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::RESULT_TIME_SLIDER_RELEASED)));
     }
     if (auto_start_toggle) {
         lv_obj_add_event_cb(auto_start_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
@@ -1193,6 +1235,17 @@ void MenuScreen::update_motor_latency_label(float latency_ms) {
     lv_label_set_text(motor_latency_label, buffer);
 }
 
+void MenuScreen::update_result_time_label(uint32_t seconds) {
+    if (!result_time_label) return;
+    char buffer[24];
+    if (seconds < 60) {
+        snprintf(buffer, sizeof(buffer), "Show for: %lu s", static_cast<unsigned long>(seconds));
+    } else {
+        snprintf(buffer, sizeof(buffer), "Show for: %lu min", static_cast<unsigned long>(seconds / 60));
+    }
+    lv_label_set_text(result_time_label, buffer);
+}
+
 void MenuScreen::update_auto_start_threshold_label(float threshold_g) {
     if (!auto_start_threshold_label) return;
     const float clamped = std::clamp(threshold_g,
@@ -1455,6 +1508,8 @@ void MenuScreen::update_grind_mode_toggles() {
     int mode_index = 0; // Default to Weight (index 0)
     int grinder_purge_mode_index = GRIND_PURGE_MODE_DEFAULT;  // Default to Purge
     float grinder_purge_amount_g = GRIND_PURGE_AMOUNT_DEFAULT_G;  // Default to 1.0g
+    bool result_hold = USER_RESULT_HOLD_FINAL_WEIGHT_DEFAULT;
+    uint32_t result_seconds = USER_RESULT_SCREEN_SECONDS_DEFAULT;
     if (hardware_manager) {
         Preferences* main_prefs = hardware_manager->get_preferences();
         if (main_prefs) {
@@ -1462,12 +1517,33 @@ void MenuScreen::update_grind_mode_toggles() {
             mode_index = (stored_mode == static_cast<int>(GrindMode::TIME)) ? 1 : 0;
             grinder_purge_mode_index = main_prefs->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
             grinder_purge_amount_g = main_prefs->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
+            result_hold = result_screen_settings::load_hold_final_weight(*main_prefs);
+            result_seconds = result_screen_settings::load_seconds(*main_prefs);
         }
     }
 
     if (grind_mode_radio_group) {
         radio_button_group_set_selection(grind_mode_radio_group, mode_index);
     }
+
+    // Tapping the screen during a grind may have changed the layout
+    if (grind_screen_radio_group && grinding_screen) {
+        radio_button_group_set_selection(grind_screen_radio_group,
+                                         static_cast<int>(grinding_screen->get_layout()));
+    }
+
+    if (result_hold_toggle) {
+        if (result_hold) {
+            lv_obj_add_state(result_hold_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(result_hold_toggle, LV_STATE_CHECKED);
+        }
+    }
+    if (result_time_slider) {
+        lv_slider_set_value(result_time_slider,
+                            result_screen_settings::choice_for_seconds(result_seconds), LV_ANIM_OFF);
+    }
+    update_result_time_label(result_seconds);
 
     if (grind_mode_swipe_toggle) {
         if (swipe_enabled) {

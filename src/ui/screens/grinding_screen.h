@@ -2,25 +2,31 @@
 #include "grinding_screen_base.h"
 #include "grinding_screen_arc.h"
 #include "grinding_screen_chart.h"
+#include "grinding_screen_circle.h"
 #include <Preferences.h>
 #include "../../controllers/grind_mode.h"
 
-// Unified grinding screen that wraps both implementations
+// Unified grinding screen that wraps all layout implementations
 class GrindingScreen : public IGrindingScreen {
 private:
     IGrindingScreen* active_screen;
     GrindScreenLayout current_layout;
     GrindingScreenArc arc_screen;
     GrindingScreenChart chart_screen;
+    GrindingScreenCircle circle_screen;
     Preferences* preferences;
     GrindMode current_mode;
-    
+
+    IGrindingScreen* screen_for_layout(GrindScreenLayout layout);
+
 public:
     GrindingScreen();
     void init(Preferences* prefs);
     void set_layout(GrindScreenLayout layout);
+    // Arc -> Chart -> Circle -> Arc, as when tapping the screen while grinding
+    void cycle_layout();
     GrindScreenLayout get_layout() const { return current_layout; }
-    
+
     // IGrindingScreen implementation - delegates to active screen
     void create() override;
     void show() override;
@@ -35,6 +41,7 @@ public:
     bool is_visible() const override;
     lv_obj_t* get_screen() const override;
     void add_chart_data_point(float current_weight, float flow_rate, uint32_t current_time_ms) override;
+    void set_outcome(GrindScreenOutcome outcome) override;
     void reset_chart_data();
     void set_mode(GrindMode mode);
     void set_chart_time_prediction(uint32_t predicted_time_ms);
@@ -42,4 +49,5 @@ public:
     // ADDED: Public accessors for individual screen objects
     lv_obj_t* get_arc_screen_obj() const { return arc_screen.get_screen(); }
     lv_obj_t* get_chart_screen_obj() const { return chart_screen.get_screen(); }
+    lv_obj_t* get_circle_screen_obj() const { return circle_screen.get_screen(); }
 };

@@ -26,6 +26,8 @@ public:
     void update_button_layout();
     void update_grinding_targets();
     void reset_grind_complete_timer();
+    // Rereads the finished-screen settings from Grind Settings
+    void load_result_screen_settings();
 
     void handle_grind_event(const GrindEventData& event_data);
     static void dispatch_event(const GrindEventData& event_data);
@@ -38,6 +40,7 @@ private:
     void enter_grind_timeout_state();
     void enter_menu_state();
 
+    void show_result_weight();
     void start_grind_complete_timer();
     void start_grind_timeout_timer();
     void cancel_timers();
@@ -60,4 +63,13 @@ private:
     float error_grind_weight_ = 0.0f;
     int error_grind_progress_ = 0;
     char error_message_[32] = {0};
+
+    // Finished screen settings
+    bool hold_final_weight_;
+    uint32_t result_screen_ms_;
+    // A time-mode pulse adds grounds after the result was taken; the weight
+    // follows the scale while it runs and until the grounds have settled.
+    bool pulse_running_ = false;
+    bool pulse_settling_ = false;
+    uint32_t pulse_finished_ms_ = 0;
 };
