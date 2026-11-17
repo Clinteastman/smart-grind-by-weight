@@ -7,12 +7,41 @@
 #include "../config/build_info.h"
 #include "../config/constants.h"
 
+// wifi_join_failure.h mirrors these ESP-IDF codes so it can be tested on a desktop.
+namespace reason = wifi_disconnect_reason;
+static_assert(reason::AUTH_EXPIRE == WIFI_REASON_AUTH_EXPIRE);
+static_assert(reason::ASSOC_LEAVE == WIFI_REASON_ASSOC_LEAVE);
+static_assert(reason::MIC_FAILURE == WIFI_REASON_MIC_FAILURE);
+static_assert(reason::FOUR_WAY_HANDSHAKE_TIMEOUT == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);
+static_assert(reason::BEACON_TIMEOUT == WIFI_REASON_BEACON_TIMEOUT);
+static_assert(reason::NO_AP_FOUND == WIFI_REASON_NO_AP_FOUND);
+static_assert(reason::AUTH_FAIL == WIFI_REASON_AUTH_FAIL);
+static_assert(reason::ASSOC_FAIL == WIFI_REASON_ASSOC_FAIL);
+static_assert(reason::HANDSHAKE_TIMEOUT == WIFI_REASON_HANDSHAKE_TIMEOUT);
+static_assert(reason::CONNECTION_FAIL == WIFI_REASON_CONNECTION_FAIL);
+static_assert(reason::NO_AP_FOUND_W_COMPATIBLE_SECURITY ==
+              WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY);
+static_assert(reason::NO_AP_FOUND_IN_AUTHMODE_THRESHOLD ==
+              WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD);
+static_assert(reason::NO_AP_FOUND_IN_RSSI_THRESHOLD == WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD);
+
 SmartGrindNetworkManager network_manager;
 
 void SmartGrindNetworkManager::init(Preferences* preferences) {
     preferences_ = preferences;
     if (!settings_mutex_) settings_mutex_ = xSemaphoreCreateMutex();
     load_settings();
+
+    // Keep the reason for the latest disconnect so a failed join can be
+    // explained instead of silently returning to setup mode.
+    WiFi.onEvent([this](arduino_event_id_t, arduino_event_info_t info) {
+        const uint16_t disconnect_reason = info.wifi_sta_disconnected.reason;
+        // Our own disconnect after a timed-out attempt is not the cause.
+        if (disconnect_reason != reason::ASSOC_LEAVE) {
+            last_disconnect_reason_.store(disconnect_reason);
+        }
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
     initialized_.store(true);
 
     if (!enabled_.load()) {
@@ -49,12 +78,18 @@ void SmartGrindNetworkManager::update() {
 
     const uint32_t elapsed_ms = millis() - state_changed_at_ms_;
     if (state() == NetworkState::WIFI_CONNECTING && elapsed_ms >= CONNECT_TIMEOUT_MS) {
+        const uint16_t disconnect_reason = last_disconnect_reason_.load();
+        const WifiJoinFailure failure = classify_wifi_disconnect(disconnect_reason);
+        last_join_failure_.store(failure);
         WiFi.disconnect(false, false);
         if (ever_connected_) {
-            LOG_BLE("[WIFI] Reconnection timed out; retrying in %lus\n", RETRY_DELAY_MS / 1000);
+            LOG_BLE("[WIFI] Reconnection timed out: %s (reason %u); retrying in %lus\n",
+                    wifi_join_failure_summary(failure), static_cast<unsigned>(disconnect_reason),
+                    RETRY_DELAY_MS / 1000);
             set_state(NetworkState::WIFI_RETRY_WAIT);
         } else {
-            LOG_BLE("[WIFI] Configured network unavailable; starting setup mode\n");
+            LOG_BLE("[WIFI] Configured network unavailable: %s (reason %u); starting setup mode\n",
+                    wifi_join_failure_summary(failure), static_cast<unsigned>(disconnect_reason));
             set_state(NetworkState::WIFI_SETUP_REQUIRED);
         }
     } else if (state() == NetworkState::WIFI_RETRY_WAIT && elapsed_ms >= RETRY_DELAY_MS) {
@@ -157,6 +192,18 @@ String SmartGrindNetworkManager::ip_address() const {
     return is_connected() ? WiFi.localIP().toString() : String();
 }
 
+String SmartGrindNetworkManager::join_failure_summary() const {
+    const WifiJoinFailure failure = last_join_failure();
+    if (failure == WifiJoinFailure::NONE) return String();
+    return "Could not join " + network_name() + ": " + wifi_join_failure_summary(failure) + ".";
+}
+
+String SmartGrindNetworkManager::join_failure_explanation() const {
+    const String summary = join_failure_summary();
+    if (summary.isEmpty()) return summary;
+    return summary + " " + wifi_join_failure_advice(last_join_failure());
+}
+
 void SmartGrindNetworkManager::load_settings() {
     enabled_.store(preferences_ && preferences_->getBool("wifi_on", true));
     ssid_ = preferences_ ? preferences_->getString("wifi_ssid", "") : String();
@@ -180,6 +227,8 @@ void SmartGrindNetworkManager::begin_connection() {
         mdns_started_ = false;
     }
 
+    last_disconnect_reason_.store(reason::NONE);
+    last_join_failure_.store(WifiJoinFailure::NONE);
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
@@ -214,6 +263,7 @@ bool SmartGrindNetworkManager::start_setup_access_point(const String& ssid, cons
 
 void SmartGrindNetworkManager::handle_connected() {
     ever_connected_ = true;
+    last_join_failure_.store(WifiJoinFailure::NONE);
     set_state(NetworkState::WIFI_CONNECTED);
     const String current_hostname = hostname();
     const String current_device_id = device_id();

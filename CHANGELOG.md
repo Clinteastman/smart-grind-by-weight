@@ -6,6 +6,18 @@ line. Earlier release history remains available in the original project's
 
 ## [Unreleased]
 
+### Wi-Fi setup
+
+- The setup page shows the padlock for secured networks instead of garbled
+  characters.
+- iPhones no longer autocorrect or capitalise a network name typed into the
+  setup page.
+- When the grinder cannot join the saved network, it says why: network not
+  found, password rejected, signal too weak, connection refused, unsupported
+  security or no response. The explanation appears on the setup page and on
+  **Menu → Wi-Fi**, with a one-line summary on the ready screen's Wi-Fi tab.
+  See [Troubleshooting](docs/TROUBLESHOOTING.md#wi-fi-setup-does-not-connect).
+
 ### Smoother display
 
 - V2 boards draw the next part of the screen while the previous part is still

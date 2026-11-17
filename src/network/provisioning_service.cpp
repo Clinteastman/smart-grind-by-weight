@@ -12,19 +12,21 @@
 
 namespace {
 constexpr char SETUP_PAGE[] PROGMEM = R"HTML(
-<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Grind Wi-Fi</title><style>
 body{font-family:system-ui,sans-serif;background:#161914;color:#f4f4ed;max-width:34rem;margin:3rem auto;padding:0 1.2rem}
 form{background:#242920;padding:1.4rem;border-radius:1rem}label{display:block;margin:.8rem 0 .25rem}
 input,select,button{box-sizing:border-box;width:100%;padding:.8rem;border-radius:.55rem;border:1px solid #68735e;font-size:1rem}
 button{margin-top:1.2rem;background:#86a869;color:#10140d;font-weight:700;border:0}.secondary{margin-top:.5rem;background:#3d4638;color:#f4f4ed}small,summary{color:#b8c1b0}details{margin-top:1rem}
+.error{background:#4a2420;color:#ffd9d2;padding:.8rem 1rem;border-radius:.55rem}
 </style></head><body><h1>Connect Smart Grind</h1>
 <p>Enter the 2.4 GHz Wi-Fi network used by your phone and Home Assistant.</p>
+<p id="joinFailure" class="error" hidden></p>
 <form id="wifiForm" method="post" action="/api/v1/setup/wifi"><label for="networks">Wi-Fi network</label>
 <select id="networks"><option value="">Scanning for networks...</option></select>
 <button class="secondary" id="refresh" type="button">Refresh network list</button>
 <details><summary>Hidden network or manual entry</summary><label for="manualSsid">Network name</label>
-<input id="manualSsid" maxlength="32" autocomplete="off"></details>
+<input id="manualSsid" maxlength="32" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></details>
 <input id="ssid" name="ssid" type="hidden">
 <label for="password">Password</label><input id="password" name="password" type="password" maxlength="63">
 <small>Leave blank only for an open network.</small><button type="submit">Save and connect</button></form>
@@ -40,6 +42,8 @@ async function loadNetworks(refresh=false){
 }
 document.getElementById('refresh').onclick=()=>loadNetworks(true);
 document.getElementById('wifiForm').onsubmit=e=>{const ssid=(manual.value.trim()||list.value);if(!ssid){e.preventDefault();alert('Select or enter a Wi-Fi network.');return;}document.getElementById('ssid').value=ssid;};
+fetch('/api/v1/setup/status',{cache:'no-store'}).then(r=>r.json()).then(s=>{if(!s.join_failure)return;
+ const box=document.getElementById('joinFailure');box.textContent=s.join_failure;box.hidden=false;}).catch(()=>{});
 loadNetworks();
 </script></body></html>
 )HTML";
@@ -161,6 +165,18 @@ void ProvisioningService::configure_routes() {
                              networks[i].secure ? "true" : "false");
         }
         response->print("]}");
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+    server_->on(AsyncURIMatcher::exact("/api/v1/setup/status"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
+            request->send(403, "application/json", "{\"error\":\"Wi-Fi setup is not active\"}");
+            return;
+        }
+        // Explain a failed attempt to join the saved network, if there was one.
+        const String join_failure = network_manager.join_failure_explanation();
+        AsyncResponseStream* response = request->beginResponseStream("application/json");
+        response->printf("{\"join_failure\":\"%s\"}", json_escape(join_failure).c_str());
         response->addHeader("Cache-Control", "no-store");
         request->send(response);
     });

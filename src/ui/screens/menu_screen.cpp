@@ -421,8 +421,10 @@ void MenuScreen::update_network_status() {
             status = "Wi-Fi setup";
             const String& ssid = provisioning_service.access_point_ssid();
             const String& password = provisioning_service.access_point_password();
-            detail = "Scan to join\n" + ssid + "\nPassword: " + password +
-                     "\nthen use the sign-in page or open " + WiFi.softAPIP().toString();
+            const String join_failure = network_manager.join_failure_explanation();
+            if (!join_failure.isEmpty()) detail = join_failure + "\n\n";
+            detail += "Scan to join\n" + ssid + "\nPassword: " + password +
+                      "\nthen use the sign-in page or open " + WiFi.softAPIP().toString();
             qr_payload = "WIFI:T:";
             qr_payload += password.isEmpty() ? "nopass" : "WPA";
             qr_payload += ";S:" + escape_wifi_qr_value(ssid);
