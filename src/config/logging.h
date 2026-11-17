@@ -55,6 +55,14 @@ extern BluetoothManager g_bluetooth_manager;
 #define LOG_SETTLING_DEBUG(format, ...)
 #endif
 
+// Serial only: a once-per-second line would otherwise push the retained
+// startup log out of the diagnostic log buffer.
+#if DEBUG_DISPLAY_PERFORMANCE
+#define LOG_DISPLAY_PERF(format, ...) Serial.printf(format, ##__VA_ARGS__)
+#else
+#define LOG_DISPLAY_PERF(format, ...)
+#endif
+
 #ifdef ENABLE_BLE_DEBUG_VERBOSE
 #ifndef SMART_GRIND_SIM
 #define LOG_BLE_DEBUG(format, ...) diagnostic_log_printf(format, ##__VA_ARGS__)

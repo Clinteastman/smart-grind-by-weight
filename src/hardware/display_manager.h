@@ -19,6 +19,8 @@ struct DisplayPerformanceSnapshot {
     uint32_t pixels = 0;
     uint32_t ui_time_us = 0;
     uint32_t render_time_us = 0;
+    // UI-task time spent on the panel: blocking transfers on V1, waiting for
+    // a background transfer to free a draw buffer on V2.
     uint32_t flush_time_us = 0;
 };
 
@@ -35,6 +37,7 @@ private:
     lv_display_t* lvgl_display;
     lv_indev_t* lvgl_input;
     lv_color_t* draw_buffer;
+    lv_color_t* second_draw_buffer;  // V2 only; lets LVGL render while the panel transfer runs
 #if !HW_DISPLAY_VARIANT_V2
     uint16_t* dma_staging_buffer;
 #endif
@@ -56,6 +59,9 @@ private:
     DisplayPerformanceSnapshot metrics_snapshot;
     uint32_t metrics_window_started_ms = 0;
     uint32_t render_started_us = 0;
+#if HW_DISPLAY_VARIANT_V2
+    uint32_t flush_wait_started_us = 0;
+#endif
 
 public:
     void init();
@@ -72,6 +78,10 @@ public:
     DisplayPerformanceSnapshot get_performance_snapshot();
     
 private:
+#if HW_DISPLAY_VARIANT_V2
+    void allocate_draw_buffers();
+#endif
+    void log_performance_window(const DisplayPerformanceSnapshot& window) const;
     static void display_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map);
 #if HW_DISPLAY_VARIANT_V2
     static bool color_transfer_done_cb(esp_lcd_panel_io_handle_t panel_io,

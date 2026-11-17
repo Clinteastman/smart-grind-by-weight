@@ -139,6 +139,10 @@ BLE_OTA_RECEIVING = 0x02
 BLE_OTA_SUCCESS = 0x03
 BLE_OTA_ERROR = 0x04
 
+# Firmware archives written by tools/build-scripts/post_build.py. V1 and V2
+# can share a build number, so their images are kept in separate folders.
+V2_FIRMWARE_CACHE_SUBDIR = "waveshare-164-v2"
+
 BLE_DATA_IDLE = 0x20
 BLE_DATA_EXPORTING = 0x21
 BLE_DATA_COMPLETE = 0x22
@@ -393,20 +397,50 @@ class GrinderBLETool:
             return False
 
         self.safe_print(f"[OK] Installed firmware build: #{build_number}")
-        cached_firmware = self.find_cached_firmware(build_number)
-        if cached_firmware:
-            self.safe_print(f"[OK] Matching delta base: {cached_firmware.name}")
+        # Preflight does not know the board, so report the base for each one.
+        bases = {
+            "V1": self.find_cached_firmware(build_number, self.firmware_cache_dir),
+            "V2": self.find_cached_firmware(
+                build_number, self.firmware_cache_dir / V2_FIRMWARE_CACHE_SUBDIR),
+        }
+        found = [f"{board} {path.name}" for board, path in bases.items() if path]
+        if found:
+            self.safe_print(f"[OK] Matching delta base: {', '.join(found)}")
         else:
             self.safe_print(f"[WARNING] Matching delta base build_{int(build_number):03d}.bin is not cached")
         self.safe_print("[OK] OTA preflight passed; no firmware data was sent")
         return True
 
-    def find_cached_firmware(self, build_number: str) -> Optional[Path]:
-        firmware_file = self.firmware_cache_dir / f"build_{int(build_number):03d}.bin"
+    def firmware_cache_dir_for(self, firmware_path: str) -> Optional[Path]:
+        """Return the archive folder for the board that firmware_path targets.
+
+        A delta must be calculated from the exact image the board is running.
+        V1 and V2 archives can hold the same build number, so the base has to
+        come from the folder matching the firmware being installed. Returns
+        None when the board cannot be inferred from the path.
+        """
+        firmware_file = Path(firmware_path).resolve()
+        cache_root = self.firmware_cache_dir.resolve()
+        v2_cache = cache_root / V2_FIRMWARE_CACHE_SUBDIR
+        if firmware_file.parent in (cache_root, v2_cache):
+            return firmware_file.parent
+        # PlatformIO output: .pio/build/<environment>/firmware.bin
+        if firmware_file.parent.parent.name == "build" and ".pio" in firmware_file.parts:
+            return v2_cache if firmware_file.parent.name.endswith("-v2") else cache_root
+        return None
+
+    def find_cached_firmware(self, build_number: str, cache_dir: Optional[Path]) -> Optional[Path]:
+        if cache_dir is None:
+            return None
+        firmware_file = cache_dir / f"build_{int(build_number):03d}.bin"
         return firmware_file if firmware_file.exists() else None
 
     def _get_firmware_build_number(self, firmware_path: str) -> Optional[str]:
-        """Extract build number from git_info.h in project directory."""
+        """Extract the build number from an archive name or the project's git_info.h."""
+        import re
+        archive_match = re.fullmatch(r'build_(\d+)\.bin', Path(firmware_path).name)
+        if archive_match:
+            return str(int(archive_match.group(1)))
         try:
             # Firmware path: .pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin
             # Project dir should be 3 levels up from firmware.bin
@@ -427,7 +461,6 @@ class GrinderBLETool:
                         if git_info_path.exists():
                             with open(git_info_path, 'r') as f:
                                 content = f.read()
-                                import re
                                 match = re.search(r'#define BUILD_NUMBER (\d+)', content)
                                 if match:
                                     return match.group(1)
@@ -490,8 +523,10 @@ class GrinderBLETool:
                 self.safe_print(f"[INFO] Current device build: #{device_build}")
                 if new_build:
                     self.safe_print(f"[INFO] Upgrading to build: #{new_build}")
-                cached_firmware = self.find_cached_firmware(device_build)
+                cache_dir = self.firmware_cache_dir_for(firmware_path)
+                cached_firmware = self.find_cached_firmware(device_build, cache_dir)
                 if cached_firmware:
+                    self.safe_print(f"[INFO] Delta base: {cached_firmware}")
                     # detools performs CPU-bound compression in a subprocess.
                     # Keep it off the asyncio thread so Windows can continue
                     # servicing the active WinRT BLE connection.
@@ -502,7 +537,10 @@ class GrinderBLETool:
                         use_delta = True
                     else: full_reason = "delta not beneficial"
                 else:
-                    self.safe_print(f"[ERROR] No cached firmware for installed build #{device_build}")
+                    if cache_dir is None:
+                        self.safe_print("[ERROR] Cannot tell which board this firmware is for, so no delta base can be chosen")
+                    else:
+                        self.safe_print(f"[ERROR] No cached firmware for installed build #{device_build} in {cache_dir}")
                     self.safe_print("[INFO] Refusing to fall back to a full BLE update; use --force-full explicitly")
                     return False
             else:

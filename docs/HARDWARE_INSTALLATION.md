@@ -85,7 +85,15 @@ Watch the complete Eureka Mignon Specialita assembly process: **[YouTube Assembl
 
 ## Installation and wiring
 
-[<img src="../media/wiring_diagram.png" alt="Wiring Diagram" width="50%">](../media/wiring_diagram.png)
+**V1 hardware** (original CO5300 display):
+
+[<img src="../media/wiring_diagram_v1.png" alt="Wiring diagram for V1 hardware" width="50%">](../media/wiring_diagram_v1.png)
+
+**V2 hardware** (newer SH8601 display, may be marked Rev1.1):
+
+[<img src="../media/wiring_diagram_v2.png" alt="Wiring diagram for V2 hardware" width="50%">](../media/wiring_diagram_v2.png)
+
+Both diagrams show 5V in red and ground in black whatever colours your grinder harness uses, and draw the HX711 pins in a tidy order rather than their physical order. Match connections by label and plug position, not by colour or position. Editable sources are in `../media/wiring_diagram_v1.svg` and `../media/wiring_diagram_v2.svg`; the original photo-style diagram is still available as [`wiring_diagram.png`](../media/wiring_diagram.png).
 
 ### Pin Configuration
 
