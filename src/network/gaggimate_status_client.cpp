@@ -1,88 +1,96 @@
 #include "gaggimate_status_client.h"
+#include <string>
+#include "../system/string_utils.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <cstdint>
+#include <freertos/task.h>
+#include "../system/timing.h"
 
-#include <HTTPClient.h>
-#include <Preferences.h>
-#include <WiFi.h>
+#include <esp_http_client.h>
+#include "../storage/preferences.h"
+#include <esp_err.h>
+
+#include "network_manager.h"
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
-#include "../config/logging.h"
+#include "../config/constants.h"
 
 namespace {
 
 constexpr const char* kPreferencesNamespace = "screensaver";
 constexpr const char* kHostKey = "gm_host";
 
-bool parse_number(const String& json, const char* key, float& output) {
-    const String token = String('"') + key + '"';
-    int position = json.indexOf(token);
+bool parse_number(const std::string& json, const char* key, float& output) {
+    const std::string token = std::string("\"") + key + '"';
+    int position = strings::index_of(json, token);
     if (position < 0) return false;
-    position = json.indexOf(':', position + token.length());
+    position = strings::index_of(json, ':', static_cast<size_t>(position) + token.length());
     if (position < 0) return false;
 
     const char* start = json.c_str() + position + 1;
     while (*start == ' ' || *start == '\t') ++start;
     char* end = nullptr;
     const float value = strtof(start, &end);
-    if (end == start || !isfinite(value)) return false;
+    if (end == start || !std::isfinite(value)) return false;
     output = value;
     return true;
 }
 
-bool parse_bool(const String& json, const char* key, bool& output) {
-    const String token = String('"') + key + '"';
-    int position = json.indexOf(token);
+bool parse_bool(const std::string& json, const char* key, bool& output) {
+    const std::string token = std::string("\"") + key + '"';
+    int position = strings::index_of(json, token);
     if (position < 0) return false;
-    position = json.indexOf(':', position + token.length());
+    position = strings::index_of(json, ':', static_cast<size_t>(position) + token.length());
     if (position < 0) return false;
 
-    String value = json.substring(position + 1);
-    value.trim();
-    if (value.startsWith("true") || value.startsWith("1")) {
+    std::string value = json.substr(position + 1);
+    value = strings::trim(value);
+    if (strings::starts_with(value, "true") || strings::starts_with(value, "1")) {
         output = true;
         return true;
     }
-    if (value.startsWith("false") || value.startsWith("0")) {
+    if (strings::starts_with(value, "false") || strings::starts_with(value, "0")) {
         output = false;
         return true;
     }
     return false;
 }
 
-bool parse_string(const String& json, const char* key, char* output, size_t output_size) {
+bool parse_string(const std::string& json, const char* key, char* output, size_t output_size) {
     if (!output || output_size == 0) return false;
-    const String token = String('"') + key + '"';
-    int position = json.indexOf(token);
+    const std::string token = std::string("\"") + key + '"';
+    int position = strings::index_of(json, token);
     if (position < 0) return false;
-    position = json.indexOf(':', position + token.length());
+    position = strings::index_of(json, ':', static_cast<size_t>(position) + token.length());
     if (position < 0) return false;
-    const int opening_quote = json.indexOf('"', position + 1);
+    const int opening_quote = strings::index_of(json, '"', position + 1);
     if (opening_quote < 0) return false;
-    const int closing_quote = json.indexOf('"', opening_quote + 1);
+    const int closing_quote = strings::index_of(json, '"', opening_quote + 1);
     if (closing_quote < 0) return false;
 
-    const String value = json.substring(opening_quote + 1, closing_quote);
+    const std::string value = strings::slice(json, opening_quote + 1, closing_quote);
     strncpy(output, value.c_str(), output_size - 1);
     output[output_size - 1] = '\0';
-    return true;
-}
-
-bool valid_host(const String& host) {
-    if (host.isEmpty() || host.length() > 63) return false;
-    for (size_t index = 0; index < host.length(); ++index) {
-        const char value = host[index];
-        if (!isalnum(static_cast<unsigned char>(value)) && value != '.' && value != '-') {
-            return false;
-        }
-    }
     return true;
 }
 
 }  // namespace
 
 GaggiMateStatusClient gaggimate_status_client;
+
+bool GaggiMateStatusClient::is_valid_host(const std::string& host) {
+    if (host.empty() || host.length() > 63) return false;
+    for (const char value : host) {
+        if (!isalnum(static_cast<unsigned char>(value)) && value != '.' && value != '-') {
+            return false;
+        }
+    }
+    return true;
+}
 
 void GaggiMateStatusClient::init() {
     if (!mutex_) mutex_ = xSemaphoreCreateMutex();
@@ -92,21 +100,17 @@ void GaggiMateStatusClient::init() {
         enabled_ = preferences.getString("style", "minimal") == "gaggimate";
         preferences.end();
     }
-    websocket_.onEvent([this](WStype_t type, uint8_t* payload, size_t length) {
-        handle_websocket_event(type, payload, length);
-    });
-    websocket_.setReconnectInterval(3000);
-    websocket_.enableHeartbeat(15000, 3000, 2);
     if (enabled_) ensure_task();
 }
 
-bool GaggiMateStatusClient::configure(bool enabled, const String& host) {
-    if ((!host.isEmpty() && !valid_host(host)) || (enabled && host.isEmpty())) return false;
+bool GaggiMateStatusClient::configure(bool enabled, const std::string& host) {
+    if ((!host.empty() && !is_valid_host(host)) || (enabled && host.empty())) return false;
     if (enabled && !ensure_task()) return false;
 
     Preferences preferences;
     if (!preferences.begin(kPreferencesNamespace, false)) return false;
-    const bool stored = host.isEmpty() || preferences.putString(kHostKey, host) > 0;
+    // An empty host means "leave the saved one alone", not "store nothing".
+    const bool stored = host.empty() || preferences.putString(kHostKey, host);
     preferences.end();
     if (!stored) return false;
 
@@ -130,9 +134,9 @@ GaggiMateStatus GaggiMateStatusClient::status() const {
     return copy;
 }
 
-String GaggiMateStatusClient::configured_host() const {
+std::string GaggiMateStatusClient::configured_host() const {
     if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
-    const String copy = host_;
+    const std::string copy = host_;
     if (mutex_) xSemaphoreGive(mutex_);
     return copy;
 }
@@ -155,23 +159,28 @@ void GaggiMateStatusClient::task_entry(void* context) {
 void GaggiMateStatusClient::task_loop() {
     for (;;) {
         bool enabled = false;
-        String host;
+        std::string host;
         read_configuration(enabled, host);
-        if (enabled && WiFi.status() == WL_CONNECTED && valid_host(host)) {
+        if (enabled && network_manager.is_connected() && is_valid_host(host)) {
+            // One critical section per tick: this loop runs at 50 Hz purely to
+            // notice that the 5 s HTTP fallback is not yet due.
+            bool requested = false;
             bool reconnect = false;
             uint32_t last_success_ms = 0;
             if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
-            reconnect = reconnect_requested_ || !websocket_started_ || connected_host_ != host;
+            requested = reconnect_requested_;
+            reconnect = requested || websocket_ == nullptr || connected_host_ != host;
             reconnect_requested_ = false;
             last_success_ms = last_success_ms_;
             if (mutex_) xSemaphoreGive(mutex_);
-            if (reconnect) start_websocket(host);
-
-            websocket_.loop();
             const uint32_t now_ms = millis();
-            if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
-            last_success_ms = last_success_ms_;
-            if (mutex_) xSemaphoreGive(mutex_);
+            // A client that could not start, typically for lack of internal RAM,
+            // is retried at its reconnect interval rather than on every tick.
+            if (reconnect &&
+                (requested || now_ms - last_websocket_start_ms_ >= WEBSOCKET_RETRY_MS)) {
+                last_websocket_start_ms_ = now_ms;
+                start_websocket(host);
+            }
             if (last_success_ms == 0 || now_ms - last_success_ms >= HTTP_FALLBACK_INTERVAL_MS) {
                 if (last_http_poll_ms_ == 0 || now_ms - last_http_poll_ms_ >= HTTP_FALLBACK_INTERVAL_MS) {
                     last_http_poll_ms_ = now_ms;
@@ -186,31 +195,87 @@ void GaggiMateStatusClient::task_loop() {
     }
 }
 
-void GaggiMateStatusClient::start_websocket(const String& host) {
+void GaggiMateStatusClient::start_websocket(const std::string& host) {
     stop_websocket();
+
+    const std::string uri = "ws://" + host + ":80/ws";
+    esp_websocket_client_config_t config = {};
+    config.uri = uri.c_str();
+    config.reconnect_timeout_ms = WEBSOCKET_RETRY_MS;
+    config.network_timeout_ms = 3000;
+    // GaggiMate pushes a status frame every second; a 15 s ping keeps NAT and
+    // the socket alive when the machine is idle.
+    config.ping_interval_sec = 15;
+    config.disable_auto_reconnect = false;
+    config.task_stack = 4096;
+    config.buffer_size = 1024;
+
+    websocket_ = esp_websocket_client_init(&config);
+    if (!websocket_) {
+        LOG_BLE("[GAGGIMATE] Could not create WebSocket client for %s\n", host.c_str());
+        return;
+    }
+    if (esp_websocket_register_events(websocket_, WEBSOCKET_EVENT_ANY, websocket_event_handler,
+                                      this) != ESP_OK ||
+        esp_websocket_client_start(websocket_) != ESP_OK) {
+        LOG_BLE("[GAGGIMATE] Could not start WebSocket client for %s\n", host.c_str());
+        esp_websocket_client_destroy(websocket_);
+        websocket_ = nullptr;
+        return;
+    }
+
     connected_host_ = host;
+    websocket_frame_.clear();
     last_http_poll_ms_ = 0;
-    websocket_.begin(host.c_str(), 80, "/ws", "");
-    websocket_started_ = true;
 }
 
 void GaggiMateStatusClient::stop_websocket() {
-    if (!websocket_started_) return;
-    websocket_.disconnect();
-    websocket_started_ = false;
-    connected_host_ = "";
+    if (websocket_) {
+        esp_websocket_client_stop(websocket_);
+        esp_websocket_client_destroy(websocket_);
+        websocket_ = nullptr;
+    }
+    connected_host_.clear();
 }
 
-void GaggiMateStatusClient::handle_websocket_event(WStype_t type, uint8_t* payload, size_t length) {
-    if (type == WStype_TEXT && payload && length > 0) {
-        const String message(reinterpret_cast<const char*>(payload), length);
-        apply_status_payload(message, true);
-    } else if (type == WStype_DISCONNECTED || type == WStype_ERROR) {
-        mark_offline_if_stale(millis());
+void GaggiMateStatusClient::websocket_event_handler(void* context, esp_event_base_t, int32_t id,
+                                                    void* data) {
+    auto* self = static_cast<GaggiMateStatusClient*>(context);
+    auto* event = static_cast<esp_websocket_event_data_t*>(data);
+    if (!self || !event) return;
+
+    switch (id) {
+        case WEBSOCKET_EVENT_DATA: {
+            // Only text frames carry a status update. The client posts a frame
+            // larger than its receive buffer as several DATA events, so parse
+            // the payload once every piece has arrived.
+            if (event->op_code != 0x01 || !event->data_ptr || event->data_len <= 0) break;
+            std::string& frame = self->websocket_frame_;
+            if (event->payload_offset == 0) frame.clear();
+            const bool fits = event->payload_len > 0 &&
+                              static_cast<size_t>(event->payload_len) <= WEBSOCKET_FRAME_MAX_BYTES;
+            if (!fits || static_cast<size_t>(event->payload_offset) != frame.size()) {
+                frame.clear();
+                break;
+            }
+            frame.append(event->data_ptr, static_cast<size_t>(event->data_len));
+            if (frame.size() >= static_cast<size_t>(event->payload_len)) {
+                self->apply_status_payload(frame, true);
+                frame.clear();
+            }
+            break;
+        }
+        case WEBSOCKET_EVENT_DISCONNECTED:
+        case WEBSOCKET_EVENT_ERROR:
+        case WEBSOCKET_EVENT_CLOSED:
+            self->mark_offline_if_stale(millis());
+            break;
+        default:
+            break;
     }
 }
 
-bool GaggiMateStatusClient::apply_status_payload(const String& payload, bool require_event_type) {
+bool GaggiMateStatusClient::apply_status_payload(const std::string& payload, bool require_event_type) {
     if (require_event_type) {
         char event_type[24] = "";
         if (!parse_string(payload, "tp", event_type, sizeof(event_type)) ||
@@ -253,28 +318,34 @@ bool GaggiMateStatusClient::apply_status_payload(const String& payload, bool req
     return true;
 }
 
-void GaggiMateStatusClient::poll_http_fallback(const String& host) {
+void GaggiMateStatusClient::poll_http_fallback(const std::string& host) {
 
-    WiFiClient client;
-    HTTPClient request;
-    request.setConnectTimeout(500);
-    request.setTimeout(750);
-    const String url = String("http://") + host + "/api/status";
-    if (!request.begin(client, url)) {
+    const std::string url = "http://" + host + "/api/status";
+    esp_http_client_config_t config = {};
+    config.url = url.c_str();
+    config.timeout_ms = 750;
+    config.buffer_size = 1024;
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
         mark_offline_if_stale(millis());
         return;
     }
 
-    const int response_code = request.GET();
-    if (response_code != HTTP_CODE_OK) {
-        request.end();
-        mark_offline_if_stale(millis());
-        return;
+    std::string payload;
+    if (esp_http_client_open(client, 0) == ESP_OK) {
+        const int64_t length = esp_http_client_fetch_headers(client);
+        if (esp_http_client_get_status_code(client) == 200 && length > 0 && length <= 4096) {
+            payload.assign(static_cast<size_t>(length), '\0');
+            if (esp_http_client_read_response(client, payload.data(), length) != length) {
+                payload.clear();
+            }
+        }
+        esp_http_client_close(client);
     }
+    esp_http_client_cleanup(client);
 
-    const String payload = request.getString();
-    request.end();
-    if (!apply_status_payload(payload, false)) {
+    if (payload.empty() || !apply_status_payload(payload, false)) {
         mark_offline_if_stale(millis());
     }
 }
@@ -288,10 +359,10 @@ void GaggiMateStatusClient::mark_offline_if_stale(uint32_t now_ms) {
     if (mutex_) xSemaphoreGive(mutex_);
 }
 
-bool GaggiMateStatusClient::read_configuration(bool& enabled, String& host) const {
+bool GaggiMateStatusClient::read_configuration(bool& enabled, std::string& host) const {
     if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
     enabled = enabled_;
     host = host_;
     if (mutex_) xSemaphoreGive(mutex_);
-    return enabled && !host.isEmpty();
+    return enabled && !host.empty();
 }

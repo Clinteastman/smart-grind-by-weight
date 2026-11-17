@@ -11,9 +11,10 @@ scipy>=1.9.0
 streamlit>=1.28.0
 plotly>=5.15.0
 
-# Build system (use PlatformIO from the venv, not global `pio`)
-platformio==6.1.19
-pyyaml>=6.0.0
+# USB flashing of archived firmware (grinder.py flash-usb); the firmware itself
+# builds with ESP-IDF's own tooling. flash-usb uses esptool 5's hyphenated
+# command names, as shipped with ESP-IDF 6.1.
+esptool>=5.0
 
 detools==0.53.0
 

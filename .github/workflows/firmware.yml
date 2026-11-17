@@ -26,13 +26,9 @@ jobs:
       matrix:
         include:
           - board: Waveshare 1.64 V1
-            environment: waveshare-esp32s3-touch-amoled-164
             variant: v1
           - board: Waveshare 1.64 V2
-            environment: waveshare-esp32s3-touch-amoled-164-v2
             variant: v2
-    env:
-      SMART_GRIND_BUILD_NUMBER: ${{ github.run_number }}
 
     steps:
       - name: Checkout
@@ -43,29 +39,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Restore PlatformIO package cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.platformio/.cache
-            ~/.platformio/packages
-            ~/.platformio/platforms
-          key: ${{ runner.os }}-pio-deps-${{ hashFiles('platformio.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-pio-deps-
-
-      - name: Restore compiled-object cache
-        uses: actions/cache@v5
-        with:
-          path: .pio/build-cache/${{ matrix.environment }}
-          key: ${{ runner.os }}-pio-objects-${{ matrix.environment }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-pio-objects-${{ matrix.environment }}-
-            ${{ runner.os }}-pio-objects-
-
-      - name: Install PlatformIO
-        run: pip install platformio==6.1.19
-
       - name: Run firmware host regression tests
         run: python -m unittest discover -s tools/tests -p '*_test.py'
 
@@ -75,16 +48,27 @@ jobs:
       - name: Test embedded firmware update feedback
         run: node tools/tests/ota_web_test.mjs
 
+      - name: Restore managed component cache
+        uses: actions/cache@v5
+        with:
+          path: managed_components
+          key: ${{ runner.os }}-idf-components-${{ hashFiles('src/idf_component.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-idf-components-
+
       - name: Build firmware
-        env:
-          PLATFORMIO_BUILD_CACHE_DIR: .pio/build-cache/${{ matrix.environment }}
-        run: pio run -e ${{ matrix.environment }}
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32s3
+          extra_docker_args: -e SMART_GRIND_BUILD_NUMBER=${{ github.run_number }}
+          command: python3 tools/grinder.py build --hardware ${{ matrix.variant }}
 
       - name: Prepare test firmware
         if: github.event_name == 'pull_request'
         run: |
           mkdir -p test-firmware
-          cp ".pio/build/${{ matrix.environment }}/firmware.bin" \
+          cp "build/${{ matrix.variant }}/smart-grind-by-weight.bin" \
             "test-firmware/smart-grind-by-weight-pr${{ github.event.pull_request.number }}-${{ matrix.variant }}.bin"
 
       - name: Upload test firmware

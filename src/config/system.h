@@ -22,12 +22,13 @@
 //------------------------------------------------------------------------------
 // FREERTOS TASK CONFIGURATION
 //------------------------------------------------------------------------------
-// Critical timing for FreeRTOS task architecture with 6 specialized tasks
+// Critical timing for FreeRTOS task architecture with 5 specialized tasks
 
 // Task Intervals (milliseconds)
 #define SYS_TASK_WEIGHT_SAMPLING_INTERVAL_MS 20                                // Weight sampling poll interval (50Hz poll; HX711 @10SPS) - Core 0
 #define SYS_TASK_GRIND_CONTROL_INTERVAL_MS 20                                  // Grind controller update interval (50Hz) - Core 0
-#define SYS_TASK_UI_INTERVAL_MS 16                                             // UI rendering frequency (60Hz) - Core 1  
+#define SYS_TASK_UI_INTERVAL_MS 16                                             // UI rendering frequency (60Hz) - Core 1
+#define SYS_LVGL_TIMER_PERIOD_MS (SYS_TASK_UI_INTERVAL_MS / 2)                 // LVGL refresh/input/animation period; shorter than the UI cycle so jitter never skips a frame
 #define SYS_TASK_BLUETOOTH_INTERVAL_MS 20                                      // Bluetooth handling frequency (50Hz) - Core 1
 #define SYS_TASK_FILE_IO_INTERVAL_MS 100                                       // File I/O operations frequency (10Hz) - Core 1
 
@@ -45,13 +46,6 @@
 // Raise BLE above UI to prevent starvation during transfers
 #define SYS_TASK_PRIORITY_BLUETOOTH 3                                          // Higher priority (BLE operations)
 #define SYS_TASK_PRIORITY_FILE_IO 1                                            // Low priority (file operations)
-
-// Inter-Task Communication Queue Sizes
-#define SYS_QUEUE_UI_TO_GRIND_SIZE 5                                           // UI events to grind controller
-#define SYS_QUEUE_FILE_IO_SIZE 20                                              // File I/O operation requests
-
-// Legacy task scheduler intervals (deprecated - kept for compatibility)
-#define SYS_TASK_LOADCELL_INTERVAL_MS 20                                       // Load cell polling frequency (50Hz)
 
 
 //------------------------------------------------------------------------------
@@ -102,3 +96,11 @@
 #define SYS_WEIGHT_DISPLAY_FORMAT "%.1fg"                                      // Weight display format string
 #define SYS_RAW_VALUE_FORMAT "%ld"                                             // Raw load cell value format string
 
+//------------------------------------------------------------------------------
+// HTTP SERVICE RESOURCE BUDGET
+//------------------------------------------------------------------------------
+#define SYS_HTTP_PORT 80                                                       // Device page, JSON API and /ws telemetry socket
+#define SYS_HTTP_MAX_URI_HANDLERS 48                                           // Device page + API + setup portal + captive-portal probes
+#define SYS_HTTP_MAX_OPEN_SOCKETS 7                                            // Must exceed DeviceApi::MAX_CLIENTS to leave room for plain requests
+#define SYS_HTTP_TASK_STACK_SIZE 8192                                          // Handlers stream OTA images and session files
+#define SYS_HTTP_SOCKET_TIMEOUT_S 10                                           // Receive and send timeout per socket operation

@@ -1,8 +1,9 @@
 #pragma once
 
-#include <Arduino.h>
+#include <cmath>
 
-inline constexpr char SMART_GRIND_DEVICE_PAGE[] PROGMEM = R"WEB(
+
+inline constexpr char SMART_GRIND_DEVICE_PAGE[] = R"WEB(
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#101510"><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23527d42'/%3E%3Cpath d='M22.9 7.1c4.4 4.4 2.9 12.7-2.7 17.1S7.6 27.1 4.8 22.3 4.3 10.1 10 6.2s9.4-2.5 12.9.9Z' fill='none' stroke='%23fff' stroke-width='2.2'/%3E%3Cpath d='M8.4 23.5c4.7-2.7 3.5-6.2 2.5-9.3-.9-2.8-1.6-5.2 1.7-8.4' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E"><title>Smart Grind</title>
 <style>
 :root{color-scheme:dark;--bg:#101510;--surface:#171d17;--card:#202820;--raised:#293329;--text:#f3f7ef;--muted:#aab5a6;--line:#364336;--accent:#9bc47b;--accent2:#6fa277;--danger:#e2766d;--warning:#e2b86d;--shadow:0 18px 50px #0005;--radius:18px}

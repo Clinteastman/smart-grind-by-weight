@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 #include "../../system/operation_interlock.h"
 
 class UIManager;

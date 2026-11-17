@@ -1,6 +1,7 @@
 #pragma once
-#include <Arduino.h>
-#include <Preferences.h>
+#include "../storage/preferences.h"
+#include <cstdint>
+#include <cstring>
 #include "../config/constants.h"
 #include "../controllers/grind_session.h"
 

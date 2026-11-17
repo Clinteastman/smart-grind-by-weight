@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 
 // Abstract base class for grinding screen implementations
 class IGrindingScreen {

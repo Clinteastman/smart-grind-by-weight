@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 #include "grinding_screen_base.h"
 #include "../../config/constants.h"
 

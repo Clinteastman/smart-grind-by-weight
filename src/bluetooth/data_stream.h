@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
-#include <LittleFS.h>
+#include "../storage/filesystem.h"
 
 /**
  * DataStreamManager - Handles streaming data from the grind logger
@@ -17,7 +17,7 @@ private:
     uint32_t file_bytes_sent;
     uint32_t file_total_size;
     bool file_stream_active;
-    File active_file;                      // Persistent handle for efficient reads
+    FsFile active_file;                      // Persistent handle for efficient reads
     
 public:
     DataStreamManager();

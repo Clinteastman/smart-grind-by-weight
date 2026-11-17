@@ -23,7 +23,7 @@ enum class AutoTunePhase { IDLE, PRIMING };
 struct WeightSensor {} sensor;
 struct Grinder {} grinder;
 struct GrindController { float get_motor_response_latency() { return 75; } } controller;
-struct File {
+struct FsFile {
     explicit operator bool() const { return true; }
     template<class... Args> void println(Args...) { assert(!operation_interlock().try_acquire()); }
     template<class... Args> void printf(Args...) { assert(!operation_interlock().try_acquire()); }
@@ -32,8 +32,8 @@ struct File {
 struct {
     unsigned removes = 0, opens = 0;
     void remove(const char*) { assert(!operation_interlock().try_acquire()); ++removes; }
-    File open(const char*, const char*) { assert(!operation_interlock().try_acquire()); ++opens; return {}; }
-} LittleFS;
+    FsFile open(const char*, const char*) { assert(!operation_interlock().try_acquire()); ++opens; return {}; }
+} filesystem;
 class AutoTuneController {
 public:
     WeightSensor* weight_sensor = &sensor;
@@ -45,7 +45,7 @@ public:
     enum { UP, DOWN } direction = UP;
     int iteration = 0, verification_round = 0, verification_pulse_count = 0, verification_success_count = 0;
     struct { AutoTunePhase phase; bool has_new_message; float previous_latency_ms; } progress{};
-    File autotune_log_file;
+    FsFile autotune_log_file;
     OperationInterlock::Token operation_token = 0;
     unsigned phase_changes = 0;
     void switch_phase(AutoTunePhase phase) { assert(phase == AutoTunePhase::PRIMING); ++phase_changes; }
@@ -57,7 +57,7 @@ int main() {
     auto competitor = operation_interlock().try_acquire();
     assert(!tuning.start());
     assert(!tuning.is_running && tuning.cancel_requested && tuning.operation_token == 0);
-    assert(LittleFS.opens == 0 && LittleFS.removes == 0 && tuning.phase_changes == 0);
+    assert(filesystem.opens == 0 && filesystem.removes == 0 && tuning.phase_changes == 0);
     assert(operation_interlock().owns(competitor));
     operation_interlock().release(competitor);
     tuning.weight_sensor = nullptr;
@@ -68,8 +68,8 @@ int main() {
     assert(tuning.start());
     assert(tuning.is_running && !tuning.cancel_requested && tuning.phase_changes == 1);
     assert(operation_interlock().owns(tuning.operation_token));
-    assert(LittleFS.opens == 1 && LittleFS.removes == 1);
-    assert(!tuning.start() && LittleFS.opens == 1 && tuning.phase_changes == 1);
+    assert(filesystem.opens == 1 && filesystem.removes == 1);
+    assert(!tuning.start() && filesystem.opens == 1 && tuning.phase_changes == 1);
     assert(operation_interlock().release(tuning.operation_token));
 }
 '''

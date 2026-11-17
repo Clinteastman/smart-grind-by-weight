@@ -1,8 +1,12 @@
 #pragma once
 
-#include <ESPAsyncWebServer.h>
+#include <esp_http_server.h>
+
 #include <atomic>
+#include <cstdint>
 #include <mutex>
+#include <string>
+
 #include "../system/operation_interlock.h"
 
 class GrindController;
@@ -41,14 +45,14 @@ public:
     bool firmware_update_available() const {
         return firmware_update_state_.load() == FirmwareUpdateState::AVAILABLE;
     }
-    String latest_release_tag() const;
+    std::string latest_release_tag() const;
     bool install_available_update();
-    AsyncWebServer& server() { return server_; }
 
 private:
-    AsyncWebServer server_{80};
+    httpd_handle_t server_ = nullptr;
     bool initialized_ = false;
     bool started_ = false;
+    bool start_failure_reported_ = false;
     mutable std::recursive_mutex ota_mutex_;
     OperationInterlock::Token operation_token_ = 0;
     std::atomic<bool> ota_active_{false};
@@ -70,13 +74,25 @@ private:
     HardwareManager* hardware_manager_ = nullptr;
     GrindController* grind_controller_ = nullptr;
     BluetoothManager* bluetooth_manager_ = nullptr;
+    ProfileController* profile_controller_ = nullptr;
 
     void configure_routes();
-    void handle_ota_upload(AsyncWebServerRequest* request, const String& filename,
-                           size_t index, uint8_t* data, size_t len, bool final);
-    bool start_github_ota(const String& tag);
+    /**
+     * Why the device cannot take an update or transfer right now, as the text
+     * a route answers 409 with, or nullptr when it can. The one admission rule
+     * every route and the preparation state machine share.
+     */
+    const char* busy_reason() const;
+    bool device_busy() const;
+    /** True when enough internal RAM is free to flash an image. */
+    bool internal_heap_ok() const;
+    esp_err_t handle_ota_upload(httpd_req_t* request);
+    esp_err_t handle_screensaver_upload(httpd_req_t* request);
+    /** Take the prepared update window for one transfer; false when not ready. */
+    bool claim_prepared_update();
+    bool start_github_ota(const std::string& tag);
     static void github_ota_task(void* parameter);
-    void perform_github_ota(const String& tag);
+    void perform_github_ota(const std::string& tag);
     static void firmware_update_check_task(void* parameter);
     void perform_firmware_update_check();
     bool request_ota_preparation();

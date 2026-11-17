@@ -43,13 +43,13 @@ struct Preferences {
     float getFloat(const char* key, float fallback) {
         const auto it = floats.find(key); return it == floats.end() ? fallback : it->second;
     }
-    unsigned putInt(const char* key, int value) {
-        std::this_thread::yield(); if (++writes == fail_at) return 0;
-        integers[key] = value; return sizeof(int32_t);
+    bool putInt(const char* key, int value) {
+        std::this_thread::yield(); if (++writes == fail_at) return false;
+        integers[key] = value; return true;
     }
-    unsigned putFloat(const char* key, float value) {
-        std::this_thread::yield(); if (++writes == fail_at) return 0;
-        floats[key] = value; return sizeof(float);
+    bool putFloat(const char* key, float value) {
+        std::this_thread::yield(); if (++writes == fail_at) return false;
+        floats[key] = value; return true;
     }
 };
 ''' + header + source + r'''

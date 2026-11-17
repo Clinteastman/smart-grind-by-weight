@@ -168,7 +168,9 @@ struct GrindMeasurement {
 ## Development Workflow
 
 1. **Modify structs** in `grind_logging.h`
-2. **Build and flash** firmware: `pio run --target upload`
+2. **Build and flash** firmware, with ESP-IDF activated:
+   `python3 tools/grinder.py build --hardware v1`, then
+   `idf.py -B build/v1 -p <port> flash` (or `python3 tools/grinder.py build-upload` over BLE)
 3. **PURGE HISTORY** via ESP32 developer screen  
 4. **Perform test grind** to generate fresh data
 5. **Trigger BLE export** - review struct debug output
@@ -185,8 +187,8 @@ struct GrindMeasurement {
 ## Debug Commands
 
 ```bash
-# ESP32 serial monitor (shows struct debug during export)
-pio device monitor --baud 115200
+# ESP32 serial monitor (shows struct debug during export); exit with Ctrl+]
+idf.py -B build/v1 -p <port> monitor
 
 # Test BLE export and parsing  
 cd tools && python3 grinder-ble --connect --auto

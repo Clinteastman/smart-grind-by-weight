@@ -1,13 +1,21 @@
 #include "manager.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <freertos/task.h>
+#include "../system/device_info.h"
+#include "../system/timing.h"
 #include "../config/build_info.h"
 #include <algorithm>
 #include <cstdarg>
-#include <Arduino.h>
 #include <esp_system.h>
-#include <LittleFS.h>
+#include "../storage/filesystem.h"
 #include <nvs_flash.h>
 #include <nvs.h>
-#include "../system/performance_monitor.h"
 #include "../system/screensaver_settings.h"
 #include "../system/statistics_manager.h"
 #include "../system/diagnostics_controller.h"
@@ -16,6 +24,7 @@
 #include "../config/grind_control.h"
 #include "../config/build_info.h"
 #include "../logging/grind_logging.h"
+#include "../logging/session_file.h"
 #include "../hardware/hardware_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
@@ -45,6 +54,7 @@ BluetoothManager::BluetoothManager()
     , sysinfo_sessions_characteristic(nullptr)
     , sysinfo_diagnostics_characteristic(nullptr)
     , device_connected(false)
+    , conn_handle(BLE_HS_CONN_HANDLE_NONE)
     , ble_enabled(false), debug_stream_active(false)
     , enable_time(0)
     , timeout_ms(BLE_AUTO_DISABLE_TIMEOUT_MS)
@@ -53,6 +63,9 @@ BluetoothManager::BluetoothManager()
     , data_status(BLE_DATA_IDLE)
     , current_chunk(0)
     , next_chunk_time(0)
+    , pending_chunk{}
+    , pending_chunk_size(0)
+    , notify_retries(0)
     , current_file_session_id(0)
     , sessions_info_dirty(true)
     , last_session_storage_version(0)
@@ -74,10 +87,6 @@ void BluetoothManager::init(Preferences* prefs) {
     if (!ui_status_queue) {
         ui_status_queue = xQueueCreate(8, sizeof(UIStatusMessage));
     }
-}
-
-void BluetoothManager::set_ui_status_callback(UIStatusCallback callback) {
-    ui_status_callback = callback;
 }
 
 void BluetoothManager::update_ui_status(const char* status) {
@@ -109,6 +118,7 @@ bool BluetoothManager::dequeue_ui_status(char* out, size_t out_len) {
 }
 
 void BluetoothManager::enable(unsigned long timeout_ms) {
+    const std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
     if (ble_enabled) return;
     
     // Use default timeout if none specified
@@ -117,165 +127,123 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     }
     this->timeout_ms = timeout_ms;
     unsigned long timeout_minutes = timeout_ms / 60000;
-    log("Bluetooth: Enabling BLE with reduced power settings (%lum timeout)\n", timeout_minutes);
-    
-    // Enable reduced power mode for BLE
-    ota_handler.enable_ble_power_mode();
+    log("Bluetooth: Enabling BLE (%lum timeout)\n", timeout_minutes);
+
     enable_time = millis();
     last_disconnect_time = enable_time; // Start disconnected timeout from enable time
-    
-    // Initialize BLE with delays for power stability
-    BLEDevice::init(BLE_DEVICE_NAME);
-    
-    // Request a larger MTU to improve throughput when the client supports it.
-    // Some platforms (e.g., macOS/iOS) may ignore this request and keep a lower MTU.
-    // That's fine — we also keep chunk sizes small and paced below.
-    BLEDevice::setMTU(517);
-    delay(BLE_INIT_STACK_DELAY_MS);
-    
-    ble_server = BLEDevice::createServer();
-    delay(BLE_INIT_SERVER_DELAY_MS);
-    ble_server->setCallbacks(this);
+
+    // init() returns once the host and controller have synchronised. The
+    // preferred ATT MTU (517) comes from CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU.
+    if (!NimBLEDevice::init(BLE_DEVICE_NAME)) {
+        log("Bluetooth: Stack failed to start; Bluetooth stays off\n");
+        return;
+    }
+
+    ble_server = NimBLEDevice::createServer();
+    // NimBLE deletes server callbacks it owns when disable() frees the server;
+    // this manager is a static object, so it must keep ownership.
+    ble_server->setCallbacks(this, false);
     
     // Create OTA service
-    ota_service = ble_server->createService(BLEUUID(BLE_OTA_SERVICE_UUID), 12);
-    delay(BLE_INIT_SERVICE_DELAY_MS);
+    ota_service = ble_server->createService(BLE_OTA_SERVICE_UUID);
     
     ota_data_characteristic = ota_service->createCharacteristic(
         BLE_OTA_DATA_CHAR_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        NIMBLE_PROPERTY::WRITE
     );
     ota_data_characteristic->setCallbacks(this);
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     ota_control_characteristic = ota_service->createCharacteristic(
         BLE_OTA_CONTROL_CHAR_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        NIMBLE_PROPERTY::WRITE
     );
     ota_control_characteristic->setCallbacks(this);
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     ota_status_characteristic = ota_service->createCharacteristic(
         BLE_OTA_STATUS_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     build_number_characteristic = ota_service->createCharacteristic(
         BLE_OTA_BUILD_NUMBER_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ
+        NIMBLE_PROPERTY::READ
     );
     build_number_characteristic->setValue(ota_handler.get_build_number().c_str());
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     // Create data service (also used for image upload)
-    data_service = ble_server->createService(BLEUUID(BLE_DATA_SERVICE_UUID), 12);
-    delay(BLE_INIT_SERVICE_DELAY_MS);
+    data_service = ble_server->createService(BLE_DATA_SERVICE_UUID);
     
     data_control_characteristic = data_service->createCharacteristic(
         BLE_DATA_CONTROL_CHAR_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        NIMBLE_PROPERTY::WRITE
     );
     data_control_characteristic->setCallbacks(this);
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     data_transfer_characteristic = data_service->createCharacteristic(
         BLE_DATA_TRANSFER_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR
     );
     data_transfer_characteristic->setCallbacks(this);
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     data_status_characteristic = data_service->createCharacteristic(
         BLE_DATA_STATUS_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     // Create debug service (Nordic UART)
-    debug_service = ble_server->createService(BLEUUID(BLE_DEBUG_SERVICE_UUID), 8);
-    delay(BLE_INIT_SERVICE_DELAY_MS);
+    debug_service = ble_server->createService(BLE_DEBUG_SERVICE_UUID);
 
     debug_rx_characteristic = debug_service->createCharacteristic(
         BLE_DEBUG_RX_CHAR_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        NIMBLE_PROPERTY::WRITE
     );
     debug_rx_characteristic->setCallbacks(this);
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
     debug_tx_characteristic = debug_service->createCharacteristic(
         BLE_DEBUG_TX_CHAR_UUID,
-        BLECharacteristic::PROPERTY_NOTIFY
+        NIMBLE_PROPERTY::NOTIFY
     );
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     // Create system info service
-    sysinfo_service = ble_server->createService(BLEUUID(BLE_SYSINFO_SERVICE_UUID), 15);
-    delay(BLE_INIT_SERVICE_DELAY_MS);
+    sysinfo_service = ble_server->createService(BLE_SYSINFO_SERVICE_UUID);
     
     sysinfo_system_characteristic = sysinfo_service->createCharacteristic(
         BLE_SYSINFO_SYSTEM_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     sysinfo_performance_characteristic = sysinfo_service->createCharacteristic(
         BLE_SYSINFO_PERFORMANCE_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     sysinfo_hardware_characteristic = sysinfo_service->createCharacteristic(
         BLE_SYSINFO_HARDWARE_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     sysinfo_sessions_characteristic = sysinfo_service->createCharacteristic(
         BLE_SYSINFO_SESSIONS_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
     sysinfo_diagnostics_characteristic = sysinfo_service->createCharacteristic(
         BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID,
-        BLECharacteristic::PROPERTY_WRITE
+        NIMBLE_PROPERTY::WRITE
     );
     sysinfo_diagnostics_characteristic->setCallbacks(this);
-    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
-    ota_service->start();
-    delay(BLE_INIT_START_DELAY_MS);
-    
-    data_service->start();
-    delay(BLE_INIT_START_DELAY_MS);
-    
-    debug_service->start();
-    delay(BLE_INIT_START_DELAY_MS);
-    
-    sysinfo_service->start();
-    delay(BLE_INIT_START_DELAY_MS);
+    // Starting the server registers all four services with the GATT server.
+    ble_server->start();
 
-    BLEAdvertising* advertising = BLEDevice::getAdvertising();
-    advertising->addServiceUUID(BLE_OTA_SERVICE_UUID);
-    advertising->addServiceUUID(BLE_DEBUG_SERVICE_UUID);
-    advertising->addServiceUUID(BLE_DATA_SERVICE_UUID);
-    advertising->addServiceUUID(BLE_SYSINFO_SERVICE_UUID);
-    advertising->setScanResponse(true);
-    advertising->setMinPreferred(0x06);
-    advertising->setMinPreferred(0x12);
-    
-    // Set advertised name in both advertising data and scan response data
+    // The device name is the only payload: the four 128-bit service UUIDs do not
+    // fit in a 31-byte advertisement, and both the Python tool and the web
+    // flasher discover the grinder by name and resolve services after connecting.
+    NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
     advertising->setName(BLE_DEVICE_NAME);
-    BLEAdvertisementData adv;
-    adv.setName(BLE_DEVICE_NAME);
-    advertising->setAdvertisementData(adv);
-    BLEAdvertisementData sr;
-    sr.setName(BLE_DEVICE_NAME);
-    advertising->setScanResponseData(sr);
-    
-    delay(BLE_INIT_ADVERTISING_DELAY_MS);
-    
+    advertising->setPreferredParams(0x06, 0x12);
+    advertising->enableScanResponse(true);
+
     ble_enabled = true;
     set_ota_status(BLE_OTA_READY);
     
@@ -297,9 +265,10 @@ void BluetoothManager::enable_during_bootup() {
 }
 
 void BluetoothManager::disable() {
+    const std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
     if (!ble_enabled) return;
     
-    log("Bluetooth: Disabling BLE and restoring normal power...\n");
+    log("Bluetooth: Disabling BLE...\n");
     
     if (ota_handler.is_ota_active()) {
         ota_handler.abort_ota();
@@ -314,16 +283,20 @@ void BluetoothManager::disable() {
     }
 
     // Set flags before deinit so that callbacks fired during teardown
-    // (e.g. onDisconnect → start_advertising) see BLE as already disabled.
+    // (e.g. onDisconnect → start_advertising) see BLE as already disabled, and
+    // log() from other tasks stops writing to the debug characteristic.
     ble_enabled = false;
     device_connected = false;
+    debug_stream_active = false;
 
-    stop_advertising();
-    delay(BLE_SHUTDOWN_ADVERTISING_DELAY_MS);
+    // stop_advertising() checks ble_enabled, which is already false here.
+    NimBLEDevice::stopAdvertising();
 
     log("Bluetooth: Deinitializing BLE stack...\n");
-    BLEDevice::deinit(false);
-    delay(BLE_SHUTDOWN_DEINIT_DELAY_MS);
+    // Clear everything: keeping the server alive across a deinit would make the
+    // next enable() add a second copy of every service. deinit() returns once
+    // the host task has stopped and the controller is released.
+    NimBLEDevice::deinit(true);
     ble_server = nullptr;
     ota_service = nullptr;
     data_service = nullptr;
@@ -342,14 +315,13 @@ void BluetoothManager::disable() {
     sysinfo_performance_characteristic = nullptr;
     sysinfo_hardware_characteristic = nullptr;
     sysinfo_sessions_characteristic = nullptr;
-    debug_stream_active = false;
-    
-    // Restore normal power settings
-    ota_handler.restore_normal_power_mode();
+    sysinfo_diagnostics_characteristic = nullptr;
+    conn_handle = BLE_HS_CONN_HANDLE_NONE;
     log("Bluetooth: Disable complete\n");
 }
 
 void BluetoothManager::handle() {
+    const std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
     if (!ble_enabled) return;
     
     // Only check timeout when no client is connected
@@ -388,13 +360,13 @@ void BluetoothManager::handle() {
 
 void BluetoothManager::start_advertising() {
     if (ble_enabled && ble_server) {
-        BLEDevice::startAdvertising();
+        NimBLEDevice::startAdvertising();
     }
 }
 
 void BluetoothManager::stop_advertising() {
     if (ble_enabled) {
-        BLEDevice::stopAdvertising();
+        NimBLEDevice::stopAdvertising();
     }
 }
 
@@ -453,6 +425,8 @@ void BluetoothManager::stop_data_export() {
     data_export_in_progress = false;
     current_chunk = 0;
     next_chunk_time = 0;
+    pending_chunk_size = 0;
+    notify_retries = 0;
     current_file_session_id = 0;
     mark_sessions_info_dirty();
     
@@ -481,9 +455,6 @@ void BluetoothManager::send_next_data_chunk() {
         return;
     }
     
-    uint8_t buffer[BLE_DATA_CHUNK_SIZE_BYTES];
-    size_t actual_size = 0;
-    
     // Per-file streaming only
     if (current_file_session_id == 0) {
         log("Bluetooth Data: No file session active for chunk request\n");
@@ -491,18 +462,30 @@ void BluetoothManager::send_next_data_chunk() {
         set_data_status(BLE_DATA_ERROR);
         return;
     }
-    
-    bool has_data = data_stream.read_file_chunk(buffer, sizeof(buffer), &actual_size);
-    
-    if (has_data && actual_size > 0) {
-        // Send the data chunk
-        data_transfer_characteristic->setValue(buffer, actual_size);
-        data_transfer_characteristic->notify();
-        
+
+    bool has_data = pending_chunk_size > 0;
+    if (!has_data) {
+        has_data = data_stream.read_file_chunk(pending_chunk, data_chunk_capacity(),
+                                               &pending_chunk_size) &&
+                   pending_chunk_size > 0;
+    }
+
+    if (has_data) {
+        // The client reassembles the file from the notifications in order, so a
+        // chunk the stack could not take is resent before the next is read.
+        next_chunk_time = millis() + BLE_DATA_CHUNK_INTERVAL_MS;
+        if (!data_transfer_characteristic->notify(pending_chunk, pending_chunk_size)) {
+            if (++notify_retries >= BLE_DATA_NOTIFY_MAX_RETRIES) {
+                log("Bluetooth Data: Notification buffers stayed full; export stopped\n");
+                stop_data_export();
+                set_data_status(BLE_DATA_ERROR);
+            }
+            return;
+        }
+        notify_retries = 0;
+        pending_chunk_size = 0;
         current_chunk++;
-        
-        // Chunk sent (reduced logging)
-        
+
         // Update progress
         uint8_t progress = data_stream.get_progress_percent();
         uint8_t status_data[2] = { (uint8_t)BLE_DATA_EXPORTING, progress };
@@ -510,12 +493,9 @@ void BluetoothManager::send_next_data_chunk() {
             data_status_characteristic->setValue(status_data, 2);
             data_status_characteristic->notify();
         }
-        
-        // Pace notifications to avoid overflowing BLE buffers/OS queues.
-        // Combined with smaller chunk size this greatly reduces blocking in notify().
-        next_chunk_time = millis() + 25; // ~6.4 KB/s at 160 B per 25 ms
+        return;
     }
-    
+
     // Check if file transfer is complete
     if (!has_data) {
         log("Bluetooth Data: File transfer complete for session %lu - sent %d chunks.\n", current_file_session_id, current_chunk);
@@ -525,10 +505,20 @@ void BluetoothManager::send_next_data_chunk() {
         mark_sessions_info_dirty();
         
         data_stream.close_stream();
-        
-        delay(200); // Give the BLE buffer time to clear
+
+        // Notifications leave in the order they were queued, so COMPLETE always
+        // follows the last chunk.
         set_data_status(BLE_DATA_COMPLETE);
     }
+}
+
+size_t BluetoothManager::data_chunk_capacity() const {
+    // NimBLE truncates a notification to MTU - 3 bytes without reporting it.
+    const uint16_t mtu = ble_server && conn_handle != BLE_HS_CONN_HANDLE_NONE
+                             ? ble_server->getPeerMTU(conn_handle)
+                             : 0;
+    if (mtu <= 3) return BLE_DATA_CHUNK_SIZE_BYTES;
+    return std::min<size_t>(BLE_DATA_CHUNK_SIZE_BYTES, mtu - 3);
 }
 
 float BluetoothManager::get_data_export_progress() const {
@@ -619,11 +609,9 @@ void BluetoothManager::send_file_list() {
     
     free(session_ids);
     free(buffer);
-    
-    // Give the BLE buffer time to transmit the data before sending status
-    delay(100);
-    
-    // Mark transfer complete so client stops waiting
+
+    // Mark transfer complete so client stops waiting. Notifications leave in
+    // order, so this always follows the list.
     set_data_status(BLE_DATA_COMPLETE);
 }
 
@@ -651,6 +639,8 @@ void BluetoothManager::send_individual_file(uint32_t session_id) {
     data_export_in_progress = true;
     current_file_session_id = session_id;
     current_chunk = 0;
+    pending_chunk_size = 0;
+    notify_retries = 0;
     next_chunk_time = millis(); // Start immediately
     mark_sessions_info_dirty();
     set_data_status(BLE_DATA_EXPORTING);
@@ -688,8 +678,8 @@ void BluetoothManager::set_data_status(BLEDataStatus status) {
     }
 }
 
-void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteristic) {
-    String data = characteristic->getValue();
+void BluetoothManager::handle_ota_control_command(NimBLECharacteristic* characteristic) {
+    const std::string data = characteristic->getValue();
     if (data.length() == 0) return;
 
     uint8_t command = data[0];
@@ -719,14 +709,14 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
                 update_ui_status("Receiving update...");
                 
                 // Parse build number if present
-                String expected_build = "";
-                String expected_firmware_version = "";
+                std::string expected_build;
+                std::string expected_firmware_version;
                 size_t offset = 7;
                 
                 if (data.length() > 6) {
                     uint8_t build_length = data[6];
                     if (build_length > 0 && data.length() >= offset + build_length) {
-                        expected_build = String(data.c_str() + offset, build_length);
+                        expected_build = std::string(data.c_str() + offset, build_length);
                         log("Bluetooth OTA: Expected build after update: %s\n", expected_build.c_str());
                         offset += build_length;
                     }
@@ -736,7 +726,7 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
                         uint8_t version_length = data[offset];
                         offset++;
                         if (version_length > 0 && data.length() >= offset + version_length) {
-                            expected_firmware_version = String(data.c_str() + offset, version_length);
+                            expected_firmware_version = std::string(data.c_str() + offset, version_length);
                             log("Bluetooth OTA: Expected firmware version after update: %s\n", expected_firmware_version.c_str());
                         }
                     }
@@ -780,20 +770,21 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
     }
 }
 
-void BluetoothManager::handle_ota_data_chunk(BLECharacteristic* characteristic) {
+void BluetoothManager::handle_ota_data_chunk(NimBLECharacteristic* characteristic) {
     if (!ota_handler.is_ota_active()) return;
-    
-    String data = characteristic->getValue();
-    size_t chunk_size = data.length();
-    if (chunk_size == 0) return;
-    
-    if (!ota_handler.process_data_chunk((const uint8_t*)data.c_str(), chunk_size)) {
+
+    // Thousands of chunks per image. Keep the attribute value as-is instead of
+    // converting to std::string, which would copy the payload a second time.
+    const NimBLEAttValue data = characteristic->getValue();
+    if (data.size() == 0) return;
+
+    if (!ota_handler.process_data_chunk(data.data(), data.size())) {
         set_ota_status(BLE_OTA_ERROR);
     }
 }
 
-void BluetoothManager::handle_debug_command(BLECharacteristic* characteristic) {
-    String value = characteristic->getValue();
+void BluetoothManager::handle_debug_command(NimBLECharacteristic* characteristic) {
+    const std::string value = characteristic->getValue();
     if (value.length() > 0) {
         uint8_t command = value[0];
         switch (command) {
@@ -803,7 +794,7 @@ void BluetoothManager::handle_debug_command(BLECharacteristic* characteristic) {
 #if ENABLE_GRIND_DEBUG
                 // Print struct layout debug info immediately upon debug stream activation
                 log("BLE_DEBUG: Printing struct layout debug info...\n");
-                delay(50); // Small delay to ensure previous message is sent
+                vTaskDelay(pdMS_TO_TICKS(50)); // Small delay to ensure previous message is sent
                 grind_logger.print_struct_layout_debug();
                 log("BLE_DEBUG: Struct layout debug info complete\n");
 #else
@@ -824,8 +815,8 @@ void BluetoothManager::handle_debug_command(BLECharacteristic* characteristic) {
     }
 }
 
-void BluetoothManager::handle_data_control_command(BLECharacteristic* characteristic) {
-    String data = characteristic->getValue();
+void BluetoothManager::handle_data_control_command(NimBLECharacteristic* characteristic) {
+    const std::string data = characteristic->getValue();
     if (data.length() == 0) return;
     
     uint8_t command = data[0];
@@ -904,24 +895,60 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
 }
 
 // BLE Callbacks
-void BluetoothManager::onConnect(BLEServer* server) {
+void BluetoothManager::onConnect(NimBLEServer* server, NimBLEConnInfo& conn_info) {
     device_connected = true;
+    conn_handle = conn_info.getConnHandle();
     log("BLE: Client connected - timeout paused while connected\n");
+    log_link("connected", conn_info);
+    tune_link(server, conn_info);
     mark_sessions_info_dirty();
+}
 
-    // Notify client whether a screensaver image exists (via data status characteristic)
-    if (data_status_characteristic && image_handler.has_image()) {
-        uint8_t status = BLE_IMG_STATUS_HAS_IMAGE;
-        data_status_characteristic->setValue(&status, 1);
-        data_status_characteristic->notify();
+void BluetoothManager::tune_link(NimBLEServer* server, const NimBLEConnInfo& conn_info) {
+    const uint16_t handle = conn_info.getConnHandle();
+    // Longer link-layer packets: a 512-byte write then takes about three air
+    // packets instead of more than twenty.
+    server->setDataLen(handle, BLE_LINK_DATA_LENGTH_OCTETS);
+    if (conn_info.getConnInterval() > BLE_LINK_CONN_INTERVAL_MAX_UNITS) {
+        server->updateConnParams(handle, BLE_LINK_CONN_INTERVAL_MIN_UNITS,
+                                 BLE_LINK_CONN_INTERVAL_MAX_UNITS, 0,
+                                 BLE_LINK_SUPERVISION_TIMEOUT_UNITS);
     }
 }
 
-void BluetoothManager::onDisconnect(BLEServer* server) {
+void BluetoothManager::log_link(const char* event, const NimBLEConnInfo& conn_info) {
+    log("BLE: Link %s - interval %.2f ms, latency %u, timeout %u ms, MTU %u\n", event,
+        conn_info.getConnInterval() * 1.25f, conn_info.getConnLatency(),
+        conn_info.getConnTimeout() * 10U, conn_info.getMTU());
+}
+
+void BluetoothManager::onMTUChange(uint16_t mtu, NimBLEConnInfo& conn_info) {
+    log("BLE: MTU %u agreed\n", mtu);
+}
+
+void BluetoothManager::onConnParamsUpdate(NimBLEConnInfo& conn_info) {
+    log_link("updated", conn_info);
+}
+
+void BluetoothManager::onPhyUpdate(NimBLEConnInfo& conn_info, uint8_t tx_phy, uint8_t rx_phy) {
+    auto name = [](uint8_t phy) {
+        switch (phy) {
+            case BLE_GAP_LE_PHY_1M: return "1M";
+            case BLE_GAP_LE_PHY_2M: return "2M";
+            case BLE_GAP_LE_PHY_CODED: return "Coded";
+            default: return "unknown";
+        }
+    };
+    log("BLE: PHY TX %s, RX %s\n", name(tx_phy), name(rx_phy));
+}
+
+void BluetoothManager::onDisconnect(NimBLEServer* server, NimBLEConnInfo& conn_info,
+                                   int reason) {
     device_connected = false;
+    conn_handle = BLE_HS_CONN_HANDLE_NONE;
     last_disconnect_time = millis(); // Reset timeout countdown from now
 
-    log("BLE: Client disconnected - timeout countdown resumed\n");
+    log("BLE: Client disconnected (reason 0x%03x) - timeout countdown resumed\n", reason);
 
     if (ota_handler.is_ota_active()) {
         ota_handler.abort_ota();
@@ -937,12 +964,14 @@ void BluetoothManager::onDisconnect(BLEServer* server) {
 
     debug_stream_active = false;
 
-    // Restart advertising for next connection
-    delay(500);
+    // Advertise for the next connection. This runs on the NimBLE host task, so
+    // it must not sleep; start_advertising() does nothing once disable() has
+    // begun tearing the stack down.
     start_advertising();
 }
 
-void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
+void BluetoothManager::onWrite(NimBLECharacteristic* characteristic,
+                              NimBLEConnInfo& conn_info) {
     if (characteristic == ota_control_characteristic) {
         handle_ota_control_command(characteristic);
     } else if (characteristic == ota_data_characteristic) {
@@ -956,8 +985,8 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
     } else if (characteristic == data_transfer_characteristic) {
         // Image data chunks arrive here (writes to data transfer characteristic)
         if (image_handler.is_upload_active()) {
-            String value = characteristic->getValue();
-            if (value.length() > 0 && !image_handler.process_chunk((const uint8_t*)value.c_str(), value.length())) {
+            const NimBLEAttValue value = characteristic->getValue();
+            if (value.size() > 0 && !image_handler.process_chunk(value.data(), value.size())) {
                 set_image_status(BLE_IMG_STATUS_ERROR);
             }
         }
@@ -969,11 +998,7 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
     }
 }
 
-void BluetoothManager::onRead(BLECharacteristic* characteristic) {
-    // Reserved for future use
-}
-
-void BluetoothManager::handle_image_control_command(uint8_t command, const String& value) {
+void BluetoothManager::handle_image_control_command(uint8_t command, const std::string& value) {
     switch (command) {
         case BLE_IMG_CMD_START: {
             if (device_web_server.is_ota_active() ||
@@ -1029,7 +1054,7 @@ void BluetoothManager::set_image_status(BLEImageStatus status) {
     data_status_characteristic->notify();
 }
 
-void BluetoothManager::handle_screensaver_settings_command(uint8_t command, const String& value) {
+void BluetoothManager::handle_screensaver_settings_command(uint8_t command, const std::string& value) {
     if (is_data_channel_busy_for_settings()) {
         LOG_BLE("Screensaver settings: rejected command 0x%02X while data channel is busy\n", command);
         send_screensaver_settings_error(BLE_SETTINGS_ERROR_BUSY);
@@ -1133,7 +1158,7 @@ bool BluetoothManager::is_data_channel_busy_for_settings() const {
            image_handler.is_upload_active();
 }
 
-String BluetoothManager::check_ota_failure_after_boot() {
+std::string BluetoothManager::check_ota_failure_after_boot() {
     return ota_handler.check_ota_failure_after_boot();
 }
 
@@ -1156,10 +1181,10 @@ void BluetoothManager::update_system_info() {
     unsigned long uptime_hours = uptime_minutes / 60;
     
     // Get ESP32 system information
-    size_t heap_free = ESP.getFreeHeap();
-    size_t heap_total = ESP.getHeapSize();
+    size_t heap_free = device_info::free_heap_bytes();
+    size_t heap_total = device_info::total_heap_bytes();
     size_t heap_used = heap_total - heap_free;
-    uint32_t flash_size = ESP.getFlashChipSize();
+    uint32_t flash_size = device_info::flash_chip_size_bytes();
     float heap_usage_percent = (float(heap_used) / float(heap_total)) * 100.0f;
     
     snprintf(buffer, sizeof(buffer),
@@ -1184,7 +1209,7 @@ void BluetoothManager::update_system_info() {
         (unsigned int)heap_total,
         heap_usage_percent,
         (unsigned int)flash_size,
-        (unsigned int)ESP.getCpuFreqMHz()
+        (unsigned int)device_info::cpu_frequency_mhz()
     );
     
     sysinfo_system_characteristic->setValue(buffer);
@@ -1214,8 +1239,9 @@ void BluetoothManager::update_performance_info() {
         ? display_metrics.ui_time_us / display_metrics.ui_calls : 0;
     const uint32_t render_avg_us = display_metrics.rendered_frames > 0
         ? display_metrics.render_time_us / display_metrics.rendered_frames : 0;
+    // Average time LVGL waited per flush for the panel to take a buffer.
     const uint32_t flush_avg_us = display_metrics.flushes > 0
-        ? display_metrics.flush_time_us / display_metrics.flushes : 0;
+        ? display_metrics.flush_wait_us / display_metrics.flushes : 0;
 
     snprintf(buffer, sizeof(buffer),
         "{"
@@ -1395,13 +1421,13 @@ void BluetoothManager::generate_diagnostic_report() {
     send_chunk(buf);
 
     // Section 2: System Runtime
-    size_t heap_free = ESP.getFreeHeap();
-    size_t heap_total = ESP.getHeapSize();
+    size_t heap_free = device_info::free_heap_bytes();
+    size_t heap_total = device_info::total_heap_bytes();
     float heap_used_pct = (float(heap_total - heap_free) / float(heap_total)) * 100.0f;
-    uint32_t flash_size = ESP.getFlashChipSize();
+    uint32_t flash_size = device_info::flash_chip_size_bytes();
 
     const char* driver_type =
-#ifdef MOCK_BUILD
+#if DEBUG_ENABLE_LOADCELL_MOCK
         "MOCK";
 #else
         "REAL";
@@ -1416,7 +1442,7 @@ void BluetoothManager::generate_diagnostic_report() {
         "  Driver: %s\n"
         "\n",
         uptime_h, uptime_m, uptime_sec,
-        (unsigned long)ESP.getCpuFreqMHz(),
+        (unsigned long)device_info::cpu_frequency_mhz(),
         (unsigned int)(heap_free / 1024),
         (unsigned int)(heap_total / 1024),
         heap_used_pct,
@@ -1764,7 +1790,7 @@ void BluetoothManager::generate_diagnostic_report() {
                         break;
                     }
                     case NVS_TYPE_STR: {
-                        String val = pref.getString(info.key, "");
+                        std::string val = pref.getString(info.key, "");
                         snprintf(buf, sizeof(buf), "    %s: \"%s\" (string)\n", info.key, val.c_str());
                         break;
                     }
@@ -1825,8 +1851,8 @@ void BluetoothManager::generate_diagnostic_report() {
     snprintf(buf, sizeof(buf), "[LAST 5 GRIND SESSIONS]\n");
     send_chunk(buf);
 
-    if (LittleFS.exists(GRIND_SESSIONS_DIR)) {
-        File dir = LittleFS.open(GRIND_SESSIONS_DIR);
+    if (filesystem.exists(GRIND_SESSIONS_DIR)) {
+        FsFile dir = filesystem.open(GRIND_SESSIONS_DIR);
         if (dir && dir.isDirectory()) {
             // Collect all session IDs
             const int MAX_SESSIONS = 100;
@@ -1835,15 +1861,11 @@ void BluetoothManager::generate_diagnostic_report() {
             int count = 0;
 
             if (session_ids) {
-                File file = dir.openNextFile();
+                FsFile file = dir.openNextFile();
                 while (file && count < MAX_SESSIONS) {
-                    String filename = file.name();
-                    if ((filename.startsWith("session_") || filename.indexOf("/session_") != -1) && filename.endsWith(".bin")) {
-                        int start_pos = filename.indexOf('_') + 1;
-                        int end_pos = filename.lastIndexOf('.');
-                        if (start_pos > 0 && end_pos > start_pos) {
-                            session_ids[count++] = filename.substring(start_pos, end_pos).toInt();
-                        }
+                    uint32_t session_id = 0;
+                    if (parse_session_filename(file.name(), session_id)) {
+                        session_ids[count++] = session_id;
                     }
                     file = dir.openNextFile();
                 }
@@ -1867,7 +1889,7 @@ void BluetoothManager::generate_diagnostic_report() {
                     char filename[64];
                     snprintf(filename, sizeof(filename), SESSION_FILE_FORMAT, session_ids[i]);
 
-                    File sessionFile = LittleFS.open(filename, "r");
+                    FsFile sessionFile = filesystem.open(filename, "r");
                     if (sessionFile) {
                         TimeSeriesSessionHeader header;
                         GrindSession session;
@@ -2032,8 +2054,8 @@ void BluetoothManager::generate_diagnostic_report() {
     snprintf(buf, sizeof(buf), "[AUTOTUNE RESULTS]\n");
     send_chunk(buf);
 
-    if (LittleFS.exists("/autotune.log")) {
-        File autotuneFile = LittleFS.open("/autotune.log", "r");
+    if (filesystem.exists("/autotune.log")) {
+        FsFile autotuneFile = filesystem.open("/autotune.log", "r");
         if (autotuneFile) {
             // Stream file contents in chunks
             while (autotuneFile.available()) {

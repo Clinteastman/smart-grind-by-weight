@@ -1,4 +1,8 @@
 #include "circular_buffer_math.h"
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include "../../system/timing.h"
 #include "../../config/constants.h"
 #include <math.h>
 #include <algorithm>

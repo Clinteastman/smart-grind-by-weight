@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector>
-#include <Arduino.h>
+#include <cstdint>
 
 // Forward declarations
 class HardwareManager;

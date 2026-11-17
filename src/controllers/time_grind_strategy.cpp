@@ -1,8 +1,8 @@
 #include "time_grind_strategy.h"
+#include "../system/timing.h"
 #include "../config/constants.h"
 #include "grind_controller.h"
 #include "../logging/grind_logging.h"
-#include <Arduino.h>
 
 void TimeGrindStrategy::on_enter(const GrindSessionDescriptor&,
                                  GrindStrategyContext& context,

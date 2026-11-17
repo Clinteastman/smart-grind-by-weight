@@ -1,6 +1,6 @@
 #pragma once
-#include <Arduino.h>
 #include <driver/rmt_tx.h>
+#include <cstdint>
 #include <driver/rmt_encoder.h>
 #include <functional>
 #include "../config/constants.h"

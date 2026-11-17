@@ -1,17 +1,24 @@
 #include "provisioning_service.h"
 
-#include <cstring>
+#include <driver/usb_serial_jtag.h>
+#include <esp_random.h>
+#include <esp_system.h>
+
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <vector>
-#include <WiFi.h>
 
 #include "../config/build_info.h"
 #include "../config/constants.h"
+#include "../system/device_info.h"
+#include "../system/timing.h"
 #include "device_page.h"
+#include "http_support.h"
 #include "network_manager.h"
 
 namespace {
-constexpr char SETUP_PAGE[] PROGMEM = R"HTML(
+constexpr char SETUP_PAGE[] = R"HTML(
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Grind Wi-Fi</title><style>
 body{font-family:system-ui,sans-serif;background:#161914;color:#f4f4ed;max-width:34rem;margin:3rem auto;padding:0 1.2rem}
@@ -44,38 +51,25 @@ loadNetworks();
 </script></body></html>
 )HTML";
 
-void redirect_to_setup_page(AsyncWebServerRequest* request) {
-    const String location = "http://" + WiFi.softAPIP().toString() + "/";
-    LOG_BLE("[WIFI] Captive portal probe: %s -> %s\n",
-            request->url().c_str(), location.c_str());
-    AsyncWebServerResponse* response = request->beginResponse(302, "text/plain", "Open Smart Grind setup");
-    response->addHeader("Location", location);
-    response->addHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    response->addHeader("Pragma", "no-cache");
-    response->addHeader("Connection", "close");
-    request->send(response);
+esp_err_t redirect_to_setup_page(httpd_req_t* request) {
+    const std::string location = "http://" + network_manager.access_point_ip() + "/";
+    LOG_BLE("[WIFI] Captive portal probe: %s -> %s\n", request->uri, location.c_str());
+    httpd_resp_set_status(request, "302 Found");
+    httpd_resp_set_hdr(request, "Location", location.c_str());
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store, no-cache, must-revalidate");
+    httpd_resp_set_hdr(request, "Pragma", "no-cache");
+    httpd_resp_set_hdr(request, "Connection", "close");
+    return httpd_resp_send(request, "Open Smart Grind setup", HTTPD_RESP_USE_STRLEN);
 }
 
-String json_escape(const String& value) {
-    String escaped;
-    escaped.reserve(value.length() + 8);
-    for (size_t i = 0; i < value.length(); ++i) {
-        const char ch = value[i];
-        if (ch == '"' || ch == '\\') escaped += '\\';
-        if (static_cast<uint8_t>(ch) >= 0x20) escaped += ch;
-    }
-    return escaped;
-}
-}
+}  // namespace
 
 ProvisioningService provisioning_service;
 
-void ProvisioningService::init(Preferences* preferences, AsyncWebServer* server) {
+void ProvisioningService::init(Preferences* preferences) {
     preferences_ = preferences;
-    server_ = server;
     ap_ssid_ = build_ap_ssid();
     ap_password_ = load_or_create_ap_password();
-    if (server_) configure_routes();
     initialized_ = true;
 }
 
@@ -88,102 +82,79 @@ void ProvisioningService::update() {
     if (!active_ && (state == NetworkState::WIFI_NO_CREDENTIALS ||
                      state == NetworkState::WIFI_SETUP_REQUIRED)) {
         start();
+    } else if (active_ && state == NetworkState::WIFI_CONNECTED) {
+        // The saved network came back while the setup access point was up.
+        stop_dns();
     }
-
-    if (active_) dns_server_.processNextRequest();
 
     if (reboot_pending_ && static_cast<int32_t>(millis() - reboot_at_ms_) >= 0) {
         LOG_BLE("[WIFI] Restarting with saved network credentials\n");
-        Serial.flush();
-        ESP.restart();
+        fflush(stdout);
+        esp_restart();
     }
 }
 
-void ProvisioningService::configure_routes() {
-    server_->on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+void ProvisioningService::attach_routes(httpd_handle_t server) {
+    http::route(server, "/", HTTP_GET, [](httpd_req_t* request) {
         const char* page = network_manager.state() == NetworkState::WIFI_SETUP_AP
                                ? SETUP_PAGE
                                : SMART_GRIND_DEVICE_PAGE;
-        // The text overload copies the complete page into an internal-RAM String.
-        // Keep the embedded page in flash and let the async response stream it.
-        AsyncWebServerResponse* response = request->beginResponse(
-            200, "text/html", reinterpret_cast<const uint8_t*>(page), strlen_P(page));
-        response->addHeader("Cache-Control", "no-store");
-        request->send(response);
+        // httpd_resp_send streams the embedded page straight from flash, with no
+        // internal-RAM copy. no-store stops browsers keeping a page that
+        // belongs to the firmware from before an update.
+        httpd_resp_set_type(request, "text/html");
+        httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+        return httpd_resp_send(request, page, HTTPD_RESP_USE_STRLEN);
     });
-    server_->on(AsyncURIMatcher::exact("/api/v1/setup/networks"), HTTP_GET, [](AsyncWebServerRequest* request) {
+
+    http::route(server, "/api/v1/setup/networks", HTTP_GET, [](httpd_req_t* request) {
         if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
-            request->send(403, "application/json", "{\"error\":\"Wi-Fi setup is not active\"}");
-            return;
+            return http::send_error(request, 403, "Wi-Fi setup is not active");
         }
-
-        if (request->hasParam("refresh")) {
-            WiFi.scanDelete();
-            WiFi.scanNetworks(true, true);
-        }
-        int count = WiFi.scanComplete();
-        if (count == WIFI_SCAN_FAILED) {
-            WiFi.scanNetworks(true, true);
-            count = WIFI_SCAN_RUNNING;
-        }
-        if (count == WIFI_SCAN_RUNNING) {
-            request->send(200, "application/json", "{\"scanning\":true,\"networks\":[]}");
-            return;
-        }
-
-        struct NetworkResult { String ssid; int32_t rssi; bool secure; };
-        std::vector<NetworkResult> networks;
-        networks.reserve(std::min(count, 20));
-        for (int i = 0; i < count; ++i) {
-            const String ssid = WiFi.SSID(i);
-            if (ssid.isEmpty()) continue;
-            auto existing = std::find_if(networks.begin(), networks.end(),
-                                         [&ssid](const NetworkResult& item) { return item.ssid == ssid; });
-            if (existing != networks.end()) {
-                if (WiFi.RSSI(i) > existing->rssi) existing->rssi = WiFi.RSSI(i);
-                continue;
-            }
-            if (networks.size() >= 20) continue;
-            networks.push_back({ssid, WiFi.RSSI(i), WiFi.encryptionType(i) != WIFI_AUTH_OPEN});
-        }
-        std::sort(networks.begin(), networks.end(),
-                  [](const NetworkResult& left, const NetworkResult& right) {
-                      return left.rssi > right.rssi;
-                  });
-
-        AsyncResponseStream* response = request->beginResponseStream("application/json");
-        response->print("{\"scanning\":false,\"networks\":[");
+        // The scan runs synchronously here. Nothing else competes for the HTTP
+        // server while the setup portal is up, and one slower request is simpler
+        // than the poll-until-ready dance an asynchronous scan would need. The
+        // "scanning" field stays in the response for the setup page's benefit.
+        const std::vector<WifiScanResult> networks = network_manager.scan_networks();
+        std::string body = "{\"scanning\":false,\"networks\":[";
         for (size_t i = 0; i < networks.size(); ++i) {
-            if (i) response->print(',');
-            response->printf("{\"ssid\":\"%s\",\"rssi\":%ld,\"secure\":%s}",
-                             json_escape(networks[i].ssid).c_str(),
-                             static_cast<long>(networks[i].rssi),
-                             networks[i].secure ? "true" : "false");
+            char entry[128];
+            snprintf(entry, sizeof(entry), "%s{\"ssid\":\"%s\",\"rssi\":%d,\"secure\":%s}",
+                     i ? "," : "", http::json_escape(networks[i].ssid).c_str(),
+                     static_cast<int>(networks[i].rssi),
+                     networks[i].secured ? "true" : "false");
+            body += entry;
         }
-        response->print("]}");
-        response->addHeader("Cache-Control", "no-store");
-        request->send(response);
-    });
-    server_->on(AsyncURIMatcher::exact("/api/v1/setup/wifi"), HTTP_POST, [this](AsyncWebServerRequest* request) {
-        if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
-            request->send(403, "text/plain", "Wi-Fi setup is not active");
-            return;
-        }
-        if (!request->hasParam("ssid", true) || !request->hasParam("password", true)) {
-            request->send(400, "text/plain", "Network name and password fields are required");
-            return;
-        }
-        const String ssid = request->getParam("ssid", true)->value();
-        const String password = request->getParam("password", true)->value();
-        if (!network_manager.set_credentials(ssid, password)) {
-            request->send(400, "text/plain", "Invalid network name or password");
-            return;
-        }
-        request->send(200, "text/html", "<h1>Saved</h1><p>Smart Grind is restarting and will join your network.</p>");
-        schedule_reboot();
+        body += "]}";
+        return http::send_json(request, 200, body);
     });
 
-    const char* captive_paths[] = {
+    http::route(server, "/api/v1/setup/wifi", HTTP_POST, [this](httpd_req_t* request) {
+        if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
+            return http::send(request, 403, "text/plain", "Wi-Fi setup is not active");
+        }
+        std::string form;
+        if (!http::read_body(request, form, 512)) {
+            return http::send(request, 400, "text/plain", "Could not read the submitted form");
+        }
+        std::string ssid;
+        std::string password;
+        if (!http::form_field(form, "ssid", ssid) ||
+            !http::form_field(form, "password", password)) {
+            return http::send(request, 400, "text/plain",
+                              "Network name and password fields are required");
+        }
+        if (!network_manager.set_credentials(ssid, password)) {
+            return http::send(request, 400, "text/plain", "Invalid network name or password");
+        }
+        const esp_err_t result = http::send(
+            request, 200, "text/html",
+            "<h1>Saved</h1><p>Smart Grind is restarting and will join your network.</p>");
+        schedule_reboot();
+        return result;
+    });
+
+    static const char* captive_paths[] = {
         // Android / ChromeOS
         "/generate_204", "/gen_204", "/redirect", "/canonical.html",
         // Apple
@@ -194,21 +165,27 @@ void ProvisioningService::configure_routes() {
         "/kindle-wifi/wifistub.html", "/fwlink"
     };
     for (const char* path : captive_paths) {
-        server_->on(path, HTTP_ANY, redirect_to_setup_page);
+        http::route(server, path, HTTP_GET, redirect_to_setup_page);
     }
+
     // These exact responses match the clients' captive-network expectations.
-    server_->on("/connecttest.txt", HTTP_ANY, [](AsyncWebServerRequest* request) {
-        LOG_BLE("[WIFI] Captive portal probe: %s -> logout.net\n", request->url().c_str());
-        request->redirect("http://logout.net");
+    http::route(server, "/connecttest.txt", HTTP_GET, [](httpd_req_t* request) {
+        LOG_BLE("[WIFI] Captive portal probe: %s -> logout.net\n", request->uri);
+        return http::send_redirect(request, "http://logout.net");
     });
-    server_->on("/success.txt", HTTP_ANY, [](AsyncWebServerRequest* request) {
-        LOG_BLE("[WIFI] Captive portal probe: %s -> 200\n", request->url().c_str());
-        request->send(200);
+    http::route(server, "/success.txt", HTTP_GET, [](httpd_req_t* request) {
+        LOG_BLE("[WIFI] Captive portal probe: %s -> 200\n", request->uri);
+        return http::send(request, 200, "text/plain", "success");
     });
-    server_->on("/wpad.dat", HTTP_ANY, [](AsyncWebServerRequest* request) { request->send(404); });
-    server_->onNotFound([](AsyncWebServerRequest* request) {
-        if (network_manager.state() == NetworkState::WIFI_SETUP_AP) redirect_to_setup_page(request);
-        else request->send(404, "text/plain", "Not found");
+    http::route(server, "/wpad.dat", HTTP_GET, [](httpd_req_t* request) {
+        return http::send(request, 404, "text/plain", "");
+    });
+
+    http::not_found(server, [](httpd_req_t* request) {
+        if (network_manager.state() == NetworkState::WIFI_SETUP_AP) {
+            return redirect_to_setup_page(request);
+        }
+        return http::send(request, 404, "text/plain", "Not found");
     });
 }
 
@@ -217,12 +194,10 @@ void ProvisioningService::start() {
         LOG_BLE("[WIFI] Failed to start setup access point\n");
         return;
     }
-    dns_server_.setTTL(3600);
-    dns_server_.start(53, "*", WiFi.softAPIP());
-    WiFi.scanDelete();
-    WiFi.scanNetworks(true, true);
+
+    dns_server_.start(network_manager.access_point_ip_v4());
     active_ = true;
-    LOG_BLE("[WIFI] Setup page: http://%s/\n", WiFi.softAPIP().toString().c_str());
+    LOG_BLE("[WIFI] Setup page: http://%s/\n", network_manager.access_point_ip().c_str());
 }
 
 void ProvisioningService::stop_dns() {
@@ -239,16 +214,22 @@ void ProvisioningService::schedule_reboot() {
 
 void ProvisioningService::update_improv_serial() {
     constexpr uint32_t FRAME_TIMEOUT_MS = 100;
-    constexpr uint32_t CONNECT_TIMEOUT_MS = 20000;
+    // Outlasts the station's own attempt, so the reply reports how it ended.
+    constexpr uint32_t CONNECT_TIMEOUT_MS = SmartGrindNetworkManager::CONNECT_TIMEOUT_MS + 5000;
     constexpr size_t MAX_BYTES_PER_UPDATE = 64;
 
     if (improv_rx_position_ > 0 && millis() - improv_last_byte_ms_ > FRAME_TIMEOUT_MS) {
         improv_rx_position_ = 0;
     }
 
-    size_t processed = 0;
-    while (Serial.available() > 0 && processed++ < MAX_BYTES_PER_UPDATE) {
-        const uint8_t byte = static_cast<uint8_t>(Serial.read());
+    // usb_serial_jtag_read_bytes dereferences the driver object without a null
+    // check, so a failed install at boot would panic here on the first poll.
+    if (!usb_serial_jtag_is_driver_installed()) return;
+
+    uint8_t incoming[MAX_BYTES_PER_UPDATE];
+    const int available = usb_serial_jtag_read_bytes(incoming, sizeof(incoming), 0);
+    for (int index = 0; index < available; ++index) {
+        const uint8_t byte = incoming[index];
         if (improv_rx_position_ >= sizeof(improv_rx_buffer_)) improv_rx_position_ = 0;
         const size_t position = improv_rx_position_;
         improv_rx_buffer_[position] = byte;
@@ -263,8 +244,9 @@ void ProvisioningService::update_improv_serial() {
                 structurally_valid = rpc_length >= 4;
                 if (structurally_valid) {
                     const size_t password_length_index = 3 + rpc[2];
-                    structurally_valid = password_length_index < rpc_length &&
-                                         password_length_index + 1 + rpc[password_length_index] == rpc_length;
+                    structurally_valid =
+                        password_length_index < rpc_length &&
+                        password_length_index + 1 + rpc[password_length_index] == rpc_length;
                 }
             }
             if (!structurally_valid) {
@@ -314,9 +296,7 @@ bool ProvisioningService::handle_improv_command(const improv::ImprovCommand& com
                 send_improv_error(improv::ERROR_UNABLE_TO_CONNECT);
                 return true;
             }
-            const String ssid(command.ssid.c_str());
-            const String password(command.password.c_str());
-            if (!network_manager.set_credentials(ssid, password)) {
+            if (!network_manager.set_credentials(command.ssid, command.password)) {
                 send_improv_error(improv::ERROR_INVALID_RPC);
                 return true;
             }
@@ -354,13 +334,17 @@ bool ProvisioningService::handle_improv_command(const improv::ImprovCommand& com
         }
         case improv::GET_NETWORK_STATE: {
             uint8_t flags = improv::NETWORK_SUPPORTS_WIFI;
-            std::vector<String> values;
+            std::vector<std::string> values;
+            // Every element of an Improv RPC response is a length-prefixed
+            // string, and the specification defines this first element as the
+            // flags byte "encoded decimal string" - clients parse it with a
+            // base-10 conversion, so "3" is correct rather than the raw 0x03.
             if (network_manager.is_connected()) {
                 flags |= improv::NETWORK_IS_ONLINE;
-                values.push_back(String(flags));
+                values.push_back(std::to_string(flags));
                 values.push_back("http://" + network_manager.ip_address());
             } else {
-                values.push_back(String(flags));
+                values.push_back(std::to_string(flags));
             }
             send_improv_response(command.command, values);
             return true;
@@ -386,7 +370,7 @@ void ProvisioningService::send_improv_error(improv::Error error) {
 }
 
 void ProvisioningService::send_improv_response(improv::Command command,
-                                               const std::vector<String>& values) {
+                                               const std::vector<std::string>& values) {
     const std::vector<uint8_t> response = improv::build_rpc_response(command, values, false);
     send_improv_packet(improv::TYPE_RPC_RESPONSE, response.data(), response.size());
 }
@@ -394,6 +378,7 @@ void ProvisioningService::send_improv_response(improv::Command command,
 void ProvisioningService::send_improv_packet(improv::ImprovSerialType type,
                                              const uint8_t* data, size_t length) {
     if (length > 255 || (length > 0 && !data)) return;
+    if (!usb_serial_jtag_is_driver_installed()) return;
     uint8_t frame[267] = {'I', 'M', 'P', 'R', 'O', 'V', improv::IMPROV_SERIAL_VERSION,
                           static_cast<uint8_t>(type), static_cast<uint8_t>(length)};
     if (length > 0) memcpy(frame + 9, data, length);
@@ -401,7 +386,7 @@ void ProvisioningService::send_improv_packet(improv::ImprovSerialType type,
     for (size_t i = 0; i < 9 + length; ++i) checksum += frame[i];
     frame[9 + length] = checksum;
     frame[10 + length] = '\n';
-    Serial.write(frame, 11 + length);
+    usb_serial_jtag_write_bytes(frame, 11 + length, pdMS_TO_TICKS(50));
 }
 
 void ProvisioningService::complete_improv_connection() {
@@ -411,25 +396,26 @@ void ProvisioningService::complete_improv_connection() {
                          {"http://" + network_manager.ip_address()});
 }
 
-String ProvisioningService::load_or_create_ap_password() {
+std::string ProvisioningService::load_or_create_ap_password() {
     if (!preferences_) return make_random_password(12);
-    String password = preferences_->getString("wifi_ap_pass", "");
+    std::string password = preferences_->getString("wifi_ap_pass", "");
     if (password.length() >= 8) return password;
     password = make_random_password(12);
     preferences_->putString("wifi_ap_pass", password);
     return password;
 }
 
-String ProvisioningService::build_ap_ssid() {
+std::string ProvisioningService::build_ap_ssid() {
     char ssid[32];
     snprintf(ssid, sizeof(ssid), "SmartGrind-%06lx",
-             static_cast<unsigned long>(ESP.getEfuseMac() & 0xFFFFFFULL));
-    return String(ssid);
+             static_cast<unsigned long>(device_info::efuse_mac() & 0xFFFFFFULL));
+    return ssid;
 }
 
-String ProvisioningService::make_random_password(size_t length) {
-    static constexpr char ALPHABET[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-    String password;
+std::string ProvisioningService::make_random_password(size_t length) {
+    static constexpr char ALPHABET[] =
+        "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    std::string password;
     password.reserve(length);
     for (size_t i = 0; i < length; ++i) {
         password += ALPHABET[esp_random() % (sizeof(ALPHABET) - 1)];

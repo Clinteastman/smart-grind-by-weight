@@ -6,8 +6,7 @@
 - [Display Stays Black After Flashing (Waveshare 1.64 V2)](#display-stays-black-after-flashing-waveshare-164-v2)
 - [HX711 Not Detected / Wrong Sample Rate](#hx711-not-detected--wrong-sample-rate)
 - [Suspected HX711 or Load Cell Damage](#suspected-hx711-or-load-cell-damage)
-- [Unknown board ID 'esp32-s3-devkitc-1'](#unknown-board-id-esp32-s3-devkitc-1)
-- [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
+- [ESP-IDF Build Issues](#esp-idf-build-issues)
 - [Unexpected Net Weight Error](#unexpected-net-weight-error)
 - [Grind Timeout Screen](#grind-timeout-screen)
 - [Unreliable Pulse Corrections](#unreliable-pulse-corrections)
@@ -33,15 +32,17 @@ Do **not** identify this display generation from the PCB revision text alone. A 
 Flash Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2). If that works but the original CO5300 demo or normal V1 Smart Grind image remains black, treat the board as the newer SH8601 generation and use the V2 target. Do this test before connecting the grinder wiring so display compatibility is isolated from the rest of the installation.
 
 ### Resolution
-Build and flash the V2 target:
+Build and flash the V2 firmware over USB, in a shell with ESP-IDF activated
+(see [Initial USB Flashing](DEVELOPMENT.md#initial-usb-flashing)):
 
 ```bash
-python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-v2
+python3 tools/grinder.py build --hardware v2
+idf.py -B build/v2 -p <port> flash
 ```
 
 For a complete V2 installation, wire HX711 SCK to GPIO 1 and the grinder motor-control lead to GPIO 16. GPIO 18 is connected to the V2 touchscreen interrupt (`TP_INT`) and must not be used for motor control. The V1 connections remain HX711 SCK on GPIO 2 and motor control on GPIO 18.
 
-Do not change only the chip-select pin in a V1 build. Hardware validation showed that an Arduino_GFX SH8601 attempt remained black; the working V2 target uses Waveshare's native Espressif `esp_lcd` SH8601 driver and initialization sequence.
+Do not change only the chip-select pin in a V1 build. Both revisions drive the panel through `esp_lcd`, but they are different controllers with different power-on sequences: V1 is a CO5300 and V2 an SH8601. Changing the pin without the matching driver and initialization sequence leaves the panel black.
 
 If using the Web Flasher, select **Newer SH8601 (V2 firmware; may say Rev1.1)** for this generation. Do not select the original CO5300 image merely because the PCB says `Rev1.1`.
 
@@ -192,75 +193,74 @@ check insulation between the bridge, shield and body. See Analog Devices'
 and the [HX711 datasheet](https://datasheet.lcsc.com/lcsc/2011051703_Avia-Semicon-Xiamen-HX711_C43656.pdf)
 for the underlying circuit and supply limits.
 
-## Unknown board ID 'esp32-s3-devkitc-1'
-
-**Applies to:** Windows development environments using PlatformIO with ESP32-S3 boards.
-
-### Symptoms
-- `platformio run` fails with `UnknownBoard: Unknown board ID 'esp32-s3-devkitc-1'`.
-- `pio boards espressif32 | findstr "esp32-s3"` shows the board, suggesting it exists in the registry.
-
-### Root Cause
-The local PlatformIO `espressif32` platform package was pinned to an older release (e.g. 3.1.0 from 2021) that predates ESP32-S3 board definitions. The registry lookup reports current boards, but the outdated local package lacks the corresponding JSON definition.
-
-### Resolution
-1. Update the global `espressif32` platform package so it includes ESP32-S3 board definitions:
-   ```powershell
-   C:\Users\<user>\.platformio\penv\Scripts\platformio.exe pkg install -g -p platformio/espressif32@^6.8.0
-   ```
-   *(Alternatively, run `pio platform update espressif32`.)*
-2. Re-run the build:
-   ```powershell
-   C:\Users\<user>\.platformio\penv\Scripts\platformio.exe run
-   ```
-3. Optional: Pin the desired platform version in `platformio.ini` to ensure consistency across machines:
-   ```ini
-   [env:waveshare-esp32s3-touch-amoled-164]
-   platform = platformio/espressif32@^6.8.0
-   ```
-
-### Notes
-- `monitor_options` is not a supported PlatformIO setting. Current firmware uses
-  the project-local `monitor/filter_hiding_filter.py` through `monitor_filters`
-  instead; remove any old local override that still defines `monitor_options`.
-- If multiple PlatformIO installations are present, ensure you are updating the instance used for the project.
-
 ---
 
-## PlatformIO Project Initialization Issues
+## ESP-IDF Build Issues
 
-**Applies to:** General PlatformIO project setup issues, especially when using PlatformIO (as this project uses the pioarduino fork as a platform).
+**Applies to:** Building, flashing or monitoring the firmware from source with
+`tools/grinder.py` or `idf.py`. The toolchain setup is described in
+[ESP-IDF Toolchain](DEVELOPMENT.md#esp-idf-toolchain).
 
-### Symptoms
-- `Error: Could not find one of 'package.json' manifest files in the package`
-- PlatformIO fails to initialize the project properly
-- Vague platform-related errors during project setup
+### ESP-IDF is not set up in this shell
 
-### Root Cause
-The use of the pioarduino platform fork can sometimes cause PlatformIO's cache or project state to become inconsistent, leading to initialization failures.
+**Symptom:** `python3 tools/grinder.py build` stops with
+`ESP-IDF is not set up in this shell`, or `idf.py` is not found.
 
-### Resolution
-1. **Close VS Code completely**
-2. **Delete the PlatformIO cache folder:**
-   ```bash
-   # On Windows
-   rmdir /s "%USERPROFILE%\.platformio"
-   
-   # On macOS/Linux  
-   rm -rf ~/.platformio
-   ```
-3. **Restart VS Code**
-4. **Reopen the project** - PlatformIO will reinitialize and download the correct platform packages
-5. **Perform a clean build** - Use PlatformIO's "Clean" then "Build" to ensure a fresh compilation
+**Resolution:** Activate ESP-IDF v6.1 in the current shell, check the version
+and rebuild. Activation lasts only for that shell.
 
-### Alternative (Less Nuclear)
-If you want to try a less aggressive approach first:
-1. Close VS Code
-2. Delete only the platforms cache: `~/.platformio/platforms/` (or `%USERPROFILE%\.platformio\platforms\` on Windows)
-3. Restart VS Code and reopen project
-4. Perform a clean build in PlatformIO
+```bash
+# EIM installation (Linux/macOS)
+source ~/.espressif/tools/activate_idf_v6.1.sh
 
-**Note:** This issue is specific to the pioarduino platform fork usage and the way PlatformIO handles custom platform URLs.
+# Or a git installation
+. ~/esp/esp-idf/export.sh
+
+# Prints ESP-IDF v6.1
+idf.py --version
+```
+
+On Windows, use the ESP-IDF PowerShell environment that EIM installs.
+
+### Edited sdkconfig defaults have no effect
+
+**Symptom:** A change to `sdkconfig.defaults` or a variant overlay
+(`sdkconfig.defaults.v2`, `sdkconfig.defaults.debug`, `sdkconfig.defaults.mock`)
+does not appear in the next build.
+
+**Root Cause:** Each variant's `build/<variant>/sdkconfig` is generated on its
+first build and reused as is afterwards.
+
+**Resolution:** Delete that variant's sdkconfig, or remove every build
+directory, and rebuild:
+
+```bash
+rm build/v2/sdkconfig
+# Or remove every variant's build directory
+python3 tools/grinder.py clean
+```
+
+### Managed component download fails
+
+**Symptom:** The first build fails while resolving or downloading components
+such as LVGL or NimBLE-C++, or reports a component version conflict.
+
+**Resolution:** The ESP-IDF component manager downloads the versions pinned in
+`src/idf_component.yml` into `managed_components/`. Delete the downloaded
+copies and the lock file, then rebuild with network access:
+
+```bash
+rm -rf managed_components dependencies.lock
+python3 tools/grinder.py build --hardware v1
+```
+
+### Touch I2C errors in the serial monitor
+
+The firmware polls the touch controller over I2C, and idle polls NACK. It
+suppresses these expected I2C errors itself
+(`DEBUG_SUPPRESS_TOUCH_I2C_ERRORS` in `src/config/debug.h`), so
+`idf.py monitor` needs no filter. Set the switch to `0` only when you need the
+raw driver output.
 
 ---
 

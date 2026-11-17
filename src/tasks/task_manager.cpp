@@ -1,4 +1,9 @@
 #include "task_manager.h"
+#include <freertos/FreeRTOS.h>
+#include <cstdint>
+#include <cstring>
+#include <freertos/task.h>
+#include "../system/timing.h"
 #include "../config/build_info.h"
 #include "weight_sampling_task.h"
 #include "grind_control_task.h"
@@ -14,7 +19,6 @@
 #include "../logging/grind_logging.h"
 #include "../config/constants.h"
 #include <esp_task_wdt.h>
-#include <Arduino.h>
 
 // Global instance
 TaskManager task_manager;
@@ -24,8 +28,7 @@ TaskManager* TaskManager::instance = nullptr;
 
 TaskManager::TaskManager() {
     memset(&task_handles, 0, sizeof(TaskHandles));
-    memset(&task_queues, 0, sizeof(TaskQueues));
-    
+
     hardware_manager = nullptr;
     state_machine = nullptr;
     profile_controller = nullptr;
@@ -40,8 +43,7 @@ TaskManager::TaskManager() {
 
 TaskManager::~TaskManager() {
     delete_all_tasks();
-    cleanup_queues();
-    
+
     if (instance == this) {
         instance = nullptr;
     }
@@ -64,57 +66,16 @@ bool TaskManager::init(HardwareManager* hw_mgr, StateMachine* sm, ProfileControl
         return false;
     }
     
-    // Create inter-task communication queues
-    if (!create_inter_task_queues()) {
-        LOG_BLE("ERROR: Failed to create inter-task communication queues\n");
-        return false;
-    }
-    
     // Create all FreeRTOS tasks
     if (!create_all_tasks()) {
         LOG_BLE("ERROR: Failed to create FreeRTOS tasks\n");
-        cleanup_queues();
         return false;
     }
-    
+
     tasks_initialized = true;
     LOG_BLE("TaskManager: All tasks created successfully\n");
-    
-    return true;
-}
 
-bool TaskManager::create_inter_task_queues() {
-    // Touch to UI queue
-    
-    // UI to Grind queue  
-    task_queues.ui_to_grind_queue = xQueueCreate(SYS_QUEUE_UI_TO_GRIND_SIZE, sizeof(void*)); // Generic pointer for UI events
-    if (!task_queues.ui_to_grind_queue) {
-        LOG_BLE("ERROR: Failed to create ui_to_grind_queue\n");
-        return false;
-    }
-    
-    // File I/O queue
-    task_queues.file_io_queue = xQueueCreate(SYS_QUEUE_FILE_IO_SIZE, sizeof(FileIORequest));
-    if (!task_queues.file_io_queue) {
-        LOG_BLE("ERROR: Failed to create file_io_queue\n");
-        return false;
-    }
-    
-    LOG_BLE("TaskManager: Inter-task communication queues created successfully\n");
     return true;
-}
-
-void TaskManager::cleanup_queues() {
-    
-    if (task_queues.ui_to_grind_queue) {
-        vQueueDelete(task_queues.ui_to_grind_queue);
-        task_queues.ui_to_grind_queue = nullptr;
-    }
-    
-    if (task_queues.file_io_queue) {
-        vQueueDelete(task_queues.file_io_queue);
-        task_queues.file_io_queue = nullptr;
-    }
 }
 
 bool TaskManager::create_all_tasks() {
@@ -134,8 +95,7 @@ bool TaskManager::create_all_tasks() {
         LOG_BLE("ERROR: Failed to create UI render task\n");
         return false;
     }
-    
-    
+
     if (!create_bluetooth_task()) {
         LOG_BLE("ERROR: Failed to create bluetooth task\n");
         return false;
@@ -212,7 +172,6 @@ bool TaskManager::create_ui_render_task() {
     return true;
 }
 
-
 bool TaskManager::create_bluetooth_task() {
     BaseType_t result = xTaskCreatePinnedToCore(
         bluetooth_task_wrapper,
@@ -250,7 +209,7 @@ bool TaskManager::create_file_io_task() {
         return false;
     }
     
-    LOG_BLE("✅ File I/O Task created (Core 1, Priority %d, %dHz)\n", 
+    LOG_BLE("✅ File I/O Task created (Core 1, Priority %d, %dHz)\n",
             SYS_TASK_PRIORITY_FILE_IO, 1000 / SYS_TASK_FILE_IO_INTERVAL_MS);
     return true;
 }
@@ -322,8 +281,7 @@ void TaskManager::delete_all_tasks() {
         vTaskDelete(task_handles.ui_render_task);
         task_handles.ui_render_task = nullptr;
     }
-    
-    
+
     if (task_handles.bluetooth_task) {
         vTaskDelete(task_handles.bluetooth_task);
         task_handles.bluetooth_task = nullptr;
@@ -397,7 +355,6 @@ void TaskManager::ui_render_task_wrapper(void* parameter) {
     vTaskDelete(nullptr);
 }
 
-
 void TaskManager::bluetooth_task_wrapper(void* parameter) {
     if (instance) {
         instance->bluetooth_task_impl();
@@ -440,11 +397,7 @@ void TaskManager::ui_render_task_impl() {
             grind_controller->process_queued_ui_events();
         }
 
-        // UI rendering separated from touch handling
-        // Process touch events from TouchInputTask queue
-        // TODO: Process touch events from queue and update UI
-
-        // UI logic and display updates (separated from touch input)
+        // UI logic and display updates
         if (ui_manager) {
             // Drain BLE UI status messages here to keep LVGL single-threaded
             if (bluetooth_manager) {
@@ -469,7 +422,6 @@ void TaskManager::ui_render_task_impl() {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
-
 
 void TaskManager::bluetooth_task_impl() {
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -499,7 +451,7 @@ void TaskManager::file_io_task_impl() {
 }
 
 void TaskManager::record_task_timing(int task_index, uint32_t start_time, uint32_t end_time) {
-    if (task_index < 0 || task_index >= 6) return;
+    if (task_index < 0 || task_index >= TASK_COUNT) return;
     
     TaskMetrics& metrics = task_metrics[task_index];
     uint32_t cycle_duration = end_time - start_time;
@@ -517,7 +469,8 @@ void TaskManager::record_task_timing(int task_index, uint32_t start_time, uint32
 #if SYS_ENABLE_REALTIME_HEARTBEAT
     // Print task heartbeat every 10 seconds
     if (end_time - metrics.last_heartbeat_time >= SYS_REALTIME_HEARTBEAT_INTERVAL_MS) {
-        const char* task_names[] = {"WeightSampling", "GrindControl", "UIRender", "Bluetooth", "FileIO"};
+        static const char* const task_names[TASK_COUNT] = {"WeightSampling", "GrindControl", "UIRender",
+                                                          "Bluetooth", "FileIO"};
         print_task_heartbeat(task_index, task_names[task_index]);
         
         // Reset metrics

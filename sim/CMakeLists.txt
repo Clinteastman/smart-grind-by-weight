@@ -49,7 +49,6 @@ target_compile_definitions(smart-grind-sim PRIVATE
     NOMINMAX
 )
 target_include_directories(smart-grind-sim PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/platform"
     "${PROJECT_ROOT}/src"
     "${PROJECT_ROOT}/include"
     "${lvgl_SOURCE_DIR}/src"
@@ -67,6 +66,13 @@ add_executable(grind-session-result-test
     grind_session_result_test.cpp
 )
 target_include_directories(grind-session-result-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
+add_executable(http-multipart-test
+    http_multipart_test.cpp
+)
+target_include_directories(http-multipart-test PRIVATE
     "${PROJECT_ROOT}/src"
 )
 
@@ -89,4 +95,6 @@ if(BUILD_TESTING)
     set_tests_properties(net_weight_guard PROPERTIES TIMEOUT 5)
     add_test(NAME grind_session_result COMMAND grind-session-result-test)
     set_tests_properties(grind_session_result PROPERTIES TIMEOUT 5)
+    add_test(NAME http_multipart COMMAND http-multipart-test)
+    set_tests_properties(http_multipart PROPERTIES TIMEOUT 5)
 endif()

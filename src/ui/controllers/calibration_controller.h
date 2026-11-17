@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 
 class UIManager;
 

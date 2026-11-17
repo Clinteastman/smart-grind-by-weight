@@ -1,5 +1,4 @@
 #include "edit_screen.h"
-#include <Arduino.h>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
 #include "../ui_helpers.h"

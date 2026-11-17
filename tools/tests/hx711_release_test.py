@@ -15,21 +15,21 @@ class HX711ReleaseTest(unittest.TestCase):
         code = r'''
 #include <cassert>
 #include <cstdint>
-#define LOW 0
-#define HIGH 1
 #define LOG_BLE(...) ((void)0)
 bool ready=true, released=true, irq_enabled=true;
 unsigned clocks=0;
 uint32_t bits=0;
-unsigned long micros(){return 1000;}
-void delayMicroseconds(unsigned){}
-void noInterrupts(){irq_enabled=false;}
-void interrupts(){irq_enabled=true;}
-void digitalWrite(uint8_t,int level){if(level==HIGH) ++clocks;}
-int digitalRead(uint8_t){
- if(clocks==0) return ready ? LOW : HIGH;
+uint32_t micros(){return 1000;}
+void esp_rom_delay_us(uint32_t){}
+using gpio_num_t=int;
+struct portMUX_TYPE {} conversion_mux;
+void portENTER_CRITICAL(portMUX_TYPE*){irq_enabled=false;}
+void portEXIT_CRITICAL(portMUX_TYPE*){irq_enabled=true;}
+int gpio_set_level(gpio_num_t,uint32_t level){if(level==1) ++clocks;return 0;}
+int gpio_get_level(gpio_num_t){
+ if(clocks==0) return ready ? 0 : 1;
  if(clocks<=24) return (bits>>(24-clocks))&1;
- return released ? HIGH : LOW;
+ return released ? 1 : 0;
 }
 class HX711Driver {
 public:

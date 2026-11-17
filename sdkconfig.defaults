@@ -1,0 +1,180 @@
+#
+# Smart Grind by Weight - ESP-IDF project configuration
+#
+# Waveshare ESP32-S3-Touch-AMOLED-1.64 (V1 and V2). These defaults reproduce the
+# hardware setup the firmware previously inherited from the Arduino core so the
+# real-time grind control, load-cell sampling and LVGL timings are unchanged.
+#
+
+#
+# Target and CPU
+#
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+#
+# Flash: 16 MB, QIO at 80 MHz
+#
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+#
+# Partition table with three app slots plus the LittleFS and delta-patch areas
+#
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+#
+# An updated image must confirm itself on its first boot or the bootloader
+# returns to the previous one, as under the Arduino core. Grinders updated from
+# that firmware keep its bootloader, which enforces this regardless.
+#
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+#
+# Octal PSRAM at 80 MHz (the qio_opi memory type of the Waveshare module).
+# LVGL's draw buffer pool and the grind-session buffers live here.
+#
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+
+#
+# Console on the native USB-Serial-JTAG port, matching the previous
+# ARDUINO_USB_MODE=1 / ARDUINO_USB_CDC_ON_BOOT=1 behaviour.
+#
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+#
+# FreeRTOS. A 1 kHz tick is required: the control loops run on 20 ms, 25 ms and
+# 50 ms periods and would be quantised to 10 ms steps at the IDF default.
+#
+CONFIG_FREERTOS_HZ=1000
+# FreeRTOS runs from flash, the ESP-IDF default. On the V2 board, placing it in
+# IRAM left 13-18 KB less internal heap free and bought back only 1 ms of the UI
+# task's 15 ms cycle, at the same 62 fps.
+CONFIG_FREERTOS_IN_IRAM=n
+# A debug watchpoint on the last 32 bytes of each task's stack panics at the
+# write that overflows it, as under the Arduino core, instead of the canary
+# check noticing at the next context switch. Costs up to 60 bytes of each stack.
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
+
+#
+# The main task hosts the network/OTA service loop and must stay off core 0,
+# which the Wi-Fi and BLE stacks share.
+#
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+#
+# Task watchdog. The weight-sampling and grind-control tasks subscribe
+# explicitly; the idle tasks are excluded because OTA and LVGL rendering
+# legitimately monopolise a core for longer than one watchdog period. A missed
+# deadline resets the chip, as under the Arduino core, so a hung grind-control
+# task cannot leave the motor running.
+#
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+#
+# Two universally administered MAC addresses, as the Arduino core used: Wi-Fi
+# station = base MAC, Bluetooth = base + 1. With four, Bluetooth moves to
+# base + 2 and an upgraded grinder appears to clients as a new device.
+#
+CONFIG_ESP32S3_UNIVERSAL_MAC_ADDRESSES_TWO=y
+
+#
+# Wi-Fi library code runs from flash, as it did under the Arduino core. Moving
+# its hot paths into IRAM gains a little throughput but costs about 17 KB of
+# internal heap, of which browser updates need 64 KB free.
+#
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+
+#
+# Bluetooth Low Energy via NimBLE, peripheral role only
+#
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517
+CONFIG_BT_NIMBLE_GATT_MAX_PROCS=8
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=5120
+CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=y
+
+#
+# HTTP server. The handler count, socket budget and task stack are set from
+# src/config/system.h when the server starts; only the request limits and
+# optional features are Kconfig-level.
+#
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=512
+CONFIG_HTTPD_WS_SUPPORT=y
+# ESP-IDF passes only frames to a WebSocket route's handler; this callback is
+# the one call made when a client connects, where /ws checks the Origin and
+# registers the client.
+CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT=y
+CONFIG_HTTPD_ERR_RESP_NO_DELAY=y
+
+#
+# Sockets: HTTP server backlog, the live WebSocket, the captive-portal DNS
+# responder, the GaggiMate client and the OTA download all need one each.
+#
+CONFIG_LWIP_MAX_SOCKETS=16
+CONFIG_LWIP_SO_RCVBUF=y
+# Two NTP servers are configured for clock sync after connecting.
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
+
+#
+# TLS for the GitHub release mirror used by on-device firmware updates
+#
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+
+#
+# LVGL reads include/lv_conf.h. Its Kconfig defaults to ignoring that file and
+# configuring itself from menuconfig instead, which silently drops the fonts and
+# colour settings the UI depends on.
+#
+CONFIG_LV_CONF_SKIP=n
+
+#
+# Filesystem
+#
+CONFIG_LITTLEFS_MAX_PARTITIONS=1
+CONFIG_LITTLEFS_SPIFFS_COMPAT=n
+CONFIG_LITTLEFS_USE_MTIME=y
+
+#
+# Optimise for speed; the predictive grind controller is latency sensitive.
+#
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+#
+# A stack canary in each function with a local array, as under the Arduino core,
+# aborts on a stack smash instead of returning through it; it costs no
+# measurable render time. The Arduino core's light heap poisoning is left off:
+# it costs 13 KB of internal heap.
+#
+CONFIG_COMPILER_STACK_CHECK_MODE_NORM=y
+
+#
+# Logging: the firmware routes its own diagnostics through the BLE/HTTP log
+# buffer, so keep the IDF logger at warning level to stay off the hot paths.
+#
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_LOG_MAXIMUM_LEVEL_INFO=y

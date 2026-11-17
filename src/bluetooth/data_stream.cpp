@@ -1,10 +1,12 @@
 #include "data_stream.h"
+#include <esp_heap_caps.h>
+#include <cstdint>
+#include <cstdio>
 #include "../logging/grind_logging.h"
 #include "../logging/session_file.h"
 #include <algorithm>
 #include "../config/constants.h"
-#include <Arduino.h>
-#include <LittleFS.h>
+#include "../storage/filesystem.h"
 
 extern GrindLogger grind_logger;
 
@@ -52,10 +54,10 @@ uint32_t DataStreamManager::get_session_list(uint32_t* session_ids, uint32_t max
     uint32_t list_count = 0;
     
     // Try individual session files first (new approach)
-    if (LittleFS.exists(GRIND_SESSIONS_DIR)) {
-        File dir = LittleFS.open(GRIND_SESSIONS_DIR);
+    if (filesystem.exists(GRIND_SESSIONS_DIR)) {
+        FsFile dir = filesystem.open(GRIND_SESSIONS_DIR);
         if (dir && dir.isDirectory()) {
-            File file = dir.openNextFile();
+            FsFile file = dir.openNextFile();
             while (file && list_count < total_sessions) {
                 uint32_t session_id = 0;
                 if (!file.isDirectory() && parse_session_filename(file.name(), session_id) &&
@@ -98,7 +100,7 @@ bool DataStreamManager::initialize_file_stream(uint32_t session_id) {
         return false;
     }
 
-    active_file = LittleFS.open(filename, "r");
+    active_file = filesystem.open(filename, "r");
     if (!active_file) {
         LOG_BLE("ERROR: Failed to open session file %s\n", filename);
         return false;

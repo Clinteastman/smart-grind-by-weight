@@ -1,12 +1,7 @@
 #pragma once
 #include <lvgl.h>
-#ifdef SMART_GRIND_SIM
 #include <string>
-using ReadyScreenText = std::string;
-#else
-#include <Arduino.h>
-using ReadyScreenText = String;
-#endif
+
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode.h"
 
@@ -25,9 +20,9 @@ private:
     lv_obj_t* wifi_detail_label;
     lv_obj_t* wifi_qr;
     lv_obj_t* menu_tab;
-    ReadyScreenText wifi_status_text;
-    ReadyScreenText wifi_detail_text;
-    ReadyScreenText wifi_qr_payload;
+    std::string wifi_status_text;
+    std::string wifi_detail_text;
+    std::string wifi_qr_payload;
     bool visible;
 
 public:

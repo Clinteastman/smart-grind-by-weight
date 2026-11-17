@@ -1,5 +1,7 @@
 #pragma once
 #include <lvgl.h>
+#include <string>
+#include <cstdint>
 #include "../../config/constants.h"
 #include "../../bluetooth/manager.h"
 #include "../../controllers/grind_controller.h"
@@ -54,10 +56,10 @@ private:
     lv_obj_t* network_qr;
     lv_obj_t* network_update_label;
     lv_obj_t* network_update_button;
-    String network_status_text;
-    String network_detail_text;
-    String network_qr_payload;
-    String network_update_text;
+    std::string network_status_text;
+    std::string network_detail_text;
+    std::string network_qr_payload;
+    std::string network_update_text;
     bool network_update_button_visible;
     lv_obj_t* logging_toggle;
     lv_obj_t* brightness_normal_slider;

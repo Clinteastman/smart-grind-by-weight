@@ -49,12 +49,12 @@ struct Preferences {
     String ns = "grinder";
     bool begin(const char* name, bool) { ns = name; return ++opens != fail_open; }
     void end() {}
-    size_t putInt(const char*, int) { return ++writes == fail_write ? 0 : sizeof(int32_t); }
-    size_t putFloat(const char*, float) { return ++writes == fail_write ? 0 : sizeof(float); }
-    size_t putBool(const char*, bool) { return ++writes == fail_write ? 0 : sizeof(bool); }
-    size_t putString(const char* key, const char* value) {
-        if (++writes == fail_write) return 0;
-        strings[ns + "/" + key] = value; return strlen(value);
+    bool putInt(const char*, int) { return ++writes != fail_write; }
+    bool putFloat(const char*, float) { return ++writes != fail_write; }
+    bool putBool(const char*, bool) { return ++writes != fail_write; }
+    bool putString(const char* key, const char* value) {
+        if (++writes == fail_write) return false;
+        strings[ns + "/" + key] = value; return true;
     }
     String getString(const char* key, const char* fallback) {
         if (fail_read) return fallback;

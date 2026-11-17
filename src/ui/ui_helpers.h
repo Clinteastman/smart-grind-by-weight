@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 #include "../config/constants.h"
 
 // Function declarations

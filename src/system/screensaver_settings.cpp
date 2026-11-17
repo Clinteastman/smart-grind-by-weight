@@ -1,6 +1,7 @@
 #include "screensaver_settings.h"
+#include <cstdint>
 
-#include <Preferences.h>
+#include "../storage/preferences.h"
 #include <algorithm>
 
 namespace {
@@ -110,16 +111,14 @@ bool save_timing(uint16_t idle_timeout_s, uint8_t startup_timeout_s,
         return false;
     }
 
-    size_t idle_written = prefs.putUShort(kIdleTimeoutKey, idle_timeout_s);
-    size_t startup_written = prefs.putUChar(kStartupTimeoutKey, startup_timeout_s);
-    size_t display_off_written = prefs.putBool(kDisplayOffEnabledKey, display_off_enabled);
-    size_t display_off_delay_written = prefs.putUShort(kDisplayOffDelayKey, display_off_delay_s);
+    const bool idle_written = prefs.putUShort(kIdleTimeoutKey, idle_timeout_s);
+    const bool startup_written = prefs.putUChar(kStartupTimeoutKey, startup_timeout_s);
+    const bool display_off_written = prefs.putBool(kDisplayOffEnabledKey, display_off_enabled);
+    const bool display_off_delay_written =
+        prefs.putUShort(kDisplayOffDelayKey, display_off_delay_s);
     prefs.end();
 
-    return idle_written == sizeof(uint16_t) &&
-           startup_written == sizeof(uint8_t) &&
-           display_off_written == sizeof(bool) &&
-           display_off_delay_written == sizeof(uint16_t);
+    return idle_written && startup_written && display_off_written && display_off_delay_written;
 }
 
 uint32_t idle_timeout_ms(const ScreensaverTimingSettings& settings) {

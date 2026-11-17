@@ -4,7 +4,7 @@
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"
 #include "grind_controller.h"
-#include <LittleFS.h>
+#include "../storage/filesystem.h"
 #include "../system/operation_interlock.h"
 
 // Auto-tune phases for UI display
@@ -96,7 +96,7 @@ private:
     AutoTuneProgress progress;
 
     // File logging
-    File autotune_log_file;
+    FsFile autotune_log_file;
 
 public:
     AutoTuneController();

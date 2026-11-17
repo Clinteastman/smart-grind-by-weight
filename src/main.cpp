@@ -1,33 +1,42 @@
-#include <Arduino.h>
-#include <LittleFS.h>
-#include <Preferences.h>
+#include <driver/usb_serial_jtag.h>
+#include <driver/usb_serial_jtag_vfs.h>
+#include <esp_event.h>
+#include <cstdint>
+#include <esp_netif.h>
+#include <esp_ota_ops.h>
 #include <esp_system.h>
-#include "hardware/hardware_manager.h"
-#include "system/state_machine.h"
-#include "system/statistics_manager.h"
-#include "controllers/profile_controller.h"
-#include "controllers/grind_controller.h"
-#include "ui/ui_manager.h"
-#include "config/constants.h"
-#include "system/screensaver_settings.h"
-#include "config/build_info.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <nvs_flash.h>
+
 #include "bluetooth/manager.h"
-#include "tasks/task_manager.h"
-#include "tasks/weight_sampling_task.h"
-#include "tasks/grind_control_task.h"
-#include "tasks/file_io_task.h"
-#include "network/network_manager.h"
-#include "network/provisioning_service.h"
+#include "config/build_info.h"
+#include "config/constants.h"
+#include "controllers/grind_controller.h"
+#include "controllers/profile_controller.h"
+#include "hardware/hardware_manager.h"
 #include "network/device_web_server.h"
 #include "network/gaggimate_status_client.h"
+#include "network/network_manager.h"
+#include "network/provisioning_service.h"
+#include "storage/filesystem.h"
+#include "storage/preferences.h"
+#include "system/device_info.h"
+#include "system/screensaver_settings.h"
+#include "system/state_machine.h"
+#include "system/statistics_manager.h"
+#include "system/timing.h"
+#include "tasks/grind_control_task.h"
+#include "tasks/task_manager.h"
+#include "tasks/weight_sampling_task.h"
+#include "ui/ui_manager.h"
 
 HardwareManager hardware_manager;
 StateMachine state_machine;
 ProfileController profile_controller;
 GrindController grind_controller;
 UIManager ui_manager;
-BluetoothManager g_bluetooth_manager;
-BluetoothManager& bluetooth_manager = g_bluetooth_manager;
+BluetoothManager bluetooth_manager;
 
 #if SYS_ENABLE_REALTIME_HEARTBEAT
 // Core 1 timing metrics (global scope for main loop access)
@@ -57,7 +66,7 @@ float load_startup_display_brightness() {
 void draw_early_startup_splash_if_ready() {
     if (!state_machine.is_state(UIState::READY) ||
         !ScreensaverSettings::is_startup_enabled() ||
-        !LittleFS.exists(BLE_IMAGE_FILENAME)) {
+        !filesystem.exists(BLE_IMAGE_FILENAME)) {
         return;
     }
 
@@ -75,38 +84,115 @@ void draw_early_startup_splash_if_ready() {
     }
 }
 
-}  // namespace
+/**
+ * Route the console through the USB-Serial-JTAG driver.
+ *
+ * Everything in this firmware logs with printf, and Improv provisioning needs
+ * non-blocking reads from that same port, which the register-level default
+ * console cannot do. Installing the driver and pointing stdio at it keeps log
+ * output and Improv frames in one ordered stream.
+ */
+void init_console() {
+    usb_serial_jtag_driver_config_t config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    config.rx_buffer_size = 512;
+    config.tx_buffer_size = 1024;
+    const esp_err_t err = usb_serial_jtag_driver_install(&config);
+    if (err != ESP_OK) {
+        // Logging still works through the register-level console; only Improv
+        // serial provisioning is lost, and it checks for the driver itself.
+        LOG_BLE("[STARTUP] Console driver unavailable (%s); Improv serial disabled\n",
+                esp_err_to_name(err));
+        return;
+    }
+    usb_serial_jtag_vfs_use_driver();
+}
+
+/**
+ * Confirm the running image so the bootloader keeps it. After an update the
+ * bootloader rolls back to the previous image at the next reset unless the new
+ * one confirms itself, and grinders updated from the Arduino firmware keep its
+ * rollback-enabled bootloader. Called once start-up has completed, so an image
+ * that crashes or hangs before then is rolled back.
+ */
+void confirm_running_image() {
+    esp_ota_img_states_t state;
+    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) != ESP_OK ||
+        state != ESP_OTA_IMG_PENDING_VERIFY) {
+        return;
+    }
+    const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    LOG_BLE("[STARTUP] Confirmed updated firmware: %s\n", esp_err_to_name(err));
+}
+
+/**
+ * Bring up the settings partition and the shared event loop that the
+ * Wi-Fi, BLE and HTTP services all attach to.
+ */
+void init_platform_services() {
+    init_console();
+
+    esp_err_t nvs_status = nvs_flash_init();
+    if (nvs_status == ESP_ERR_NVS_NO_FREE_PAGES ||
+        nvs_status == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        // A firmware update can leave the settings partition without free
+        // pages. Reformatting loses stored settings but keeps the device
+        // bootable, and every setting has a safe default.
+        LOG_BLE("[STARTUP] NVS partition needs erasing (%s)\n", esp_err_to_name(nvs_status));
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_status = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(nvs_status);
+
+    ESP_ERROR_CHECK(esp_netif_init());
+    // Both the Wi-Fi netifs and the HTTP server attach to the default loop.
+    // ESP_ERR_INVALID_STATE only means someone got here first, which is fine.
+    const esp_err_t loop_status = esp_event_loop_create_default();
+    if (loop_status != ESP_OK && loop_status != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(loop_status);
+    }
+}
+
+/**
+ * Name of a reset reason for the startup log. The switch has no default, so
+ * -Wswitch fails the build when ESP-IDF adds a reason this list lacks.
+ */
+const char* reset_reason_name(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_UNKNOWN: return "UNKNOWN";
+        case ESP_RST_POWERON: return "POWERON";
+        case ESP_RST_EXT: return "EXT (Reset Pin)";
+        case ESP_RST_SW: return "SW (esp_restart)";
+        case ESP_RST_PANIC: return "PANIC (Exception)";
+        case ESP_RST_INT_WDT: return "INT_WDT";
+        case ESP_RST_TASK_WDT: return "TASK_WDT";
+        case ESP_RST_WDT: return "WDT";
+        case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+        case ESP_RST_BROWNOUT: return "BROWNOUT";
+        case ESP_RST_SDIO: return "SDIO";
+        case ESP_RST_USB: return "USB (Serial/JTAG port)";
+        case ESP_RST_JTAG: return "JTAG";
+        case ESP_RST_EFUSE: return "EFUSE";
+        case ESP_RST_PWR_GLITCH: return "POWER_GLITCH";
+        case ESP_RST_CPU_LOCKUP: return "CPU_LOCKUP";
+    }
+    return "UNKNOWN";
+}
 
 void setup() {
-    Serial.begin(HW_SERIAL_BAUD_RATE);
 #ifdef UI_DEBUG_SERIAL_DELAY_MS
-    delay(UI_DEBUG_SERIAL_DELAY_MS);
+    vTaskDelay(pdMS_TO_TICKS(UI_DEBUG_SERIAL_DELAY_MS));
 #endif
     
     // Log reset reason to help diagnose unexpected resets/freeze scenarios
-    esp_reset_reason_t rr = esp_reset_reason();
-    const char* rr_str = "UNKNOWN";
-    switch (rr) {
-        case ESP_RST_POWERON: rr_str = "POWERON"; break;
-        case ESP_RST_EXT: rr_str = "EXT (Reset Pin)"; break;
-        case ESP_RST_SW: rr_str = "SW (esp_restart)"; break;
-        case ESP_RST_PANIC: rr_str = "PANIC (Exception)"; break;
-        case ESP_RST_INT_WDT: rr_str = "INT_WDT"; break;
-        case ESP_RST_TASK_WDT: rr_str = "TASK_WDT"; break;
-        case ESP_RST_WDT: rr_str = "WDT"; break;
-        case ESP_RST_DEEPSLEEP: rr_str = "DEEPSLEEP"; break;
-        case ESP_RST_BROWNOUT: rr_str = "BROWNOUT"; break;
-        case ESP_RST_SDIO: rr_str = "SDIO"; break;
-        default: break;
-    }
-    LOG_BLE("[STARTUP] Reset reason: %s (%d)\n", rr_str, rr);
+    const esp_reset_reason_t reset_reason = esp_reset_reason();
+    LOG_BLE("[STARTUP] Reset reason: %s (%d)\n", reset_reason_name(reset_reason), reset_reason);
     
     
     // Early startup heartbeat - helps capture initialization sequence
     LOG_BLE("[STARTUP] Initializing ESP32-S3 Coffee Scale - Build %d - Core1 active\n", BUILD_NUMBER);
     
     // Initialize LittleFS once - format if necessary
-    if (!LittleFS.begin(true)) {
+    if (!filesystem.begin(true)) {
         LOG_BLE("ERROR: LittleFS mount failed - continuing without filesystem\n");
     } else {
         LOG_BLE("✅ LittleFS mounted successfully\n");
@@ -125,13 +211,13 @@ void setup() {
     network_manager.init(hardware_manager.get_preferences());
     gaggimate_status_client.init();
     device_web_server.init(&hardware_manager, &grind_controller, &bluetooth_manager, &profile_controller);
-    provisioning_service.init(hardware_manager.get_preferences(), &device_web_server.server());
+    provisioning_service.init(hardware_manager.get_preferences());
     
     bluetooth_manager.init(hardware_manager.get_preferences());
     
     // Check for OTA failure to determine initial state
-    String failed_ota_build = bluetooth_manager.check_ota_failure_after_boot();
-    bool ota_failed = !failed_ota_build.isEmpty();
+    const std::string failed_ota_build = bluetooth_manager.check_ota_failure_after_boot();
+    const bool ota_failed = !failed_ota_build.empty();
 
     // Check calibration status to determine initial screen
     bool is_calibrated = hardware_manager.get_weight_sensor()->is_calibrated();
@@ -158,13 +244,6 @@ void setup() {
         }
     }
     
-    // Set up UI status callback to avoid circular dependency
-    bluetooth_manager.set_ui_status_callback([](const char* status) {
-        if (auto* ota = ui_manager.get_ota_data_export_controller()) {
-            ota->update_status(status);
-        }
-    });
-    
     // Enable BLE by default during bootup with 2-minute timeout
     // (Previously disabled by default for security, now enabled for user convenience)
     bluetooth_manager.enable_during_bootup();
@@ -172,9 +251,9 @@ void setup() {
     // Initialize individual task modules BEFORE TaskManager creates FreeRTOS tasks
     // This ensures all task dependencies are ready before tasks start running
     LOG_BLE("[STARTUP] Initializing task module dependencies...\n");
-    weight_sampling_task.init(hardware_manager.get_load_cell(), &grind_logger);
-    grind_control_task.init(&grind_controller, hardware_manager.get_load_cell(), 
-                           hardware_manager.get_grinder(), &grind_logger);
+    weight_sampling_task.init(hardware_manager.get_load_cell());
+    grind_control_task.init(&grind_controller, hardware_manager.get_load_cell(),
+                           hardware_manager.get_grinder());
     
     LOG_BLE("✅ Task module dependencies initialized\n");
     
@@ -186,16 +265,12 @@ void setup() {
     if (!task_init_success) {
         LOG_BLE("ERROR: Failed to initialize TaskManager - system cannot start\n");
         while (true) {
-            delay(1000); // Halt system if task initialization fails
+            vTaskDelay(pdMS_TO_TICKS(1000)); // Halt system if task initialization fails
         }
     }
     
     LOG_BLE("✅ TaskManager initialized successfully\n");
-    
-    // Initialize remaining task modules that depend on TaskManager queues
-    file_io_task.init(task_manager.get_file_io_queue());
-    
-    LOG_BLE("✅ All task modules initialized\n");
+    confirm_running_image();
 }
 
 void loop() {
@@ -214,9 +289,9 @@ void loop() {
     uint32_t current_time = millis();
     network_manager.update();
     provisioning_service.update();
-    // AsyncTCP requires lwIP's TCP/IP task and mutexes to exist. They are only
-    // created after Wi-Fi enters station or access-point mode, so defer the
-    // HTTP listener until NetworkManager/ProvisioningService has done that.
+    // The HTTP listener needs lwIP, which only exists once the Wi-Fi driver is
+    // running in station or access-point mode, so defer it until
+    // NetworkManager/ProvisioningService has brought the radio up.
     device_web_server.begin();
     device_web_server.update();
     if (last_uptime_update == 0) {
@@ -271,7 +346,7 @@ void loop() {
                                (bluetooth_manager.is_connected() ? "CONN" : "ADV") : "OFF";
         const char* grinder_state = is_grinding ? "ACTIVE" : "IDLE";
         const char* tasks_status = task_manager.are_tasks_healthy() ? "HEALTHY" : "ERROR";
-        size_t free_heap_kb = ESP.getFreeHeap() / 1024;
+        size_t free_heap_kb = device_info::free_heap_bytes() / 1024;
         
         LOG_BLE("[%lums MAIN_LOOP_HEARTBEAT] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | Tasks: %s | BLE: %s | Grinder: %s | Mem: %zuKB | Build: #%d\n",
                millis(), core1_cycle_count_10s, avg_cycle_time, core1_cycle_time_min_ms, core1_cycle_time_max_ms,
@@ -289,4 +364,16 @@ void loop() {
     // The main loop now runs much lighter since FreeRTOS tasks handle all the heavy work
     // Just yield to allow FreeRTOS scheduler to run other tasks efficiently
     vTaskDelay(pdMS_TO_TICKS(10)); // Small delay to prevent starving other tasks
+}
+
+}  // namespace
+
+extern "C" void app_main() {
+    init_platform_services();
+    setup();
+    // The service loop keeps running in the main task, which sdkconfig pins to
+    // core 1 so the Wi-Fi and BLE stacks keep core 0 to themselves.
+    while (true) {
+        loop();
+    }
 }

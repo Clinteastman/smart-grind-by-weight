@@ -1,6 +1,8 @@
 #include "ui_manager.h"
-#include <Arduino.h>
-#include <Preferences.h>
+#include <cstdint>
+#include <cstdio>
+#include "../system/timing.h"
+#include "../storage/preferences.h"
 #include <algorithm>
 #include <cmath>
 #include "../config/constants.h"
@@ -139,7 +141,7 @@ void UIManager::update() {
 
 #ifndef SMART_GRIND_SIM
     // Execute network commands on the UI/application task, never in the
-    // asynchronous TCP callback that parsed them.
+    // HTTP server task that parsed them.
     if (device_api.process_commands()) {
         current_tab = ReadyScreen::tab_for_profile_index(profile_controller->get_current_profile());
         current_mode = profile_controller->get_grind_mode();

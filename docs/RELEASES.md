@@ -29,7 +29,9 @@ The release tool will:
 Once you push a tag (like `v1.0.0`):
 
 1. **GitHub Actions builds the firmware**
-   - Compiles for the ESP32-S3 target with the committed version
+   - Compiles the V1 and V2 firmware for the ESP32-S3 target with the committed
+     version, using ESP-IDF v6.1 (`espressif/esp-idf-ci-action`) to run
+     `python3 tools/grinder.py build --hardware v1` and `--hardware v2`
    - Creates release artifacts (.bin files and packages)
    - Generates OTA patches with heatshrink compression
 

@@ -1,7 +1,6 @@
 #include "profile_controller.h"
-#include <Arduino.h>
 #include <string.h>
-#include <Preferences.h>
+#include "../storage/preferences.h"
 
 ProfileController::Snapshot ProfileController::snapshot() const {
     const auto lock = lock_profiles();
@@ -136,13 +135,13 @@ bool ProfileController::apply_web_settings(int current_profile_index, GrindMode 
     // NVS writes are separate commits: a failure can leave a partial update.
     // Check every write and reload that stored state on failure rather than
     // claiming success or keeping RAM values that disappear after a reboot.
-    bool saved = preferences->putInt("profile", current_profile_index) == sizeof(int32_t);
-    saved = (preferences->putInt("grind_mode", static_cast<int>(mode)) == sizeof(int32_t)) && saved;
+    bool saved = preferences->putInt("profile", current_profile_index);
+    saved = preferences->putInt("grind_mode", static_cast<int>(mode)) && saved;
     static const char* weight_keys[] = {"weight0", "weight1", "weight2"};
     static const char* time_keys[] = {"time0", "time1", "time2"};
     for (int i = 0; i < USER_PROFILE_COUNT; ++i) {
-        saved = (preferences->putFloat(weight_keys[i], weights[i]) == sizeof(float)) && saved;
-        saved = (preferences->putFloat(time_keys[i], times[i]) == sizeof(float)) && saved;
+        saved = preferences->putFloat(weight_keys[i], weights[i]) && saved;
+        saved = preferences->putFloat(time_keys[i], times[i]) && saved;
     }
     if (!saved) {
         load_profiles();

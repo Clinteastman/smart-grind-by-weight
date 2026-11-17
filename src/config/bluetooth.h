@@ -18,7 +18,6 @@
 
 // Device Settings
 #define BLE_DEVICE_NAME "GrindByWeight"                                       // Bluetooth device name (GATT + advertising)
-#define BLE_OTA_DEVICE_NAME BLE_DEVICE_NAME                                    // Bluetooth device name when in OTA mode
 
 //------------------------------------------------------------------------------
 // BLE DATA EXPORT SERVICE
@@ -68,26 +67,20 @@
 #define BLE_AUTO_DISABLE_TIMEOUT_MS (30 * 60 * 1000)                          // Auto-disable BLE after inactivity
 #define BLE_BOOTUP_AUTO_DISABLE_TIMEOUT_MS (5 * 60 * 1000)                    // Auto-disable BLE after bootup period
 
+//------------------------------------------------------------------------------
+// BLE LINK TUNING
+//------------------------------------------------------------------------------
+// Requested when a client connects; the client may decline either request.
+// Longer link-layer packets carry a 512-byte chunk in fewer air packets.
+#define BLE_LINK_DATA_LENGTH_OCTETS 251                                        // LE Data Length Extension maximum
+// A faster connection interval is only asked of a client that chose a slower
+// one, so a quicker link is never slowed down. The values follow Apple's
+// accessory guidelines, which iOS and macOS enforce.
+#define BLE_LINK_CONN_INTERVAL_MIN_UNITS 12                                    // 15 ms, in 1.25 ms units
+#define BLE_LINK_CONN_INTERVAL_MAX_UNITS 24                                    // 30 ms
+#define BLE_LINK_SUPERVISION_TIMEOUT_UNITS 400                                 // 4 s, in 10 ms units
 
-//------------------------------------------------------------------------------
-// BLE INITIALIZATION TIMING
-//------------------------------------------------------------------------------
-// Delays for stable BLE stack initialization
-#define BLE_INIT_STACK_DELAY_MS 100                                            // Delay after BLE stack initialization
-#define BLE_INIT_SERVER_DELAY_MS 50                                            // Delay after server creation
-#define BLE_INIT_SERVICE_DELAY_MS 25                                           // Delay after service creation
-#define BLE_INIT_CHARACTERISTIC_DELAY_MS 25                                    // Delay after each characteristic setup
-#define BLE_INIT_START_DELAY_MS 50                                             // Delay after service start
-#define BLE_INIT_ADVERTISING_DELAY_MS 25                                       // Delay after advertising setup
-
-//------------------------------------------------------------------------------
-// BLE SHUTDOWN TIMING
-//------------------------------------------------------------------------------
-#define BLE_SHUTDOWN_ADVERTISING_DELAY_MS 50                                   // Delay to allow advertising to stop cleanly
-#define BLE_SHUTDOWN_DEINIT_DELAY_MS 100                                       // Delay to allow BLE stack to deinitialize
-
-//------------------------------------------------------------------------------
-// BLE POWER MANAGEMENT
-//------------------------------------------------------------------------------
-#define BLE_NORMAL_CPU_FREQ_MHZ 240                                            // Normal CPU frequency during BLE operations
-#define BLE_REDUCED_CPU_FREQ_MHZ 240                                           // Reduced CPU frequency for BLE mode
+// Consecutive failed data-export notifications (no free buffer) before the
+// export gives up. Each retry waits one export pacing interval.
+#define BLE_DATA_NOTIFY_MAX_RETRIES 200
+#define BLE_DATA_CHUNK_INTERVAL_MS 25                                          // Pacing between data-export notifications

@@ -1,5 +1,7 @@
 #include "ready_screen.h"
-#include <Arduino.h>
+#include <string>
+#include <cstdint>
+#include <cstdio>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
 #include "../event_bridge_lvgl.h"
@@ -10,14 +12,6 @@
 #include "../ui_helpers.h"
 
 namespace {
-
-bool ready_text_empty(const ReadyScreenText& value) {
-#ifdef SMART_GRIND_SIM
-    return value.empty();
-#else
-    return value.isEmpty();
-#endif
-}
 
 // Long enough to show several frames on hardware while remaining much more
 // responsive than LVGL's 200-400 ms default scroll timing.
@@ -31,8 +25,8 @@ void shorten_tab_scroll_animation(lv_event_t* event) {
 }
 
 #ifndef SMART_GRIND_SIM
-String escape_wifi_qr_value(const String& value) {
-    String escaped;
+std::string escape_wifi_qr_value(const std::string& value) {
+    std::string escaped;
     escaped.reserve(value.length() + 8);
     for (size_t i = 0; i < value.length(); ++i) {
         const char ch = value[i];
@@ -193,9 +187,9 @@ void ReadyScreen::create_wifi_page(lv_obj_t* parent) {
 void ReadyScreen::update_network_status() {
     if (!wifi_status_label || !wifi_detail_label || !wifi_qr) return;
 
-    ReadyScreenText status;
-    ReadyScreenText detail;
-    ReadyScreenText qr_payload;
+    std::string status;
+    std::string detail;
+    std::string qr_payload;
 #ifdef SMART_GRIND_SIM
     status = "WI-FI SIMULATED";
     detail = "smartgrind.local\n192.168.50.160";
@@ -225,22 +219,22 @@ void ReadyScreen::update_network_status() {
             break;
         case NetworkState::WIFI_SETUP_AP: {
             status = "CONNECT WI-FI";
-            const String& ssid = provisioning_service.access_point_ssid();
-            const String& password = provisioning_service.access_point_password();
+            const std::string& ssid = provisioning_service.access_point_ssid();
+            const std::string& password = provisioning_service.access_point_password();
             detail = "Scan with your phone, then use the sign-in page.\n" + ssid;
             qr_payload = "WIFI:T:";
-            qr_payload += password.isEmpty() ? "nopass" : "WPA";
+            qr_payload += password.empty() ? "nopass" : "WPA";
             qr_payload += ";S:" + escape_wifi_qr_value(ssid);
-            if (!password.isEmpty()) qr_payload += ";P:" + escape_wifi_qr_value(password);
+            if (!password.empty()) qr_payload += ";P:" + escape_wifi_qr_value(password);
             qr_payload += ";;";
             break;
         }
     }
 #endif
 
-    const ReadyScreenText& rendered_status = status;
-    const ReadyScreenText& rendered_detail = detail;
-    const ReadyScreenText& rendered_qr = qr_payload;
+    const std::string& rendered_status = status;
+    const std::string& rendered_detail = detail;
+    const std::string& rendered_qr = qr_payload;
     if (rendered_status != wifi_status_text) {
         lv_label_set_text(wifi_status_label, rendered_status.c_str());
         wifi_status_text = rendered_status;
@@ -249,7 +243,7 @@ void ReadyScreen::update_network_status() {
         lv_label_set_text(wifi_detail_label, rendered_detail.c_str());
         wifi_detail_text = rendered_detail;
     }
-    if (ready_text_empty(rendered_qr)) {
+    if (rendered_qr.empty()) {
         lv_obj_add_flag(wifi_qr, LV_OBJ_FLAG_HIDDEN);
     } else {
         if (rendered_qr != wifi_qr_payload) {

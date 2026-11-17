@@ -1,4 +1,7 @@
 #include "screensaver_controller.h"
+#include <string>
+#include <cstdint>
+#include <cstdio>
 #include "../../config/constants.h"
 #include "../../config/logging.h"
 #include "../../system/screensaver_settings.h"
@@ -6,8 +9,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <LittleFS.h>
-#include <Preferences.h>
+#include "../../storage/filesystem.h"
+#include "../../storage/preferences.h"
 #include <esp_heap_caps.h>
 
 ScreensaverController::ScreensaverController()
@@ -33,7 +36,7 @@ bool ScreensaverController::has_image() const {
 }
 
 bool ScreensaverController::has_custom_image() const {
-    File image = LittleFS.open(BLE_IMAGE_FILENAME, "r");
+    FsFile image = filesystem.open(BLE_IMAGE_FILENAME, "r");
     const bool valid = image && image.size() == BLE_IMAGE_EXPECTED_SIZE;
     if (image) {
         image.close();
@@ -41,11 +44,11 @@ bool ScreensaverController::has_custom_image() const {
     return valid;
 }
 
-String ScreensaverController::selected_style() const {
-    const String fallback = has_custom_image() ? "custom" : "minimal";
+std::string ScreensaverController::selected_style() const {
+    const std::string fallback = has_custom_image() ? "custom" : "minimal";
     Preferences preferences;
     if (!preferences.begin("screensaver", true)) return fallback;
-    const String style = preferences.getString("style", fallback);
+    const std::string style = preferences.getString("style", fallback);
     preferences.end();
     if (style == "custom" || style == "minimal" || style == "orbit" ||
         style == "blank" || style == "gaggimate") {
@@ -140,7 +143,7 @@ void ScreensaverController::hide() {
     visible_ = false;
 }
 
-bool ScreensaverController::create_builtin(const String& style) {
+bool ScreensaverController::create_builtin(const std::string& style) {
     if (style == "blank") return true;
 
     primary_label_ = lv_label_create(overlay_screen_);
@@ -266,7 +269,7 @@ bool ScreensaverController::load_image() {
         return false;
     }
 
-    File f = LittleFS.open(BLE_IMAGE_FILENAME, "r");
+    FsFile f = filesystem.open(BLE_IMAGE_FILENAME, "r");
     if (!f) {
         LOG_BLE("Screensaver: Failed to open image file\n");
         free_image();

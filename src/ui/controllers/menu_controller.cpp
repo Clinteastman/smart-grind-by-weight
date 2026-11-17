@@ -1,8 +1,11 @@
 #include "menu_controller.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include "../../system/device_info.h"
+#include "../../system/timing.h"
 
-#include <Arduino.h>
-#include <LittleFS.h>
-#include <Preferences.h>
+#include "../../storage/filesystem.h"
+#include "../../storage/preferences.h"
 #include <algorithm>
 #include <esp_err.h>
 #include <esp_system.h>
@@ -98,7 +101,7 @@ void MenuUIController::update() {
     // leaves the render loop free to scroll smoothly.
     if (now - last_status_update_ms_ >= 250) {
         last_status_update_ms_ = now;
-        ui_manager_->menu_screen.update_info(sensor, now, ESP.getFreeHeap());
+        ui_manager_->menu_screen.update_info(sensor, now, device_info::free_heap_bytes());
         ui_manager_->menu_screen.update_diagnostics(sensor);
         ui_manager_->menu_screen.update_ble_status();
         ui_manager_->menu_screen.update_network_status();
@@ -278,7 +281,7 @@ void MenuUIController::handle_ble_toggle() {
     auto* ble = ui_manager_->bluetooth_manager;
     if (ble->is_enabled()) {
         ble->disable();
-        LOG_DEBUG_PRINTLN("Bluetooth disabled by user");
+        LOG_DEBUG_PRINTF("Bluetooth disabled by user\n");
         ui_manager_->menu_screen.update_ble_status();
         return;
     }
@@ -289,7 +292,7 @@ void MenuUIController::handle_ble_toggle() {
 
     auto operation = [ble]() {
         ble->enable();
-        LOG_DEBUG_PRINTLN("Bluetooth enabled by user (30 minute timeout)");
+        LOG_DEBUG_PRINTF("Bluetooth enabled by user (30 minute timeout)\n");
     };
 
     auto& overlay = BlockingOperationOverlay::getInstance();
@@ -309,7 +312,7 @@ void MenuUIController::handle_ble_startup_toggle() {
     prefs.putBool("startup", startup_enabled);
     prefs.end();
 
-    LOG_DEBUG_PRINTLN(startup_enabled ? "Bluetooth startup enabled" : "Bluetooth startup disabled");
+    LOG_DEBUG_PRINTF("%s\n", startup_enabled ? "Bluetooth startup enabled" : "Bluetooth startup disabled");
 }
 
 void MenuUIController::handle_logging_toggle() {
@@ -325,7 +328,7 @@ void MenuUIController::handle_logging_toggle() {
     prefs.putBool("enabled", logging_enabled);
     prefs.end();
 
-    LOG_DEBUG_PRINTLN(logging_enabled ? "Logging enabled" : "Logging disabled");
+    LOG_DEBUG_PRINTF("%s\n", logging_enabled ? "Logging enabled" : "Logging disabled");
 }
 
 void MenuUIController::handle_grind_mode_swipe_toggle() {
@@ -341,7 +344,7 @@ void MenuUIController::handle_grind_mode_swipe_toggle() {
     prefs.putBool("enabled", swipe_enabled);
     prefs.end();
 
-    LOG_DEBUG_PRINTLN(swipe_enabled ? "Grind mode swipe gestures enabled" : "Grind mode swipe gestures disabled");
+    LOG_DEBUG_PRINTF("%s\n", swipe_enabled ? "Grind mode swipe gestures enabled" : "Grind mode swipe gestures disabled");
 }
 
 void MenuUIController::handle_grind_mode_radio_button() {
@@ -366,7 +369,7 @@ void MenuUIController::handle_grind_mode_radio_button() {
         }
     }
 
-    LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grind mode set to WEIGHT via radio button" : "Grind mode set to TIME via radio button");
+    LOG_DEBUG_PRINTF("%s\n", selected_index == 0 ? "Grind mode set to WEIGHT via radio button" : "Grind mode set to TIME via radio button");
 }
 
 void MenuUIController::handle_auto_start_toggle() {
@@ -386,7 +389,7 @@ void MenuUIController::handle_auto_start_toggle() {
         ui_manager_->refresh_auto_action_settings();
     }
 
-    LOG_DEBUG_PRINTLN(enabled ? "Auto-start on cup enabled" : "Auto-start on cup disabled");
+    LOG_DEBUG_PRINTF("%s\n", enabled ? "Auto-start on cup enabled" : "Auto-start on cup disabled");
 }
 
 void MenuUIController::handle_auto_start_threshold_slider() {
@@ -413,9 +416,7 @@ void MenuUIController::handle_auto_start_threshold_slider_released() {
     }
     ui_manager_->refresh_auto_action_settings();
     ui_manager_->menu_screen.update_auto_start_threshold_label(threshold_g);
-    LOG_DEBUG_PRINT("Auto-start cup threshold set to: ");
-    LOG_DEBUG_PRINT(threshold_g);
-    LOG_DEBUG_PRINTLN("g");
+    LOG_DEBUG_PRINTF("Auto-start cup threshold set to: %.1fg\n", threshold_g);
 }
 
 void MenuUIController::handle_auto_return_toggle() {
@@ -435,7 +436,7 @@ void MenuUIController::handle_auto_return_toggle() {
         ui_manager_->refresh_auto_action_settings();
     }
 
-    LOG_DEBUG_PRINTLN(enabled ? "Auto return on cup removal enabled" : "Auto return on cup removal disabled");
+    LOG_DEBUG_PRINTF("%s\n", enabled ? "Auto return on cup removal enabled" : "Auto return on cup removal disabled");
 }
 
 void MenuUIController::handle_grinder_purge_mode_radio_button() {
@@ -452,7 +453,7 @@ void MenuUIController::handle_grinder_purge_mode_radio_button() {
         prefs->putInt(GrindController::PREF_KEY_GRINDER_MODE, selected_index);
     }
 
-    LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grinder purge mode: Prime (keep coffee)" : "Grinder purge mode: Purge (discard grinds)");
+    LOG_DEBUG_PRINTF("%s\n", selected_index == 0 ? "Grinder purge mode: Prime (keep coffee)" : "Grinder purge mode: Purge (discard grinds)");
 }
 
 void MenuUIController::handle_grinder_purge_amount_slider() {
@@ -492,9 +493,7 @@ void MenuUIController::handle_grinder_purge_amount_slider_released() {
         prefs->putFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, amount_g);
     }
 
-    LOG_DEBUG_PRINT("Grinder purge amount set to: ");
-    LOG_DEBUG_PRINT(amount_g);
-    LOG_DEBUG_PRINTLN("g");
+    LOG_DEBUG_PRINTF("Grinder purge amount set to: %.1fg\n", amount_g);
 
     ui_manager_->menu_screen.update_grinder_purge_amount_label(amount_g);
 }
@@ -535,9 +534,7 @@ void MenuUIController::handle_grind_freshness_hours_slider_released() {
         prefs->putFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, hours);
     }
 
-    LOG_DEBUG_PRINT("Grind freshness hours set to: ");
-    LOG_DEBUG_PRINT(hours);
-    LOG_DEBUG_PRINTLN("h");
+    LOG_DEBUG_PRINTF("Grind freshness hours set to: %uh\n", (unsigned)hours);
 
     ui_manager_->menu_screen.update_grind_freshness_hours_label(hours);
 }
@@ -585,8 +582,7 @@ void MenuUIController::handle_coast_ratio_slider_released() {
         }
     }
 
-    LOG_DEBUG_PRINT("Coast ratio set to: ");
-    LOG_DEBUG_PRINTLN(ratio);
+    LOG_DEBUG_PRINTF("Coast ratio set to: %.2f\n", ratio);
 
     ui_manager_->menu_screen.update_coast_ratio_label(ratio);
 }
@@ -747,19 +743,19 @@ void MenuUIController::handle_display_off_toggle() {
 void MenuUIController::perform_factory_reset() {
     if (!ui_manager_) return;
 
-    LOG_DEBUG_PRINTLN("Factory reset: clearing NVS preferences and rebooting...");
+    LOG_DEBUG_PRINTF("Factory reset: clearing NVS preferences and rebooting...\n");
 
     nvs_flash_deinit();
     esp_err_t erase_result = nvs_flash_erase();
 
     if (erase_result == ESP_OK) {
-        LOG_DEBUG_PRINTLN("Factory reset: NVS erase successful. Restarting device...");
+        LOG_DEBUG_PRINTF("Factory reset: NVS erase successful. Restarting device...\n");
     } else {
         LOG_DEBUG_PRINTF("Factory reset: NVS erase failed (code %d). Forcing restart...\n",
                          static_cast<int>(erase_result));
     }
 
-    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
     esp_restart();
 }
 
@@ -772,13 +768,13 @@ void MenuUIController::execute_purge_operation() {
     };
 
     auto purge_task = []() {
-        LOG_DEBUG_PRINTLN("\n=== PURGE GRIND LOGS INITIATED ===");
+        LOG_DEBUG_PRINTF("\n=== PURGE GRIND LOGS INITIATED ===\n");
         extern GrindLogger grind_logger;
         bool success = grind_logger.clear_all_sessions_from_flash();
         if (success) {
-            LOG_DEBUG_PRINTLN("Grind logs purged successfully - reinitializing logger...");
+            LOG_DEBUG_PRINTF("Grind logs purged successfully - reinitializing logger...\n");
         } else {
-            LOG_DEBUG_PRINTLN("ERROR: Failed to purge all grind log data!");
+            LOG_DEBUG_PRINTF("ERROR: Failed to purge all grind log data!\n");
         }
     };
 

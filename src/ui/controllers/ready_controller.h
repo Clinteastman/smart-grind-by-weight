@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 #include "../event_bridge_lvgl.h"
 
 class UIManager;

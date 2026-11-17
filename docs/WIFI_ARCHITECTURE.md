@@ -8,10 +8,12 @@ the grinder's smaller feature set.
 
 ## User journey
 
-1. Try saved station credentials without blocking weight sampling, motor control,
-   touch, or rendering.
+1. Try saved station credentials for up to 30 seconds without blocking weight
+   sampling, motor control, touch, or rendering.
 2. If credentials are absent or cannot connect, start a secured setup access
-   point with a generated, persisted password.
+   point with a generated, persisted password. When the saved network was only
+   out of reach, try it again once a minute while nobody is connected to the
+   setup access point, and close the access point once it connects.
 3. Show the setup SSID, password and Wi-Fi QR code on the grinder display.
 4. Serve a captive setup page and support Improv Wi-Fi provisioning over USB
    serial as an alternative.
@@ -34,6 +36,10 @@ the grinder's smaller feature set.
   allowed to accumulate unbounded send queues and exhaust internal RAM.
 - Keep LVGL's object heap in PSRAM on hardware so the Wi-Fi/lwIP stack retains
   enough internal RAM to accept TCP connections under a fully constructed UI.
+- Keep the Wi-Fi library code in flash (`CONFIG_ESP_WIFI_IRAM_OPT` and
+  `CONFIG_ESP_WIFI_RX_IRAM_OPT` off), as the Arduino core did. On the ESP32-S3,
+  IRAM comes out of the same internal SRAM as the heap that OTA admission
+  measures.
 - Captive portal probes used by Android, Apple, Windows and Firefox need explicit
   responses so setup opens reliably on common phones and laptops.
 - OTA must be a controlled appliance state: require an explicit browser
@@ -42,17 +48,25 @@ the grinder's smaller feature set.
   inactive application partition, reboot, and verify the expected version
   after boot. Update authentication and signed images are deliberately deferred
   until the end-to-end update experience is complete.
+- Give one attempt on the saved network 30 seconds. A router at the edge of
+  range (-84 to -89 dBm on the bench) misses scans, times out handshakes and
+  can take more than 15 seconds to associate. Bluetooth advertising made no
+  measurable difference: boots alternating between the default advertising
+  interval, a 100-150 ms interval and Bluetooth off joined at the same rate.
+- When an attempt gives up, log the driver's last disconnect reason and signal
+  strength ("network not found", "association timed out, -86 dBm"), so a weak
+  signal can be told apart from a wrong password.
 - Wi-Fi and Bluetooth may coexist during normal use. Before a web OTA upload,
   the main application loop temporarily shuts down idle Bluetooth and waits for
   internal memory to recover; active BLE transfers are never interrupted. If
   preparation expires or the upload fails after Bluetooth was stopped, the
   device cleanly restarts into its existing valid firmware. This restores the
   configured Bluetooth state without leaking heap by rebuilding the retained
-  Arduino BLE server singleton in the same boot.
+  BLE server singleton in the same boot.
 - Do not pre-erase the complete OTA partition or suspend a task while it can hold
-  a flash lock. Both patterns can stall an upload or deadlock recovery; use the
-  platform Update API's sector-at-a-time path and keep the network/main loop
-  schedulable.
+  a flash lock. Both patterns can stall an upload or deadlock recovery; erase
+  sector by sector as the image arrives (`OTA_WITH_SEQUENTIAL_WRITES`) and keep
+  the network/main loop schedulable.
 - Hardware tasks are removed from task-watchdog monitoring before OTA suspends
   them and registered again before they resume. A deliberately suspended task
   must never cause a watchdog reboot midway through an otherwise healthy upload.
@@ -83,8 +97,9 @@ protocol library. Incoming data is consumed in small bounded batches from the
 normal application loop, partial frames expire after 100 ms, and malformed
 credential frames are rejected before the protocol parser sees them. Wi-Fi
 connection attempts are asynchronous and report `Provisioned` plus the local
-HTTP URL on success, or return to `Authorized` with `Unable to connect` after a
-bounded attempt. Credentials are never written to the serial log.
+HTTP URL on success, or return to `Authorized` with `Unable to connect` once the
+station attempt has ended (at most 35 seconds). Credentials are never written to
+the serial log.
 
 The supported RPCs are Wi-Fi settings, current state, device information and
 network state. Network scanning, hostname changes and device-name changes are
@@ -95,7 +110,9 @@ optional Improv extensions and currently return `Unknown RPC command`.
 The device serves `/ws` and publishes at most one state message every 100 ms.
 It accepts no more than four clients and disconnects a client whose outbound
 queue cannot keep up. Browser handshakes must have the same HTTP origin as the
-device page; native clients without an `Origin` header remain supported.
+device page; native clients without an `Origin` header remain supported. A
+socket that was not admitted at its handshake is closed on its first frame, so
+its commands never run.
 
 State messages have this shape:
 
@@ -177,7 +194,13 @@ original precision; completed graphs are replaced with the full recorded trace.
 - `GET`, `POST` and `DELETE /api/v1/screensaver/image`: read, transactionally
   replace or remove the fixed-size RGB565 custom image while idle.
 
-Settings and screensaver mutations enforce same-origin checks. Local API and
+Every route that changes device state (settings, profile, screensaver,
+firmware update preparation, release install and upload) is registered through
+`http::same_origin`, which answers a cross-origin request 403 before the
+handler runs; native clients without an `Origin` header remain supported. Form
+and multipart POSTs need no CORS preflight, so an unwrapped route could be
+submitted by a page on another site. Routes that refuse work while the device
+is busy share one `busy_reason()` and answer 409 with its text. Local API and
 motor commands are currently unauthenticated, so the grinder should be kept on
 a trusted home network. Web OTA is
 deliberately unauthenticated at this stage; browser confirmation plus the
@@ -190,7 +213,9 @@ WebSocket command queue and controller path described above.
 The optional GaggiMate screensaver is a separate outbound local-network
 client. It consumes GaggiMate's existing `/ws` status stream and uses
 `/api/status` as a temperature-only compatibility fallback. It never sends
-control commands to the espresso machine.
+control commands to the espresso machine. The WebSocket client delivers a
+status frame larger than its 1 KB receive buffer as several data events; the
+pieces are reassembled and parsed once, and a frame over 4 KB is dropped.
 
 `GET /api/v1/status` also exposes a stable 12-character device identifier,
 model and hardware revision. The same identifier is advertised as the `id` TXT

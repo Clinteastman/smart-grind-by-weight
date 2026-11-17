@@ -1,5 +1,4 @@
 #include "state_machine.h"
-#include <Arduino.h>
 
 void StateMachine::init(UIState initial_state) {
     current_state = initial_state;

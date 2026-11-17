@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from settings_persistence_test import method
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -10,26 +11,23 @@ ROOT = Path(__file__).resolve().parents[2]
 class SettingsCompatibilityTest(unittest.TestCase):
     def test_old_forms_preserve_panel_settings(self):
         source = (ROOT / "src/network/device_api.cpp").read_text()
-        handler = source.split("bool DeviceApi::queue_settings_update(", 1)[1]
+        handler = source.split("esp_err_t DeviceApi::queue_settings_update(", 1)[1]
         required = handler.split("static const char* required[] = {", 1)[1].split("};", 1)[0]
         self.assertNotIn('"display_off_enabled"', required)
         self.assertNotIn('"display_off_delay_s"', required)
         block = handler.split("    const long screensaver_idle_timeout_s =", 1)[1]
         block = "const long screensaver_idle_timeout_s =" + block.split(
-            "    const String screensaver_style", 1)[0]
+            "    const std::string screensaver_style", 1)[0]
         resolve = source.split("    DeviceSettingsUpdate settings = update;", 1)[1].split(
             "    Preferences* grinder =", 1)[0]
+        form_bool = method(source, "bool form_bool(")
         code = r'''
 #include <map>
 #include <string>
 #include <cstdint>
 #include <cassert>
-struct String {
- std::string value;
- long toInt() const {return std::stol(value);}
- bool operator==(const char* other) const{return value==other;}
-};
-bool form_bool(const String& v){return v=="1" || v=="true" || v=="on";}
+#include "system/string_utils.h"
+''' + form_bool + r'''
 struct Settings {
  uint16_t screensaver_idle_timeout_s=0;
  uint8_t screensaver_startup_timeout_s=0;
@@ -43,11 +41,12 @@ namespace ScreensaverSettings {
  ScreensaverTimingSettings load_timing(){return saved;}
 }
 struct Request {
- std::map<std::string,String> fields{{"screensaver_idle_timeout_s",{"300"}},
-                                 {"screensaver_startup_timeout_s",{"3"}}};
- bool hasParam(const char* name,bool) const{return fields.count(name);}
+ std::map<std::string,std::string> fields{{"screensaver_idle_timeout_s",{"300"}},
+                                          {"screensaver_startup_timeout_s",{"3"}}};
 };
 Settings parse(Request* request){
+ // Mirrors the form-field accessors queue_settings_update builds over the body.
+ auto has=[request](const char* name){return request->fields.count(name)>0;};
  auto value=[request](const char* name){return request->fields.at(name);};
  Settings settings;
 ''' + block + r'''
@@ -90,7 +89,7 @@ int main(){
             cpp = Path(folder) / "test.cpp"
             binary = Path(folder) / "test"
             cpp.write_text(code)
-            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra",
+            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-I", str(ROOT / "src"),
                             str(cpp), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=10)
 

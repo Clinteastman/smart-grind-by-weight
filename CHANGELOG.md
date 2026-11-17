@@ -4,6 +4,45 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [Unreleased]
+
+### Platform
+
+- Rebuilt the firmware as a native ESP-IDF application. The Arduino core is
+  gone: Bluetooth now runs on NimBLE, the web interface on the ESP-IDF HTTP
+  server, and Wi-Fi, mDNS, storage and OTA on their ESP-IDF equivalents. Stored
+  settings, grind history and the custom screensaver carry over unchanged, and
+  both the browser and Bluetooth update paths keep working as before. The
+  firmware image is about 10% smaller (270-300 KB less) and uses 9 KB less
+  static RAM.
+
+### Wi-Fi
+
+- Fixed open Wi-Fi networks, which have no password, failing to save. The setup
+  page and Improv provisioning both offered a blank password field, then
+  reported the attempt as a storage failure and kept the grinder offline.
+- A reconnection attempt that times out now leaves the connecting state before
+  dropping the link, so the Wi-Fi driver can no longer reconnect underneath the
+  30-second back-off or the switch to setup mode.
+
+### Web interface and updates
+
+- Firmware update preparation and upload now refuse cross-origin requests,
+  like every other route that changes device state. A page on another site can
+  no longer prepare and flash firmware through a hidden form.
+- Bluetooth delta updates check the rebuilt image before any of it reaches
+  flash, as browser uploads do: it must be Smart Grind firmware and not the
+  build the bootloader last rolled back from.
+- GaggiMate status frames longer than 1 KB are reassembled and shown instead of
+  being dropped, which left the machine marked offline.
+- An unsolicited WebSocket PONG from an integration no longer desynchronises the
+  connection, which could close an otherwise healthy telemetry client.
+
+### Display and screensaver
+
+- The startup screensaver image now also appears on V2 grinders, which
+  previously skipped it.
+
 ## [1.5.9] - 2026-09-06
 
 ### Firmware update hotfix

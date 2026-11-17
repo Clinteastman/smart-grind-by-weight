@@ -1,4 +1,6 @@
 #include "status_indicator_controller.h"
+#include <string>
+#include <cstdint>
 
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode.h"
@@ -95,9 +97,9 @@ void StatusIndicatorController::update_firmware_update_icon() {
 
 void StatusIndicatorController::prompt_firmware_update() {
     if (!ui_manager_ || !device_web_server.firmware_update_available()) return;
-    const String tag = device_web_server.latest_release_tag();
-    if (tag.isEmpty()) return;
-    const String message = "Install " + tag + " now?\n\nThe grinder will restart.\nDo not remove power.";
+    const std::string tag = device_web_server.latest_release_tag();
+    if (tag.empty()) return;
+    const std::string message = "Install " + tag + " now?\n\nThe grinder will restart.\nDo not remove power.";
     ui_manager_->show_confirmation(
         "UPDATE READY", message.c_str(), "INSTALL", lv_color_hex(THEME_COLOR_SUCCESS),
         [this]() {

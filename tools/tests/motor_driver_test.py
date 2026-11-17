@@ -34,6 +34,8 @@ unsigned long millis(){return 100;}
 int gpio_reset_pin(int){return 0;}
 int gpio_set_direction(int,int){return 0;}
 int gpio_set_level(int,int value){assert(value==0);++gpio_low_calls;return 0;}
+constexpr int ESP_LOG_NONE=0;
+void esp_log_level_set(const char*,int){}
 int rmt_new_tx_channel(const rmt_tx_channel_config_t*,void** c){*c=(void*)1;return 0;}
 int rmt_new_copy_encoder(const rmt_copy_encoder_config_t*,void** e){*e=(void*)2;return 0;}
 int rmt_enable(void*){return enable_error;}

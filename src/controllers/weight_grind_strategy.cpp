@@ -1,11 +1,12 @@
 #include "weight_grind_strategy.h"
+#include <algorithm>
+#include <cstdint>
 
 #include "grind_controller.h"
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"
 #include "../logging/grind_logging.h"
 #include "../config/constants.h"
-#include <Arduino.h>
 
 void WeightGrindStrategy::on_enter(const GrindSessionDescriptor&, GrindStrategyContext&, const GrindLoopData&) {
     // No additional setup required; controller handled initialization.
@@ -70,7 +71,7 @@ float WeightGrindStrategy::calculate_pulse_duration_ms(const GrindController& co
     float motor_latency_ms = controller.get_motor_response_latency();
 
     // Clamp productive duration to valid range (0 to max additional time)
-    float clamped_productive_ms = max(0.0f, min(productive_duration_ms, GRIND_MOTOR_MAX_PULSE_DURATION_MS));
+    float clamped_productive_ms = std::max(0.0f, std::min(productive_duration_ms, GRIND_MOTOR_MAX_PULSE_DURATION_MS));
 
     // Total pulse = latency (startup) + productive grinding time
     float final_duration = motor_latency_ms + clamped_productive_ms;

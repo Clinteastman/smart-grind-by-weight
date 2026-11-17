@@ -1,4 +1,5 @@
 #include "image_upload_handler.h"
+#include <cstdint>
 #include "ota_handler.h"
 #include "../config/constants.h"
 #include "../config/logging.h"
@@ -42,7 +43,7 @@ bool ImageUploadHandler::start_upload(uint32_t file_size) {
     cleanup_temp_file();
 
     // Open temp file for writing
-    temp_file_ = LittleFS.open(BLE_IMAGE_TEMP_FILENAME, "w");
+    temp_file_ = filesystem.open(BLE_IMAGE_TEMP_FILENAME, "w");
     if (!temp_file_) {
         LOG_BLE("Image Upload: Failed to open temp file for writing\n");
         current_status_ = BLE_IMG_STATUS_ERROR;
@@ -116,10 +117,10 @@ bool ImageUploadHandler::complete_upload() {
     // known-good image until the new file has been committed so an interrupted
     // or failed finalisation does not leave the grinder without a screensaver.
     constexpr const char* backup_filename = "/screensaver.rgb565.bak";
-    LittleFS.remove(backup_filename);
-    const bool had_existing_image = LittleFS.exists(BLE_IMAGE_FILENAME);
+    filesystem.remove(backup_filename);
+    const bool had_existing_image = filesystem.exists(BLE_IMAGE_FILENAME);
     if (had_existing_image &&
-        !LittleFS.rename(BLE_IMAGE_FILENAME, backup_filename)) {
+        !filesystem.rename(BLE_IMAGE_FILENAME, backup_filename)) {
         LOG_BLE("Image Upload: Failed to preserve existing image\n");
         cleanup_temp_file();
         upload_in_progress_ = false;
@@ -128,10 +129,10 @@ bool ImageUploadHandler::complete_upload() {
     }
 
     // Rename the fully received temp file to the final filename.
-    if (!LittleFS.rename(BLE_IMAGE_TEMP_FILENAME, BLE_IMAGE_FILENAME)) {
+    if (!filesystem.rename(BLE_IMAGE_TEMP_FILENAME, BLE_IMAGE_FILENAME)) {
         LOG_BLE("Image Upload: Failed to rename temp file\n");
         if (had_existing_image) {
-            LittleFS.rename(backup_filename, BLE_IMAGE_FILENAME);
+            filesystem.rename(backup_filename, BLE_IMAGE_FILENAME);
         }
         cleanup_temp_file();
         upload_in_progress_ = false;
@@ -142,7 +143,7 @@ bool ImageUploadHandler::complete_upload() {
     upload_in_progress_ = false;
 
     // Verify file exists after rename
-    File committed_file = LittleFS.open(BLE_IMAGE_FILENAME, "r");
+    FsFile committed_file = filesystem.open(BLE_IMAGE_FILENAME, "r");
     const bool committed_ok = committed_file &&
                               committed_file.size() == BLE_IMAGE_EXPECTED_SIZE;
     if (committed_file) {
@@ -150,15 +151,15 @@ bool ImageUploadHandler::complete_upload() {
     }
     if (!committed_ok) {
         LOG_BLE("Image Upload: File missing after rename\n");
-        LittleFS.remove(BLE_IMAGE_FILENAME);
+        filesystem.remove(BLE_IMAGE_FILENAME);
         if (had_existing_image) {
-            LittleFS.rename(backup_filename, BLE_IMAGE_FILENAME);
+            filesystem.rename(backup_filename, BLE_IMAGE_FILENAME);
         }
         current_status_ = BLE_IMG_STATUS_ERROR;
         return false;
     }
 
-    LittleFS.remove(backup_filename);
+    filesystem.remove(backup_filename);
 
     current_status_ = BLE_IMG_STATUS_SUCCESS;
     LOG_BLE("Image Upload: Complete (%lu bytes)\n", (unsigned long)received_size_);
@@ -184,8 +185,8 @@ bool ImageUploadHandler::delete_image() {
         abort_upload();
     }
 
-    if (LittleFS.exists(BLE_IMAGE_FILENAME)) {
-        if (LittleFS.remove(BLE_IMAGE_FILENAME)) {
+    if (filesystem.exists(BLE_IMAGE_FILENAME)) {
+        if (filesystem.remove(BLE_IMAGE_FILENAME)) {
             LOG_BLE("Image Upload: Screensaver image deleted\n");
             current_status_ = BLE_IMG_STATUS_IDLE;
             return true;
@@ -202,7 +203,7 @@ bool ImageUploadHandler::delete_image() {
 }
 
 bool ImageUploadHandler::has_image() const {
-    File image = LittleFS.open(BLE_IMAGE_FILENAME, "r");
+    FsFile image = filesystem.open(BLE_IMAGE_FILENAME, "r");
     const bool valid = image && image.size() == BLE_IMAGE_EXPECTED_SIZE;
     if (image) {
         image.close();
@@ -216,7 +217,7 @@ float ImageUploadHandler::get_progress() const {
 }
 
 void ImageUploadHandler::cleanup_temp_file() {
-    if (LittleFS.exists(BLE_IMAGE_TEMP_FILENAME)) {
-        LittleFS.remove(BLE_IMAGE_TEMP_FILENAME);
+    if (filesystem.exists(BLE_IMAGE_TEMP_FILENAME)) {
+        filesystem.remove(BLE_IMAGE_TEMP_FILENAME);
     }
 }

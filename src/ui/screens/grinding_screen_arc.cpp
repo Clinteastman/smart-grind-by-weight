@@ -1,6 +1,6 @@
 #include "grinding_screen_arc.h"
+#include <cstdint>
 #include <cstdio>
-#include <Arduino.h>
 #include "../../config/constants.h"
 #include <cstring>
 
