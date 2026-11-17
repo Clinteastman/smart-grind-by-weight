@@ -4,7 +4,9 @@
 
 void OTAScreen::create() {
     screen = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
+    // Full height: the grind button is hidden during updates, and centring in
+    // the whole display keeps the title clear of the status icons.
+    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(screen, 0, 0);
@@ -85,7 +87,7 @@ void OTAScreen::update_title(const char* title) {
 
 void OTAScreen::show_ota_mode() {
     // Ensure screen size is properly set
-    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
+    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     
     update_title("Updating");
@@ -96,7 +98,7 @@ void OTAScreen::show_ota_mode() {
 
 void OTAScreen::show_data_export_mode() {
     // Ensure screen size matches OTA mode exactly
-    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
+    lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     
     update_title("Exporting Data");
