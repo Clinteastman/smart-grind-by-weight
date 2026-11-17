@@ -19,6 +19,10 @@ private:
     // Touch activity tracking
     uint32_t last_touch_time = 0;
 
+    // Bus recovery after repeated timeouts (e.g. SDA held low after noise)
+    uint32_t consecutive_timeouts = 0;
+    uint32_t last_bus_reset_ms = 0;
+
 public:
     void init();
     void update();

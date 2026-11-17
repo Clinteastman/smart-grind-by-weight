@@ -7,6 +7,10 @@ namespace {
 constexpr uint32_t kTouchI2CFrequencyHz = 300000;
 constexpr int kTouchI2CTimeoutMs = 5;
 constexpr char kTag[] = "TouchDriver";
+// A stuck bus times out on every poll. Reset it after this many consecutive
+// timeouts, at most once per interval.
+constexpr uint32_t kTouchTimeoutsBeforeBusReset = 50;
+constexpr uint32_t kTouchBusResetIntervalMs = 2000;
 
 void suppress_touch_i2c_logs() {
 #if DEBUG_SUPPRESS_TOUCH_I2C_ERRORS
@@ -93,10 +97,22 @@ void TouchDriver::update() {
         if (err != ESP_ERR_INVALID_STATE && err != ESP_ERR_TIMEOUT) {
             ESP_LOGW(kTag, "Touch poll failed: %s", esp_err_to_name(err));
         }
+        if (err == ESP_ERR_TIMEOUT) {
+            consecutive_timeouts++;
+            const uint32_t now_ms = millis();
+            if (consecutive_timeouts >= kTouchTimeoutsBeforeBusReset &&
+                now_ms - last_bus_reset_ms >= kTouchBusResetIntervalMs) {
+                last_bus_reset_ms = now_ms;
+                consecutive_timeouts = 0;
+                esp_err_t reset_err = i2c_master_bus_reset(bus_handle);
+                ESP_LOGW(kTag, "Touch bus stuck, reset: %s", esp_err_to_name(reset_err));
+            }
+        }
         last_touch.pressed = false;
         return;
     }
-    
+    consecutive_timeouts = 0;
+
     uint8_t touches = buf[0] & 0x0F;
     if (touches > 0) {
         last_touch.x = ((buf[1] & 0x0F) << 8) | buf[2];

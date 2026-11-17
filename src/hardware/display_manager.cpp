@@ -38,7 +38,52 @@ static const sh8601_lcd_init_cmd_t kV2InitCommands[] = {
     {0x51, kBrightnessFull, sizeof(kBrightnessFull), 0},
 };
 }
+#else
+namespace {
+// Exposes the CO5300 register setup so a panel that lost its state to a
+// supply dip or motor switching noise can be reconfigured without a hardware
+// reset (which would blank a healthy panel) or a bus re-initialisation.
+class RecoverableCO5300 : public Arduino_CO5300 {
+public:
+    using Arduino_CO5300::Arduino_CO5300;
+
+    void send_sleep_out() {
+        _bus->beginWrite();
+        _bus->writeCommand(CO5300_C_SLPOUT);
+        _bus->endWrite();
+    }
+
+    // Mirrors co5300_init_operations after SLPOUT, using the current
+    // brightness instead of the library default.
+    void send_config(uint8_t brightness) {
+        _bus->beginWrite();
+        _bus->writeC8D8(0xFE, 0x00);
+        _bus->writeC8D8(CO5300_W_SPIMODECTL, 0x80);
+        _bus->writeC8D8(CO5300_W_PIXFMT, 0x55);
+        _bus->writeC8D8(CO5300_W_WCTRLD1, 0x20);
+        _bus->writeC8D8(CO5300_W_WDBRIGHTNESSVALHBM, 0xFF);
+        _bus->writeCommand(CO5300_C_DISPON);
+        _bus->writeC8D8(CO5300_W_WDBRIGHTNESSVALNOR, brightness);
+        _bus->writeC8D8(CO5300_W_WCE, 0x00);
+        _bus->endWrite();
+        invertDisplay(false);
+        setRotation(_rotation);
+        // Force the next flush to resend the address window.
+        _currentX = -1;
+        _currentY = -1;
+        _currentW = 0;
+        _currentH = 0;
+    }
+};
+}
 #endif
+
+namespace {
+// The panel is never told it was reset, so its setup is resent blindly. On a
+// healthy panel these commands change nothing, so there is no visible flicker.
+constexpr uint32_t kPanelRefreshIntervalMs = 5000;
+constexpr uint32_t kPanelSleepOutSettleMs = 120;
+}
 
 void DisplayManager::init() {
     g_display_manager = this;
@@ -89,7 +134,7 @@ void DisplayManager::init() {
         HW_DISPLAY_CS_PIN, HW_DISPLAY_SCK_PIN, HW_DISPLAY_D0_PIN, 
         HW_DISPLAY_D1_PIN, HW_DISPLAY_D2_PIN, HW_DISPLAY_D3_PIN);
     
-    gfx_device = new Arduino_CO5300(
+    gfx_device = new RecoverableCO5300(
         bus, HW_DISPLAY_RESET_PIN, HW_DISPLAY_ROTATION_DEG, HW_DISPLAY_WIDTH_PX, HW_DISPLAY_HEIGHT_PX,
         HW_DISPLAY_COLOR_ORDER, HW_DISPLAY_OFFSET_X_PX, HW_DISPLAY_IPS_INVERT_X, HW_DISPLAY_IPS_INVERT_Y);
 
@@ -181,7 +226,8 @@ void DisplayManager::init() {
     lvgl_input = lv_indev_create();
     lv_indev_set_type(lvgl_input, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(lvgl_input, touchpad_read_cb);
-    
+
+    last_panel_refresh_ms = millis();
     initialized = true;
 }
 
@@ -190,6 +236,7 @@ void DisplayManager::update() {
 
     const uint32_t started_us = micros();
     touch_driver.update();
+    service_panel_refresh(millis());
     lv_timer_handler();
 
     const uint32_t now_ms = millis();
@@ -434,7 +481,7 @@ void DisplayManager::set_brightness(float brightness) {
     if (brightness < 0.0f) brightness = 0.0f;
     if (brightness > 1.0f) brightness = 1.0f;
     
-    uint8_t brightness_value = (uint8_t)(brightness * 255.0f);
+    brightness_value = (uint8_t)(brightness * 255.0f);
 #if HW_DISPLAY_VARIANT_V2
     uint32_t brightness_command = (0x02UL << 24) | (0x51UL << 8);
     esp_lcd_panel_io_tx_param(panel_io, brightness_command,
@@ -472,6 +519,75 @@ void DisplayManager::set_panel_power(bool powered_on) {
         lv_obj_invalidate(lv_screen_active());
     }
     LOG_BLE("[DISPLAY] Panel %s\n", powered_on ? "on" : "off");
+}
+
+// Motor switching can reset the panel controller while the ESP32 keeps
+// running, leaving the screen black until a power cycle. Periodically resend
+// the panel setup and redraw so a reset panel recovers within a few seconds.
+// The sleep-out settle time is split across update() calls so the UI task
+// never blocks.
+void DisplayManager::service_panel_refresh(uint32_t now_ms) {
+    if (!panel_powered_on) {
+        panel_refresh_waking = false;
+        return;
+    }
+
+    if (!panel_refresh_waking) {
+        if (now_ms - last_panel_refresh_ms < kPanelRefreshIntervalMs) return;
+        send_panel_sleep_out();
+        panel_refresh_waking = true;
+        panel_refresh_started_ms = now_ms;
+        return;
+    }
+
+    if (now_ms - panel_refresh_started_ms < kPanelSleepOutSettleMs) return;
+    send_panel_config();
+    if (lvgl_display) {
+        lv_obj_invalidate(lv_screen_active());
+    }
+    panel_refresh_waking = false;
+    last_panel_refresh_ms = now_ms;
+}
+
+#if HW_DISPLAY_VARIANT_V2
+namespace {
+void tx_panel_command(esp_lcd_panel_io_handle_t io, uint8_t command,
+                      const uint8_t* data, size_t size) {
+    esp_lcd_panel_io_tx_param(io, (0x02UL << 24) | (static_cast<uint32_t>(command) << 8),
+                              data, size);
+}
+}
+#endif
+
+void DisplayManager::send_panel_sleep_out() {
+#if HW_DISPLAY_VARIANT_V2
+    if (!panel_io) return;
+    tx_panel_command(panel_io, 0x11, nullptr, 0);
+#else
+    if (!gfx_device) return;
+    static_cast<RecoverableCO5300*>(gfx_device)->send_sleep_out();
+#endif
+}
+
+void DisplayManager::send_panel_config() {
+#if HW_DISPLAY_VARIANT_V2
+    if (!panel_io) return;
+    // Matches esp_lcd_panel_init() for this panel: MADCTL 0 (RGB, no mirror),
+    // COLMOD 16bpp, then kV2InitCommands without the brightness-off step.
+    static const uint8_t kMadctl[] = {0x00};
+    static const uint8_t kColmod[] = {0x55};
+    tx_panel_command(panel_io, 0x36, kMadctl, sizeof(kMadctl));
+    tx_panel_command(panel_io, 0x3A, kColmod, sizeof(kColmod));
+    tx_panel_command(panel_io, 0xC4, kCmdC4, sizeof(kCmdC4));
+    tx_panel_command(panel_io, 0x35, kCmd35, sizeof(kCmd35));
+    tx_panel_command(panel_io, 0x53, kCmd53, sizeof(kCmd53));
+    tx_panel_command(panel_io, 0x63, kCmd63, sizeof(kCmd63));
+    tx_panel_command(panel_io, 0x29, nullptr, 0);
+    tx_panel_command(panel_io, 0x51, &brightness_value, sizeof(brightness_value));
+#else
+    if (!gfx_device) return;
+    static_cast<RecoverableCO5300*>(gfx_device)->send_config(brightness_value);
+#endif
 }
 
 bool DisplayManager::filter_touch_for_panel_wake(const TouchData& touch) {

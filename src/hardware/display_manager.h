@@ -50,6 +50,10 @@ private:
     bool panel_powered_on;
     bool consume_wake_touch_until_release;
     uint32_t wake_touch_guard_started_ms;
+    uint8_t brightness_value = 0xFF;
+    bool panel_refresh_waking = false;
+    uint32_t panel_refresh_started_ms = 0;
+    uint32_t last_panel_refresh_ms = 0;
 
     portMUX_TYPE metrics_mux = portMUX_INITIALIZER_UNLOCKED;
     DisplayPerformanceSnapshot metrics_window;
@@ -82,6 +86,9 @@ private:
     static void display_metrics_cb(lv_event_t* e);
     static void touchpad_read_cb(lv_indev_t* indev, lv_indev_data_t* data);
     bool filter_touch_for_panel_wake(const TouchData& touch);
+    void service_panel_refresh(uint32_t now_ms);
+    void send_panel_sleep_out();
+    void send_panel_config();
     static uint32_t millis_cb();
 };
 
