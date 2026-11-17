@@ -9,6 +9,9 @@ void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_f
     lv_obj_set_style_text_color(object, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_font(object, font, 0);
     lv_obj_set_style_border_width(object, 0, 0);
+    // The light default theme gives buttons a drop shadow, which is barely
+    // visible on black but is recalculated on every frame that redraws them.
+    lv_obj_set_style_shadow_width(object, 0, 0);
     lv_obj_set_style_pad_hor(object, 20, 0);
     if (width >= 0){
         lv_obj_set_style_width(object, width, 0);
