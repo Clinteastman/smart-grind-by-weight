@@ -26,8 +26,21 @@ target_compile_definitions(lvgl PUBLIC
 )
 target_include_directories(lvgl PUBLIC "${PROJECT_ROOT}/include")
 
+# Windows uses LVGL's native Win32 driver. macOS and Linux use LVGL's SDL2
+# driver, whose sources inside the LVGL library include SDL directly.
+if(WIN32)
+    set(SIM_PLATFORM_SOURCE platform/sim_platform_windows.cpp)
+    set(SIM_PLATFORM_LIBRARIES user32 gdi32 shell32)
+else()
+    find_package(SDL2 REQUIRED)
+    target_link_libraries(lvgl PUBLIC SDL2::SDL2)
+    set(SIM_PLATFORM_SOURCE platform/sim_platform_sdl.cpp)
+    set(SIM_PLATFORM_LIBRARIES SDL2::SDL2)
+endif()
+
 add_executable(smart-grind-sim
     main.cpp
+    ${SIM_PLATFORM_SOURCE}
     grind_mode_format.cpp
     "${PROJECT_ROOT}/src/ui/ui_helpers.cpp"
     "${PROJECT_ROOT}/src/ui/screens/ready_screen.cpp"
@@ -54,7 +67,7 @@ target_include_directories(smart-grind-sim PRIVATE
     "${PROJECT_ROOT}/include"
     "${lvgl_SOURCE_DIR}/src"
 )
-target_link_libraries(smart-grind-sim PRIVATE lvgl user32 gdi32 shell32)
+target_link_libraries(smart-grind-sim PRIVATE lvgl ${SIM_PLATFORM_LIBRARIES})
 
 add_executable(display-idle-policy-test
     display_idle_policy_test.cpp
