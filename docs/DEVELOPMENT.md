@@ -92,7 +92,7 @@ The project has four build targets:
 - **Use case:** Real V1 hardware with load cell and grinder connected
 - **Hardware:** Full ESP32-S3 + HX711 + load cell + grinder motor relay
 - **Features:** All functionality enabled
-- **Optimizations:** `-Ofast` optimization level for performance
+- **Optimizations:** `-O2` (not `-Ofast`: fast-math would compile out the NaN/Inf validation checks)
 
 ### V2 Production Target: `waveshare-esp32s3-touch-amoled-164-v2`
 - **Use case:** Waveshare 1.64-inch V2 hardware with load cell and grinder connected
