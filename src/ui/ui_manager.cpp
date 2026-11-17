@@ -227,6 +227,7 @@ void UIManager::update() {
 
 void UIManager::switch_to_state(UIState new_state) {
     state_machine->transition_to(new_state);
+    auto_start_tracker_.reset();
 
     // Hide all screens before showing the requested one
     ready_screen.hide();
@@ -426,22 +427,29 @@ bool UIManager::refresh_auto_action_settings(bool verify_storage) {
     uint32_t now = millis();
     auto_actions_.last_auto_start_ms = now;
     auto_actions_.last_auto_return_ms = now;
+    auto_start_tracker_.reset();
     return true;
 }
 
 void UIManager::update_auto_actions() {
     if ((!auto_actions_.auto_start_enabled && !auto_actions_.auto_return_enabled) ||
         !hardware_manager || !state_machine) {
+        auto_start_tracker_.reset();
         return;
     }
 
+    // A tare changes what the readings mean, so the cup baseline is rebuilt
+    // afterwards from the first at-rest weight.
     auto* sensor = hardware_manager->get_weight_sensor();
-    if (!sensor || !sensor->data_ready() || sensor->is_tare_in_progress()) {
+    if (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample() ||
+        sensor->is_tare_in_progress()) {
+        auto_start_tracker_.reset();
         return;
     }
 
     const UIState current_state = state_machine->get_current_state();
     if (current_state == UIState::GRINDING || current_state == UIState::CALIBRATION) {
+        auto_start_tracker_.reset();
         return;
     }
 
@@ -451,44 +459,9 @@ void UIManager::update_auto_actions() {
                               ReadyScreen::is_profile_tab(current_tab);
 
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_) {
-        auto* filter = sensor->get_raw_filter();
-
-        // Extended window = settling period + trigger window
-        constexpr uint32_t kExtendedWindow = USER_AUTO_GRIND_TRIGGER_SETTLING_MS + USER_AUTO_GRIND_TRIGGER_WINDOW_MS;
-
-        if (filter && filter->get_buffer_time_span_ms() >= kExtendedWindow) {
-            constexpr int kBaseSampleRequirement =
-                (HW_LOADCELL_SAMPLE_RATE_SPS * kExtendedWindow) / 1000;
-            constexpr int kMinSamplesForWindow = (kBaseSampleRequirement > 2) ? kBaseSampleRequirement : 2;
-
-            if (sensor->get_sample_count() >= kMinSamplesForWindow) {
-                // Check settled state first (cheap) to short-circuit expensive delta calculation
-                if (sensor->is_settled()) {
-                    float delta_g = 0.0f;
-                    int samples_used = 0;
-                    uint32_t span_ms = 0;
-
-                    // Weight is settled - now check delta over extended window
-                    if (sensor->get_weight_delta(kExtendedWindow, &delta_g, &samples_used, &span_ms) &&
-                        samples_used >= kMinSamplesForWindow &&
-                        span_ms <= kExtendedWindow &&
-                        delta_g >= auto_actions_.auto_start_threshold_g) {
-
-                        const bool rearm_ready =
-                            (now - auto_actions_.last_auto_start_ms) >= USER_AUTO_GRIND_REARM_DELAY_MS;
-
-                        if (rearm_ready) {
-                            LOG_BLE("[AUTO ACTION] Trigger confirmed: %.1fg over %lums (threshold %.1fg) with settled weight - auto-starting grind\n",
-                                    static_cast<double>(delta_g),
-                                    static_cast<unsigned long>(span_ms),
-                                    static_cast<double>(auto_actions_.auto_start_threshold_g));
-                            auto_actions_.last_auto_start_ms = now;
-                            grinding_controller_->handle_grind_button();
-                        }
-                    }
-                }
-            }
-        }
+        update_auto_start(sensor, now);
+    } else {
+        auto_start_tracker_.reset();
     }
 
     if (!auto_actions_.auto_return_enabled) {
@@ -515,4 +488,36 @@ void UIManager::update_auto_actions() {
             }
         }
     }
+}
+
+// The cup detector works on an averaged reading and only needs the scale to
+// rest within a gram, so sensor noise or a knock merely delays the start. The
+// grind controller still waits for the precise tare before the motor runs.
+void UIManager::update_auto_start(WeightSensor* sensor, uint32_t now) {
+    const float weight_g = sensor->get_weight_smoothed(USER_AUTO_GRIND_AVERAGE_WINDOW_MS);
+    const bool armed = (now - auto_actions_.last_auto_start_ms) >= USER_AUTO_GRIND_REARM_DELAY_MS;
+    const AutoStartSettings settings{auto_actions_.auto_start_threshold_g,
+                                     USER_AUTO_GRIND_REST_TOLERANCE_G,
+                                     USER_AUTO_GRIND_REST_HOLD_MS};
+
+    const bool had_baseline = auto_start_tracker_.has_baseline();
+    const float baseline_g = auto_start_tracker_.baseline_g();
+    const bool start = auto_start_tracker_.observe(weight_g, now, armed, settings);
+
+    if (!had_baseline && auto_start_tracker_.has_baseline()) {
+        LOG_BLE("[AUTO ACTION] Cup detector ready: scale at rest at %.1fg (threshold %.1fg)\n",
+                static_cast<double>(auto_start_tracker_.baseline_g()),
+                static_cast<double>(auto_actions_.auto_start_threshold_g));
+    }
+    if (!start) {
+        return;
+    }
+
+    LOG_BLE("[AUTO ACTION] Cup detected: %.1fg at rest, %.1fg over the %.1fg baseline (threshold %.1fg) - auto-starting grind\n",
+            static_cast<double>(weight_g),
+            static_cast<double>(weight_g - baseline_g),
+            static_cast<double>(baseline_g),
+            static_cast<double>(auto_actions_.auto_start_threshold_g));
+    auto_actions_.last_auto_start_ms = now;
+    grinding_controller_->handle_grind_button();
 }

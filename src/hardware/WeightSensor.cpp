@@ -450,6 +450,11 @@ float WeightSensor::get_weight_high_latency() const {
     return raw_to_weight(raw_filter.get_raw_high_latency());
 }
 
+float WeightSensor::get_weight_smoothed(uint32_t window_ms) const {
+    if (raw_filter.get_sample_count() == 0) return 0.0f;
+    return raw_to_weight(raw_filter.get_smoothed_raw(window_ms));
+}
+
 bool WeightSensor::get_weight_delta(uint32_t window_ms, float* delta_out,
                                     int* sample_count_out, uint32_t* span_ms_out) const {
     if (!delta_out) {

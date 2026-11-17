@@ -4,6 +4,24 @@ This file records the user-visible changes in the community-maintained release
 line. Earlier release history remains available in the original project's
 [GitHub releases](https://github.com/jaapp/smart-grind-by-weight/releases).
 
+## [Unreleased]
+
+### Start on Cup
+
+- A cup or portafilter that takes a while to position now still starts the
+  grind. The grinder remembers the weight the scale last rested at and starts
+  as soon as the cup has come to rest at least the cup threshold heavier,
+  instead of only when the whole placement finished within six seconds. A
+  heavy portafilter with a threshold close to its own weight no longer has to
+  be lifted off and set down again.
+- The cup check works on an averaged reading and accepts the scale as at rest
+  within a gram, so sensor noise or a knock only delays the start. The grind
+  itself still waits for the precise tare before the motor runs.
+- The check runs on every screen update instead of only when a new load-cell
+  conversion happened to be pending.
+- The cup is watched only while the Ready screen shows a profile. A cup placed
+  while in the menu counts as already there; lift it off and set it down again.
+
 ## [1.5.9] - 2026-09-06
 
 ### Firmware update hotfix
